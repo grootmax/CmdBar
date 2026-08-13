@@ -1,0 +1,10 @@
+{
+  "name": "cmdbar",
+  "version": "1.0.0",
+  "description": "Quick commands in your GNOME top bar.",
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-vm-modules $(which jest)",
+    "test:simple": "node run-tests.js"
+  }
+}

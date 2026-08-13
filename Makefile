@@ -1,17 +1,27 @@
-UUID = cmdbar@jules.com
-DEST = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
+# Makefile for CmdBar GNOME Extension
 
-.PHONY: install uninstall clean test
+UUID = cmdbar@yourdomain.com
+EXTENSION_DIR = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
+
+.PHONY: install uninstall test help
+
+help:
+	@echo "Available commands:"
+	@echo "  make install     - Install the extension locally"
+	@echo "  make uninstall   - Uninstall the local extension"
+	@echo "  make test        - Run the test suite"
 
 install:
-	mkdir -p $(DEST)
-	cp -r extension/* $(DEST)
+	@echo "Installing CmdBar extension..."
+	mkdir -p $(EXTENSION_DIR)
+	cp -r extension/* $(EXTENSION_DIR)/
+	@echo "Extension installed successfully to $(EXTENSION_DIR)"
+	@echo "Please restart GNOME Shell (Alt+F2 'r' or log out and back in) and enable the extension."
 
 uninstall:
-	rm -rf $(DEST)
-
-clean:
-	@echo "Cleaned"
+	@echo "Uninstalling CmdBar extension..."
+	rm -rf $(EXTENSION_DIR)
+	@echo "Extension uninstalled successfully."
 
 test:
-	node --test test/test_placeholder_logic.js
+	npm run test
