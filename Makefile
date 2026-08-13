@@ -1,20 +1,27 @@
-.PHONY: install test run-companion-cli run-companion-gui
+# Makefile for CmdBar GNOME Extension
+
+UUID = cmdbar@yourdomain.com
+EXTENSION_DIR = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
+
+.PHONY: install uninstall test help
+
+help:
+	@echo "Available commands:"
+	@echo "  make install     - Install the extension locally"
+	@echo "  make uninstall   - Uninstall the local extension"
+	@echo "  make test        - Run the test suite"
 
 install:
-	@echo "Installing CmdBar GNOME Extension..."
-	mkdir -p ~/.local/share/gnome-shell/extensions/cmdbar@yourdomain.com
-	cp -r extension/* ~/.local/share/gnome-shell/extensions/cmdbar@yourdomain.com/
-	mkdir -p ~/.config/cmdbar
-	@if [ ! -f ~/.config/cmdbar/config.json ]; then \
-		echo '{"categories": [{"name": "Projects", "commands": [{"name": "Git Checkout", "template": "git checkout {branch}", "parameters": {"branch": {"regex": "^[a-zA-Z0-9_\\\\-/\\\\.]+", "placeholder": "Enter branch name"}}}, {"name": "Docker Logs", "template": "docker logs {container_id}", "parameters": {"container_id": {"placeholder": "Enter container ID"}}}]}]}' > ~/.config/cmdbar/config.json; \
-	fi
-	@echo "Extension successfully installed. Please restart GNOME Shell (Alt+F2 -> r) and enable the extension."
+	@echo "Installing CmdBar extension..."
+	mkdir -p $(EXTENSION_DIR)
+	cp -r extension/* $(EXTENSION_DIR)/
+	@echo "Extension installed successfully to $(EXTENSION_DIR)"
+	@echo "Please restart GNOME Shell (Alt+F2 'r' or log out and back in) and enable the extension."
+
+uninstall:
+	@echo "Uninstalling CmdBar extension..."
+	rm -rf $(EXTENSION_DIR)
+	@echo "Extension uninstalled successfully."
 
 test:
-	PYTHONPATH=/app pytest /app/tests/
-
-run-companion-cli:
-	/app/companion/companion_app.py --cli
-
-run-companion-gui:
-	/app/companion/companion_app.py
+	npm run test
