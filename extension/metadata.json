@@ -1,12 +1,11 @@
 {
-  "uuid": "cmdbar@jules.com",
+  "uuid": "cmdbar@yourdomain.com",
   "name": "CmdBar",
-  "description": "Quick commands in your GNOME top bar.",
+  "description": "Quick commands in your GNOME top bar with inline parameter inputs.",
   "shell-version": [
     "45",
     "46",
     "47"
   ],
-  "url": "https://github.com/jules/cmdbar",
-  "version": 1
+  "url": "https://github.com/grootmax/CmdBar"
 }
