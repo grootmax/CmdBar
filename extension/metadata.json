@@ -1,0 +1,7 @@
+{
+  "uuid": "cmdbar@yourdomain.com",
+  "name": "CmdBar",
+  "description": "Run parameterized commands from GNOME top bar",
+  "shell-version": ["46", "47"],
+  "url": ""
+}

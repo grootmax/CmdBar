@@ -1,0 +1,62 @@
+.cmdbar-dialog {
+    width: 420px;
+    padding: 16px;
+    border-radius: 12px;
+}
+
+.cmdbar-title {
+    font-size: 1.3em;
+    font-weight: bold;
+    margin-bottom: 12px;
+    color: #ffffff;
+}
+
+.cmdbar-label {
+    font-weight: bold;
+    margin-top: 12px;
+    color: #e0e0e0;
+}
+
+.cmdbar-entry {
+    width: 380px;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #555555;
+    background-color: #242424;
+    color: #ffffff;
+    font-size: 1.1em;
+}
+
+.cmdbar-entry:focus {
+    border: 1px solid #3584e4;
+}
+
+.cmdbar-entry-error {
+    border: 2px solid #e01b24 !important;
+    background-color: #3d1b1b !important;
+}
+
+.cmdbar-error-message {
+    color: #ff5b5b;
+    font-size: 0.9em;
+    font-weight: bold;
+    margin-top: 4px;
+}
+
+.cmdbar-preview {
+    font-family: monospace;
+    font-size: 0.9em;
+    background-color: #181818;
+    padding: 8px;
+    border-radius: 6px;
+    margin-top: 14px;
+    color: #8ff0a4;
+}
+
+.cmdbar-preview-header {
+    font-size: 0.8em;
+    color: #aaaaaa;
+    margin-top: 10px;
+    margin-bottom: 2px;
+    font-weight: bold;
+}
