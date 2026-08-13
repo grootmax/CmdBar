@@ -6,6 +6,58 @@ import { St, Clutter, Gio, GLib, GObject } from 'gi';
 
 import { validateInput, substituteCommand, hasPlaceholder } from './commandProcessor.js';
 
+/**
+ * Run a command asynchronously and notify the user when done.
+ * @param {string} commandName
+ * @param {string} commandString
+ */
+function runCommandAsync(commandName, commandString) {
+    try {
+        let proc = Gio.Subprocess.new(
+            ['/bin/sh', '-c', commandString],
+            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+        );
+
+        proc.communicate_utf8_async(null, null, (subprocess, result) => {
+            try {
+                let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                
+                let success = subprocess.get_successful();
+                let exitStatus = 'unknown';
+                if (subprocess.get_if_exited()) {
+                    exitStatus = String(subprocess.get_exit_status());
+                } else if (subprocess.get_if_signaled()) {
+                    exitStatus = `Killed by signal ${subprocess.get_term_sig()}`;
+                }
+
+                if (success) {
+                    let title = `Command Succeeded: ${commandName}`;
+                    let body = `Exit status: ${exitStatus}`;
+                    if (stdout && stdout.trim()) {
+                        body += `\n\nOutput:\n${stdout.trim()}`;
+                    }
+                    Main.notify(title, body);
+                } else {
+                    let title = `Command Failed: ${commandName}`;
+                    let body = `Exit status: ${exitStatus}`;
+                    if (stderr && stderr.trim()) {
+                        body += `\n\nError:\n${stderr.trim()}`;
+                    } else if (stdout && stdout.trim()) {
+                        body += `\n\nOutput:\n${stdout.trim()}`;
+                    }
+                    Main.notify(title, body);
+                }
+            } catch (err) {
+                console.error(`CmdBar: error finishing command: ${err.message}`);
+                Main.notify(`Command Error: ${commandName}`, `Failed to execute: ${err.message}`);
+            }
+        });
+    } catch (e) {
+        console.error(`CmdBar: failed to spawn command: ${e.message}`);
+        Main.notify(`Command Launch Failed: ${commandName}`, `Could not start command: ${e.message}`);
+    }
+}
+
 // Custom menu item with an inline text entry for commands that have placeholders
 const CommandInputMenuItem = GObject.registerClass(
 class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
@@ -15,6 +67,7 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
             activate: false // prevent automatic closing on item click
         });
 
+        this._commandName = commandName;
         this._commandTemplate = commandTemplate;
         this._placeholderText = placeholderText || "Enter parameter...";
 
@@ -70,12 +123,8 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
         // Perform template substitution
         let substituted = substituteCommand(this._commandTemplate, text.trim());
 
-        // Spawn command line asynchronously via GLib (No Gtk window or screensaver blocks)
-        try {
-            GLib.spawn_command_line_async(substituted);
-        } catch (e) {
-            console.error(`CmdBar: failed to run command: ${e.message}`);
-        }
+        // Run command line asynchronously via Gio Subprocess and notify on completion
+        runCommandAsync(this._commandName, substituted);
 
         // Close the system menu
         let parent = this;
@@ -106,6 +155,7 @@ class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
             activate: true
         });
 
+        this._commandName = commandName;
         this._commandTemplate = commandTemplate;
 
         this.box = new St.BoxLayout({
@@ -123,11 +173,7 @@ class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
         this.add_child(this.box);
 
         this._activateId = this.connect('activate', () => {
-            try {
-                GLib.spawn_command_line_async(this._commandTemplate);
-            } catch (e) {
-                console.error(`CmdBar: failed to run command: ${e.message}`);
-            }
+            runCommandAsync(this._commandName, this._commandTemplate);
         });
     }
 
