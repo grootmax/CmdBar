@@ -6,6 +6,52 @@ import { St, Clutter, Gio, GLib, GObject } from 'gi';
 
 import { validateInput, substituteCommand, hasPlaceholder } from './commandProcessor.js';
 
+/**
+ * Asynchronously executes a shell command and notifies the user on failure.
+ * 
+ * @param {string} commandLineString The command string to execute.
+ */
+function _executeCommandAsync(commandLineString) {
+    try {
+        // Parse the command line into argv
+        let [ok, argv] = GLib.shell_parse_argv(commandLineString);
+        if (!ok || !argv || argv.length === 0) {
+            Main.notify("Command Execution Failed", `Could not parse command: "${commandLineString}"`);
+            return;
+        }
+
+        // Spawn using Gio.Subprocess to capture stderr
+        let proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDERR_PIPE);
+
+        // Async read & status check
+        proc.communicate_utf8_async(null, null, (subprocess, result) => {
+            try {
+                let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+
+                if (!subprocess.get_successful()) {
+                    let exitStatus = subprocess.get_exit_status();
+                    let rawError = stderr ? stderr.trim() : "";
+                    let detailedError = rawError || `Process exited with code ${exitStatus}`;
+
+                    // Graceful truncation
+                    const MAX_ERR_LENGTH = 200;
+                    if (detailedError.length > MAX_ERR_LENGTH) {
+                        detailedError = detailedError.substring(0, MAX_ERR_LENGTH) + "...";
+                    }
+
+                    Main.notify("Command Execution Failed", detailedError);
+                }
+            } catch (e) {
+                console.error(`CmdBar error reading stderr: ${e.message}`);
+                Main.notify("Command Execution Failed", e.message);
+            }
+        });
+    } catch (e) {
+        console.error(`CmdBar parsing/spawn error: ${e.message}`);
+        Main.notify("Command Execution Failed", `Failed to start command: ${e.message}`);
+    }
+}
+
 // Custom menu item with an inline text entry for commands that have placeholders
 const CommandInputMenuItem = GObject.registerClass(
 class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
@@ -70,12 +116,8 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
         // Perform template substitution
         let substituted = substituteCommand(this._commandTemplate, text.trim());
 
-        // Spawn command line asynchronously via GLib (No Gtk window or screensaver blocks)
-        try {
-            GLib.spawn_command_line_async(substituted);
-        } catch (e) {
-            console.error(`CmdBar: failed to run command: ${e.message}`);
-        }
+        // Spawn command line asynchronously via the helper function
+        _executeCommandAsync(substituted);
 
         // Close the system menu
         let parent = this;
@@ -123,11 +165,7 @@ class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
         this.add_child(this.box);
 
         this._activateId = this.connect('activate', () => {
-            try {
-                GLib.spawn_command_line_async(this._commandTemplate);
-            } catch (e) {
-                console.error(`CmdBar: failed to run command: ${e.message}`);
-            }
+            _executeCommandAsync(this._commandTemplate);
         });
     }
 
