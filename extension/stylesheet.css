@@ -1,0 +1,8 @@
+/* Styles for CmdBar extension */
+
+.cmdbar-category-header {
+    font-weight: bold;
+    color: #888888;
+    font-size: 0.9em;
+    padding: 4px 12px;
+}
