@@ -175,6 +175,8 @@ class CmdBarIndicator extends PanelMenu.Button {
 
         this._extension = extension;
         this._monitor = null;
+        this._cachedConfig = null;
+        this._timeoutId = 0;
 
         // Display icon in the top-bar indicator
         let icon = new St.Icon({
@@ -226,11 +228,23 @@ class CmdBarIndicator extends PanelMenu.Button {
                 if (success) {
                     let decoder = new TextDecoder('utf-8');
                     let jsonString = decoder.decode(contents);
-                    return JSON.parse(jsonString);
+                    let parsed = JSON.parse(jsonString);
+                    if (parsed && parsed.categories && Array.isArray(parsed.categories)) {
+                        this._cachedConfig = parsed;
+                        return parsed;
+                    } else {
+                        console.error(`CmdBar: invalid config structure, 'categories' must be an array`);
+                    }
                 }
             } catch (e) {
                 console.error(`CmdBar: failed to parse config file: ${e.message}`);
             }
+        }
+
+        // Retain the last successfully loaded configuration in memory to use as a fallback when new edits are unparseable
+        if (this._cachedConfig) {
+            console.warn(`CmdBar: loading fallback configuration due to parsing/structure error.`);
+            return this._cachedConfig;
         }
 
         // Robust Fallback: load default commands directly from extension package
@@ -243,7 +257,11 @@ class CmdBarIndicator extends PanelMenu.Button {
                 if (success) {
                     let decoder = new TextDecoder('utf-8');
                     let jsonString = decoder.decode(contents);
-                    return JSON.parse(jsonString);
+                    let defaultConfig = JSON.parse(jsonString);
+                    if (defaultConfig && defaultConfig.categories && Array.isArray(defaultConfig.categories)) {
+                        this._cachedConfig = defaultConfig;
+                        return defaultConfig;
+                    }
                 }
             }
         } catch (e) {
@@ -254,37 +272,41 @@ class CmdBarIndicator extends PanelMenu.Button {
     }
 
     _reloadMenu() {
-        // Clear all current items in menu
-        this.menu.removeAll();
+        try {
+            // Clear all current items in menu
+            this.menu.removeAll();
 
-        let config = this._loadConfig();
+            let config = this._loadConfig();
 
-        if (!config || !config.categories || config.categories.length === 0) {
-            let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
-            this.menu.addMenuItem(infoItem);
-            return;
+            if (!config || !config.categories || config.categories.length === 0) {
+                let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
+                this.menu.addMenuItem(infoItem);
+                return;
+            }
+
+            config.categories.forEach((category, catIndex) => {
+                // Category header
+                if (catIndex > 0) {
+                    this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+                }
+                this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
+
+                // Category commands
+                if (category.commands && Array.isArray(category.commands)) {
+                    category.commands.forEach(cmd => {
+                        if (hasPlaceholder(cmd.command)) {
+                            // Commands requiring text inputs (Requirement 1 & 2)
+                            this.menu.addMenuItem(new CommandInputMenuItem(cmd.name, cmd.command, cmd.placeholder));
+                        } else {
+                            // Ordinary parameterless commands
+                            this.menu.addMenuItem(new CommandMenuItem(cmd.name, cmd.command));
+                        }
+                    });
+                }
+            });
+        } catch (e) {
+            console.error(`CmdBar: error reloading menu: ${e.message}`);
         }
-
-        config.categories.forEach((category, catIndex) => {
-            // Category header
-            if (catIndex > 0) {
-                this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-            }
-            this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
-
-            // Category commands
-            if (category.commands && Array.isArray(category.commands)) {
-                category.commands.forEach(cmd => {
-                    if (hasPlaceholder(cmd.command)) {
-                        // Commands requiring text inputs (Requirement 1 & 2)
-                        this.menu.addMenuItem(new CommandInputMenuItem(cmd.name, cmd.command, cmd.placeholder));
-                    } else {
-                        // Ordinary parameterless commands
-                        this.menu.addMenuItem(new CommandMenuItem(cmd.name, cmd.command));
-                    }
-                });
-            }
-        });
     }
 
     _setupFileMonitor() {
@@ -293,11 +315,23 @@ class CmdBarIndicator extends PanelMenu.Button {
 
         try {
             this._monitor = file.monitor_file(Gio.FileMonitorFlags.NONE, null);
+            this._timeoutId = 0;
             this._monitorId = this._monitor.connect('changed', (monitor, file, otherFile, eventType) => {
                 // Trigger dynamic live reload on modifications or updates
                 if (eventType === Gio.FileMonitorEvent.CHANGES_DONE_HINT || 
-                    eventType === Gio.FileMonitorEvent.CREATED) {
-                    this._reloadMenu();
+                    eventType === Gio.FileMonitorEvent.CREATED ||
+                    eventType === Gio.FileMonitorEvent.CHANGED ||
+                    eventType === Gio.FileMonitorEvent.ATTRIBUTE_CHANGED) {
+                    
+                    if (this._timeoutId) {
+                        GLib.Source.remove(this._timeoutId);
+                        this._timeoutId = 0;
+                    }
+                    this._timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 200, () => {
+                        this._timeoutId = 0;
+                        this._reloadMenu();
+                        return GLib.SOURCE_REMOVE !== undefined ? GLib.SOURCE_REMOVE : false;
+                    });
                 }
             });
         } catch (e) {
@@ -306,6 +340,10 @@ class CmdBarIndicator extends PanelMenu.Button {
     }
 
     destroy() {
+        if (this._timeoutId) {
+            GLib.Source.remove(this._timeoutId);
+            this._timeoutId = 0;
+        }
         if (this._monitor) {
             if (this._monitorId) {
                 this._monitor.disconnect(this._monitorId);
