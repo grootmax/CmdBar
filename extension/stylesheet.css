@@ -1,0 +1,38 @@
+.cmdbar-dialog-content {
+    background-color: #242424;
+    color: #ffffff;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.cmdbar-dialog-title {
+    font-size: 14pt;
+    font-weight: bold;
+}
+
+.cmdbar-dialog-label {
+    font-size: 10pt;
+    font-weight: bold;
+}
+
+.cmdbar-dialog-entry {
+    background-color: #333333;
+    color: #ffffff;
+    border: 1px solid #555555;
+    border-radius: 4px;
+    padding: 6px;
+}
+
+.cmdbar-dialog-entry:focus {
+    border-color: #3584e4;
+}
+
+.cmdbar-dialog-entry.invalid {
+    border-color: #ff6666 !important;
+    background-color: #442222 !important;
+}
+
+.cmdbar-dialog-warning {
+    color: #ff6666;
+    font-size: 9pt;
+}
