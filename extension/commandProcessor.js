@@ -42,8 +42,8 @@ export function substituteCommand(commandTemplate, val) {
     const cleanVal = val !== undefined && val !== null ? String(val) : '';
     let substituted = commandTemplate;
     // Replace all occurrences of <something>
-    substituted = substituted.replace(/<[^>]+>/g, cleanVal);
+    substituted = substituted.replace(/<[^>]+>/g, () => cleanVal);
     // Replace all occurrences of {{something}}
-    substituted = substituted.replace(/\{\{[^}]+\}\}/g, cleanVal);
+    substituted = substituted.replace(/\{\{[^}]+\}\}/g, () => cleanVal);
     return substituted;
 }
