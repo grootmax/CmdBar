@@ -1,4 +1,4 @@
-import { validateInput, hasPlaceholder, substituteCommand } from '../extension/commandProcessor.js';
+import { validateInput, hasPlaceholder, substituteCommand, parseEnv } from '../extension/commandProcessor.js';
 
 describe('CmdBar Extension Core Unit Tests', () => {
     
@@ -68,6 +68,31 @@ describe('CmdBar Extension Core Unit Tests', () => {
         test('should return empty string if template is invalid', () => {
             expect(substituteCommand(null, 'val')).toBe('');
             expect(substituteCommand(undefined, 'val')).toBe('');
+        });
+    });
+
+    describe('Environment Parsing', () => {
+        test('should handle empty or null/undefined stdout', () => {
+            expect(parseEnv(null)).toEqual([]);
+            expect(parseEnv(undefined)).toEqual([]);
+            expect(parseEnv('')).toEqual([]);
+        });
+
+        test('should parse environment variables properly', () => {
+            const stdout = 'PATH=/usr/bin:/bin\nUSER=jules\nSHELL=/bin/bash\n';
+            expect(parseEnv(stdout)).toEqual([
+                'PATH=/usr/bin:/bin',
+                'USER=jules',
+                'SHELL=/bin/bash'
+            ]);
+        });
+
+        test('should filter out lines without an equals sign', () => {
+            const stdout = 'PATH=/usr/bin\nINVALID_LINE_NO_EQUALS\nHOME=/app\n';
+            expect(parseEnv(stdout)).toEqual([
+                'PATH=/usr/bin',
+                'HOME=/app'
+            ]);
         });
     });
 });

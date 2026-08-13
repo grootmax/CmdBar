@@ -47,3 +47,23 @@ export function substituteCommand(commandTemplate, val) {
     substituted = substituted.replace(/\{\{[^}]+\}\}/g, cleanVal);
     return substituted;
 }
+
+/**
+ * Parses stdout from `env` command into an array of "KEY=VALUE" strings,
+ * ensuring each line contains a valid environment variable pair.
+ * @param {string} stdout
+ * @returns {string[]}
+ */
+export function parseEnv(stdout) {
+    if (!stdout || typeof stdout !== 'string') {
+        return [];
+    }
+    const lines = stdout.split('\n');
+    const envArray = [];
+    for (const line of lines) {
+        if (line.includes('=')) {
+            envArray.push(line);
+        }
+    }
+    return envArray;
+}

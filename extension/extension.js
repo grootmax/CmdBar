@@ -4,7 +4,55 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { St, Clutter, Gio, GLib, GObject } from 'gi';
 
-import { validateInput, substituteCommand, hasPlaceholder } from './commandProcessor.js';
+import { validateInput, substituteCommand, hasPlaceholder, parseEnv } from './commandProcessor.js';
+
+let cachedEnv = null;
+let isHarvesting = false;
+
+function harvestEnvironment() {
+    if (isHarvesting) {
+        return;
+    }
+    isHarvesting = true;
+    try {
+        const shell = GLib.getenv('SHELL') || '/bin/sh';
+        const launcher = new Gio.SubprocessLauncher({
+            flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+        });
+        const proc = launcher.spawnv([shell, '-l', '-c', 'env']);
+        proc.communicate_utf8_async(null, null, (obj, res) => {
+            try {
+                const [stdout, stderr] = obj.communicate_utf8_finish(res);
+                if (stdout) {
+                    cachedEnv = parseEnv(stdout);
+                }
+            } catch (err) {
+                console.error(`CmdBar: failed to harvest environment: ${err.message}`);
+            } finally {
+                isHarvesting = false;
+            }
+        });
+    } catch (e) {
+        console.error(`CmdBar: failed to spawn environment harvest: ${e.message}`);
+        isHarvesting = false;
+    }
+}
+
+function runCommand(commandString) {
+    try {
+        const shell = GLib.getenv('SHELL') || '/bin/sh';
+        const launcher = new Gio.SubprocessLauncher({
+            flags: Gio.SubprocessFlags.NONE
+        });
+        if (cachedEnv) {
+            launcher.set_environ(cachedEnv);
+        }
+        launcher.spawnv([shell, '-c', commandString]);
+    } catch (e) {
+        console.error(`CmdBar: failed to run command: ${e.message}`);
+    }
+}
+
 
 // Custom menu item with an inline text entry for commands that have placeholders
 const CommandInputMenuItem = GObject.registerClass(
@@ -70,12 +118,8 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
         // Perform template substitution
         let substituted = substituteCommand(this._commandTemplate, text.trim());
 
-        // Spawn command line asynchronously via GLib (No Gtk window or screensaver blocks)
-        try {
-            GLib.spawn_command_line_async(substituted);
-        } catch (e) {
-            console.error(`CmdBar: failed to run command: ${e.message}`);
-        }
+        // Spawn command line asynchronously via standard shell with environment variables injected
+        runCommand(substituted);
 
         // Close the system menu
         let parent = this;
@@ -123,11 +167,7 @@ class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
         this.add_child(this.box);
 
         this._activateId = this.connect('activate', () => {
-            try {
-                GLib.spawn_command_line_async(this._commandTemplate);
-            } catch (e) {
-                console.error(`CmdBar: failed to run command: ${e.message}`);
-            }
+            runCommand(this._commandTemplate);
         });
     }
 
@@ -182,6 +222,9 @@ class CmdBarIndicator extends PanelMenu.Button {
             styleClass: 'system-status-icon'
         });
         this.add_child(icon);
+
+        // Harvest environment asynchronously on startup
+        harvestEnvironment();
 
         // Load configuration and construct the dynamic menu
         this._reloadMenu();
@@ -297,6 +340,7 @@ class CmdBarIndicator extends PanelMenu.Button {
                 // Trigger dynamic live reload on modifications or updates
                 if (eventType === Gio.FileMonitorEvent.CHANGES_DONE_HINT || 
                     eventType === Gio.FileMonitorEvent.CREATED) {
+                    harvestEnvironment();
                     this._reloadMenu();
                 }
             });
