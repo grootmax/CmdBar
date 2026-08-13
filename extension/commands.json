@@ -1,0 +1,33 @@
+{
+  "categories": [
+    {
+      "name": "Projects",
+      "commands": [
+        {
+          "name": "Build Current Project",
+          "command": "make build"
+        },
+        {
+          "name": "Start Task",
+          "command": "echo Starting task <task-id>",
+          "placeholder": "task-id"
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure",
+      "commands": [
+        {
+          "name": "Deploy Service",
+          "command": "deploy <service-name>",
+          "placeholder": "service-name"
+        },
+        {
+          "name": "Scale ECS Task",
+          "command": "aws ecs update-service --service {{service-name}} --desired-count {{count}}",
+          "placeholder": "service-name & count"
+        }
+      ]
+    }
+  ]
+}
