@@ -5,6 +5,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { St, Clutter, Gio, GLib, GObject } from 'gi';
 
 import { validateInput, substituteCommand, hasPlaceholder } from './commandProcessor.js';
+import { loadConfig } from './configSync.js';
 
 // Custom menu item with an inline text entry for commands that have placeholders
 const CommandInputMenuItem = GObject.registerClass(
@@ -194,97 +195,47 @@ class CmdBarIndicator extends PanelMenu.Button {
         return GLib.build_filenamev([GLib.get_user_config_dir(), 'cmdbar', 'commands.json']);
     }
 
-    _loadConfig() {
-        let path = this._getConfigPath();
-        let file = Gio.File.new_for_path(path);
-
-        if (!file.query_exists(null)) {
-            try {
-                // Ensure parent directory structure exists
-                let parentDir = Gio.File.new_for_path(GLib.path_get_dirname(path));
-                if (!parentDir.query_exists(null)) {
-                    parentDir.make_directory_with_parents(null);
-                }
-
-                // Copy default template commands.json from extension pack to config path
-                let defaultFile = Gio.File.new_for_path(
-                    GLib.build_filenamev([this._extension.path.get_path(), 'commands.json'])
-                );
-
-                if (defaultFile.query_exists(null)) {
-                    defaultFile.copy(file, Gio.FileCopyFlags.NONE, null, null);
-                }
-            } catch (e) {
-                console.error(`CmdBar: error creating initial commands.json config: ${e.message}`);
-            }
-        }
-
-        // Try reading configuration
-        if (file.query_exists(null)) {
-            try {
-                let [success, contents] = file.load_contents(null);
-                if (success) {
-                    let decoder = new TextDecoder('utf-8');
-                    let jsonString = decoder.decode(contents);
-                    return JSON.parse(jsonString);
-                }
-            } catch (e) {
-                console.error(`CmdBar: failed to parse config file: ${e.message}`);
-            }
-        }
-
-        // Robust Fallback: load default commands directly from extension package
+    async _reloadMenu() {
         try {
-            let defaultFile = Gio.File.new_for_path(
-                GLib.build_filenamev([this._extension.path.get_path(), 'commands.json'])
-            );
-            if (defaultFile.query_exists(null)) {
-                let [success, contents] = defaultFile.load_contents(null);
-                if (success) {
-                    let decoder = new TextDecoder('utf-8');
-                    let jsonString = decoder.decode(contents);
-                    return JSON.parse(jsonString);
+            let configPath = this._getConfigPath();
+            let extensionPath = this._extension.path.get_path();
+            let config = await loadConfig(configPath, extensionPath);
+
+            // Rebuild the menu dynamically
+            this.menu.removeAll();
+
+            if (!config || !config.categories || config.categories.length === 0) {
+                let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
+                this.menu.addMenuItem(infoItem);
+                return;
+            }
+
+            config.categories.forEach((category, catIndex) => {
+                // Category header
+                if (catIndex > 0) {
+                    this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
                 }
-            }
+                this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
+
+                // Category commands
+                if (category.commands && Array.isArray(category.commands)) {
+                    category.commands.forEach(cmd => {
+                        if (hasPlaceholder(cmd.command)) {
+                            // Commands requiring text inputs
+                            this.menu.addMenuItem(new CommandInputMenuItem(cmd.name, cmd.command, cmd.placeholder));
+                        } else {
+                            // Ordinary parameterless commands
+                            this.menu.addMenuItem(new CommandMenuItem(cmd.name, cmd.command));
+                        }
+                    });
+                }
+            });
         } catch (e) {
-            console.error(`CmdBar: fallback parsing failed: ${e.message}`);
+            console.error(`CmdBar: failed to reload menu: ${e.message}`);
+            this.menu.removeAll();
+            let errItem = new PopupMenu.PopupMenuItem("Error loading configuration");
+            this.menu.addMenuItem(errItem);
         }
-
-        return { categories: [] };
-    }
-
-    _reloadMenu() {
-        // Clear all current items in menu
-        this.menu.removeAll();
-
-        let config = this._loadConfig();
-
-        if (!config || !config.categories || config.categories.length === 0) {
-            let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
-            this.menu.addMenuItem(infoItem);
-            return;
-        }
-
-        config.categories.forEach((category, catIndex) => {
-            // Category header
-            if (catIndex > 0) {
-                this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-            }
-            this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
-
-            // Category commands
-            if (category.commands && Array.isArray(category.commands)) {
-                category.commands.forEach(cmd => {
-                    if (hasPlaceholder(cmd.command)) {
-                        // Commands requiring text inputs (Requirement 1 & 2)
-                        this.menu.addMenuItem(new CommandInputMenuItem(cmd.name, cmd.command, cmd.placeholder));
-                    } else {
-                        // Ordinary parameterless commands
-                        this.menu.addMenuItem(new CommandMenuItem(cmd.name, cmd.command));
-                    }
-                });
-            }
-        });
     }
 
     _setupFileMonitor() {
