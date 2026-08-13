@@ -1,44 +1,27 @@
-# Makefile for CmdBar
+# Makefile for CmdBar GNOME Extension
 
 UUID = cmdbar@yourdomain.com
 EXTENSION_DIR = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
-CONFIG_DIR = $(HOME)/.config/cmdbar
 
-.PHONY: all install uninstall test run clean help
-
-all: help
+.PHONY: install uninstall test help
 
 help:
-	@echo "CmdBar Makefile commands:"
-	@echo "  make install     - Install the GNOME Shell Extension to local directory"
-	@echo "  make uninstall   - Remove the GNOME Shell Extension"
-	@echo "  make test        - Run Python test suite (both config and app logic)"
-	@echo "  make run         - Run the Libadwaita companion application"
-	@echo "  make clean       - Clean Python caches and bytecodes"
+	@echo "Available commands:"
+	@echo "  make install     - Install the extension locally"
+	@echo "  make uninstall   - Uninstall the local extension"
+	@echo "  make test        - Run the test suite"
 
 install:
-	@echo "Installing GNOME Shell Extension..."
+	@echo "Installing CmdBar extension..."
 	mkdir -p $(EXTENSION_DIR)
-	cp extension/metadata.json $(EXTENSION_DIR)/
-	cp extension/extension.js $(EXTENSION_DIR)/
-	cp extension/stylesheet.css $(EXTENSION_DIR)/
-	@echo "Extension installed to $(EXTENSION_DIR)"
-	@echo "To enable, restart GNOME Shell or use extension manager, then enable 'CmdBar'."
+	cp -r extension/* $(EXTENSION_DIR)/
+	@echo "Extension installed successfully to $(EXTENSION_DIR)"
+	@echo "Please restart GNOME Shell (Alt+F2 'r' or log out and back in) and enable the extension."
 
 uninstall:
-	@echo "Removing GNOME Shell Extension..."
+	@echo "Uninstalling CmdBar extension..."
 	rm -rf $(EXTENSION_DIR)
-	@echo "Extension removed."
+	@echo "Extension uninstalled successfully."
 
 test:
-	@echo "Running test suite..."
-	PYTHONPATH=$(PWD) /usr/bin/python3 -m pytest tests/
-
-run:
-	@echo "Launching CmdBar Companion App..."
-	PYTHONPATH=$(PWD) /usr/bin/python3 app/main.py
-
-clean:
-	@echo "Cleaning up..."
-	find . -type d -name "__pycache__" -exec rm -rf {} +
-	find . -type f -name "*.pyc" -delete
+	npm run test
