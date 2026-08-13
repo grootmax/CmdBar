@@ -1,0 +1,12 @@
+{
+  "uuid": "cmdbar@jules.com",
+  "name": "CmdBar",
+  "description": "Quick commands in your GNOME top bar.",
+  "shell-version": [
+    "45",
+    "46",
+    "47"
+  ],
+  "url": "https://github.com/jules/cmdbar",
+  "version": 1
+}

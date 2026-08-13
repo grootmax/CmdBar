@@ -1,0 +1,24 @@
+.cmdbar-dialog-content {
+    spacing: 16px;
+    padding: 12px;
+}
+
+.cmdbar-dialog-label {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #f6f5f4;
+}
+
+.cmdbar-dialog-entry {
+    width: 320px;
+    font-size: 1.1em;
+    padding: 8px;
+    background-color: #242424;
+    border: 1px solid #3d3d3d;
+    border-radius: 8px;
+    color: #ffffff;
+}
+
+.cmdbar-dialog-entry:focus {
+    border: 2px solid #3584e4;
+}
