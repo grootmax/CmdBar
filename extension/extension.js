@@ -176,18 +176,44 @@ class CmdBarIndicator extends PanelMenu.Button {
         this._extension = extension;
         this._monitor = null;
 
+        // Container box to support text and icon side-by-side
+        this._box = new St.BoxLayout({
+            style_class: 'panel-status-menu-box',
+            pack_start: true,
+        });
+
         // Display icon in the top-bar indicator
-        let icon = new St.Icon({
+        this._icon = new St.Icon({
             gicon: new Gio.ThemedIcon({ name: 'system-run-symbolic' }),
             styleClass: 'system-status-icon'
         });
-        this.add_child(icon);
+        this._box.add_child(this._icon);
+
+        // Display text label next to icon (dynamically customized)
+        this._label = new St.Label({
+            text: '',
+            y_align: Clutter.ActorAlign.CENTER,
+            style_class: 'cmdbar-button-label'
+        });
+        this._box.add_child(this._label);
+
+        this.add_child(this._box);
 
         // Load configuration and construct the dynamic menu
         this._reloadMenu();
 
         // Setup File Monitor for Live Reloading of JSON configuration
         this._setupFileMonitor();
+    }
+
+    setButtonLabel(labelText) {
+        if (labelText && labelText.trim().length > 0) {
+            this._label.text = labelText.trim();
+            this._label.visible = true;
+        } else {
+            this._label.text = '';
+            this._label.visible = false;
+        }
     }
 
     _getConfigPath() {
@@ -277,7 +303,18 @@ class CmdBarIndicator extends PanelMenu.Button {
                 category.commands.forEach(cmd => {
                     if (hasPlaceholder(cmd.command)) {
                         // Commands requiring text inputs (Requirement 1 & 2)
-                        this.menu.addMenuItem(new CommandInputMenuItem(cmd.name, cmd.command, cmd.placeholder));
+                        // Fetch dynamic default placeholder text from GSettings as fallback
+                        let defaultPlaceholder = 'Type arguments...';
+                        try {
+                            const settings = this._extension.getSettings();
+                            if (settings) {
+                                defaultPlaceholder = settings.get_string('placeholder-text') || defaultPlaceholder;
+                            }
+                        } catch (e) {
+                            console.error(`CmdBar: failed to read default placeholder setting: ${e.message}`);
+                        }
+                        let placeholderText = cmd.placeholder || defaultPlaceholder;
+                        this.menu.addMenuItem(new CommandInputMenuItem(cmd.name, cmd.command, placeholderText));
                     } else {
                         // Ordinary parameterless commands
                         this.menu.addMenuItem(new CommandMenuItem(cmd.name, cmd.command));
@@ -321,12 +358,64 @@ class CmdBarIndicator extends PanelMenu.Button {
 
 export default class CmdBarExtension extends Extension {
     enable() {
+        this._settings = this.getSettings();
+
         this._indicator = new CmdBarIndicator(this);
         // Add to the system status bar panel
         Main.panel.addToStatusArea('cmdbar-indicator', this._indicator);
+
+        // Apply initial configuration values
+        this._updateIndicatorVisibility(this._settings.get_boolean('show-indicator'));
+        this._updateButtonLabel(this._settings.get_string('button-label'));
+
+        // Listen for live GSettings changes
+        this._showIndicatorId = this._settings.connect('changed::show-indicator', (settings, key) => {
+            const visible = settings.get_boolean(key);
+            this._updateIndicatorVisibility(visible);
+        });
+
+        this._buttonLabelId = this._settings.connect('changed::button-label', (settings, key) => {
+            const labelText = settings.get_string(key);
+            this._updateButtonLabel(labelText);
+        });
+
+        this._placeholderTextId = this._settings.connect('changed::placeholder-text', () => {
+            if (this._indicator) {
+                this._indicator._reloadMenu();
+            }
+        });
+    }
+
+    _updateIndicatorVisibility(visible) {
+        if (this._indicator) {
+            this._indicator.visible = visible;
+        }
+    }
+
+    _updateButtonLabel(labelText) {
+        if (this._indicator) {
+            this._indicator.setButtonLabel(labelText);
+        }
     }
 
     disable() {
+        // Clean up GSettings connections
+        if (this._settings) {
+            if (this._showIndicatorId) {
+                this._settings.disconnect(this._showIndicatorId);
+                this._showIndicatorId = 0;
+            }
+            if (this._buttonLabelId) {
+                this._settings.disconnect(this._buttonLabelId);
+                this._buttonLabelId = 0;
+            }
+            if (this._placeholderTextId) {
+                this._settings.disconnect(this._placeholderTextId);
+                this._placeholderTextId = 0;
+            }
+            this._settings = null;
+        }
+
         if (this._indicator) {
             this._indicator.destroy();
             this._indicator = null;
