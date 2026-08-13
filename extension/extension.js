@@ -47,6 +47,10 @@ class CommandParamDialog extends ModalDialog.ModalDialog {
             key: Clutter.KEY_Return,
             action: () => {
                 let value = this._entry.get_text().trim();
+                if (value === '') {
+                    // Prevent form submission when required input field is left blank
+                    return;
+                }
                 this.close();
                 this._callback(value);
             }
@@ -54,6 +58,10 @@ class CommandParamDialog extends ModalDialog.ModalDialog {
 
         this._entry.connect('activate', () => {
             let value = this._entry.get_text().trim();
+            if (value === '') {
+                // Prevent form submission when required input field is left blank
+                return;
+            }
             this.close();
             this._callback(value);
         });
@@ -96,7 +104,8 @@ class CommandParamDialog extends ModalDialog.ModalDialog {
             return Clutter.EVENT_PROPAGATE;
         });
     }
-});
+}
+);
 
 function loadConfig(path) {
     try {
@@ -116,10 +125,11 @@ function loadConfig(path) {
     return null;
 }
 
-function executeCommand(commandString) {
+function executeCommand(commandArray) {
     try {
+        // Run commands directly using the argument array, bypassing sh/bash shell parsing
         let proc = Gio.Subprocess.new(
-            ['sh', '-c', commandString],
+            commandArray,
             Gio.SubprocessFlags.NONE
         );
         proc.init(null);
@@ -135,25 +145,42 @@ function executeCommand(commandString) {
     }
 }
 
-function runCommandWithPlaceholders(command, extension) {
-    let commandString = command.command;
+function findPlaceholders(commandArray) {
     let placeholderRegex = /<([^>]+)>/g;
-    let matches = [...commandString.matchAll(placeholderRegex)];
     let uniquePlaceholders = [];
-    for (let m of matches) {
-        if (!uniquePlaceholders.includes(m[0])) {
-            uniquePlaceholders.push(m[0]);
+    for (let arg of commandArray) {
+        let matches = [...arg.matchAll(placeholderRegex)];
+        for (let m of matches) {
+            if (!uniquePlaceholders.includes(m[0])) {
+                uniquePlaceholders.push(m[0]);
+            }
         }
     }
+    return uniquePlaceholders;
+}
+
+function substitutePlaceholders(commandArray, replacements) {
+    return commandArray.map(arg => {
+        let result = arg;
+        for (let placeholder of Object.keys(replacements)) {
+            result = result.replaceAll(placeholder, replacements[placeholder]);
+        }
+        return result;
+    });
+}
+
+function runCommandWithPlaceholders(command, extension) {
+    let commandArray = command.command;
+    let uniquePlaceholders = findPlaceholders(commandArray);
 
     if (uniquePlaceholders.length === 0) {
-        executeCommand(commandString);
+        executeCommand(commandArray);
         return;
     }
 
-    let step = (idx, currentCmd) => {
+    let step = (idx, currentCmdArray) => {
         if (idx >= uniquePlaceholders.length) {
-            executeCommand(currentCmd);
+            executeCommand(currentCmdArray);
             return;
         }
 
@@ -161,13 +188,15 @@ function runCommandWithPlaceholders(command, extension) {
         let placeholderName = placeholder.slice(1, -1);
         
         let dialog = new CommandParamDialog(command.name, placeholderName, (value) => {
-            let updatedCmd = currentCmd.replaceAll(placeholder, value);
-            step(idx + 1, updatedCmd);
+            let updatedCmdArray = substitutePlaceholders(currentCmdArray, {
+                [placeholder]: value
+            });
+            step(idx + 1, updatedCmdArray);
         });
         dialog.open();
     };
 
-    step(0, commandString);
+    step(0, commandArray);
 }
 
 const CmdBarIndicator = GObject.registerClass(
@@ -241,7 +270,7 @@ class CmdBarIndicator extends PanelMenu.Button {
             
             if (category.commands && category.commands.length > 0) {
                 for (let command of category.commands) {
-                    if (!command.name || !command.command) {
+                    if (!command.name || !command.command || !Array.isArray(command.command) || command.command.length === 0) {
                         continue;
                     }
                     let item = new PopupMenu.PopupMenuItem(command.name);
