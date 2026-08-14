@@ -42,8 +42,39 @@ export function substituteCommand(commandTemplate, val) {
     const cleanVal = val !== undefined && val !== null ? String(val) : '';
     let substituted = commandTemplate;
     // Replace all occurrences of <something>
-    substituted = substituted.replace(/<[^>]+>/g, cleanVal);
+    substituted = substituted.replace(/<[^>]+>/g, () => cleanVal);
     // Replace all occurrences of {{something}}
-    substituted = substituted.replace(/\{\{[^}]+\}\}/g, cleanVal);
+    substituted = substituted.replace(/\{\{[^}]+\}\}/g, () => cleanVal);
     return substituted;
 }
+
+/**
+ * Writes the configuration atomically by first writing to a temporary file
+ * and then renaming (or replacing) the target file with the temporary one.
+ * Supports both Node.js (with dynamic imports of 'fs') and GJS (with dynamic imports of 'gi').
+ * 
+ * @param {string} targetPath 
+ * @param {object|string} data 
+ * @returns {Promise<void>}
+ */
+export async function writeConfigAtomically(targetPath, data) {
+    const contentStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
+
+    if (isNode) {
+        const fs = (await import('fs')).default;
+        const tempPath = targetPath + '.tmp';
+        fs.writeFileSync(tempPath, contentStr, 'utf8');
+        fs.renameSync(tempPath, targetPath);
+    } else {
+        // GJS (GNOME Shell) environment
+        const { Gio, GLib } = await import('gi');
+        const file = Gio.File.new_for_path(targetPath);
+        const tmpPath = targetPath + '.tmp';
+        const tmpFile = Gio.File.new_for_path(tmpPath);
+        const bytes = new GLib.Bytes(contentStr);
+        tmpFile.replace_contents(bytes, null, false, Gio.FileCreateFlags.NONE, null);
+        tmpFile.move(file, Gio.FileCopyFlags.OVERWRITE, null, null);
+    }
+}
+
