@@ -258,6 +258,9 @@ class CmdBarIndicator extends PanelMenu.Button {
         });
         this.add_child(icon);
 
+        // Harvest environment asynchronously on startup
+        harvestEnvironment();
+
         // Load configuration and construct the dynamic menu
         this._reloadMenu();
 
