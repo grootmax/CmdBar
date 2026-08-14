@@ -5,6 +5,59 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { St, Clutter, Gio, GLib, GObject } from 'gi';
 
 import { validateInput, substituteCommand, hasPlaceholder } from './commandProcessor.js';
+import { loadConfig } from './configSync.js';
+
+/**
+ * Run a command asynchronously and notify the user when done.
+ * @param {string} commandName
+ * @param {string} commandString
+ */
+function runCommandAsync(commandName, commandString) {
+    try {
+        let proc = Gio.Subprocess.new(
+            ['/bin/sh', '-c', commandString],
+            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+        );
+
+        proc.communicate_utf8_async(null, null, (subprocess, result) => {
+            try {
+                let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                
+                let success = subprocess.get_successful();
+                let exitStatus = 'unknown';
+                if (subprocess.get_if_exited()) {
+                    exitStatus = String(subprocess.get_exit_status());
+                } else if (subprocess.get_if_signaled()) {
+                    exitStatus = `Killed by signal ${subprocess.get_term_sig()}`;
+                }
+
+                if (success) {
+                    let title = `Command Succeeded: ${commandName}`;
+                    let body = `Exit status: ${exitStatus}`;
+                    if (stdout && stdout.trim()) {
+                        body += `\n\nOutput:\n${stdout.trim()}`;
+                    }
+                    Main.notify(title, body);
+                } else {
+                    let title = `Command Failed: ${commandName}`;
+                    let body = `Exit status: ${exitStatus}`;
+                    if (stderr && stderr.trim()) {
+                        body += `\n\nError:\n${stderr.trim()}`;
+                    } else if (stdout && stdout.trim()) {
+                        body += `\n\nOutput:\n${stdout.trim()}`;
+                    }
+                    Main.notify(title, body);
+                }
+            } catch (err) {
+                console.error(`CmdBar: error finishing command: ${err.message}`);
+                Main.notify(`Command Error: ${commandName}`, `Failed to execute: ${err.message}`);
+            }
+        });
+    } catch (e) {
+        console.error(`CmdBar: failed to spawn command: ${e.message}`);
+        Main.notify(`Command Launch Failed: ${commandName}`, `Could not start command: ${e.message}`);
+    }
+}
 
 /**
  * Asynchronously executes a shell command and notifies the user on failure.
@@ -58,16 +111,16 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
     _init(commandName, commandTemplate, placeholderText) {
         super._init({
             reactive: true,
-            activate: false // prevent automatic closing on item click
+            activate: true
         });
 
+        this._commandName = commandName;
         this._commandTemplate = commandTemplate;
         this._placeholderText = placeholderText || "Enter parameter...";
 
         this.box = new St.BoxLayout({
             orientation: Clutter.Orientation.HORIZONTAL,
-            x_expand: true,
-            y_expand: true
+            x_expand: true
         });
 
         this.label = new St.Label({
@@ -77,61 +130,42 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
         });
         this.box.add_child(this.label);
 
-        this.entry = new St.Entry({
-            hint_text: this._placeholderText,
-            track_hover: true,
-            can_focus: true,
-            style: 'width: 150px; margin-left: 10px; padding: 2px 6px;'
-        });
-
-        // Prevent mouse clicks inside the text entry from triggering general menu click/close handlers
-        this.entry.connect('button-press-event', (actor, event) => {
-            this.entry.grab_key_focus();
-            return Clutter.EVENT_STOP;
-        });
-
-        this.connect('key-focus-in', () => {
-            this.entry.grab_key_focus();
-        });
-
-        // Trigger action on Enter keypress (clutter_text 'activate' signal)
-        let clutterText = this.entry.clutter_text;
-        this._activateId = clutterText.connect('activate', () => {
-            this._onSubmit();
-        });
-
-        this.box.add_child(this.entry);
         this.add_child(this.box);
+
+        this._activateId = this.connect('activate', () => {
+            this._onSubmit(commandName);
+        });
     }
 
-    _onSubmit() {
-        let text = this.entry.get_text();
-        
-        // Inline validation: check if text is empty or only whitespace
-        if (!validateInput(text)) {
-            // Keep the menu open and block command execution
-            return;
-        }
+    _onSubmit(commandName) {
+        try {
+            let proc = Gio.Subprocess.new(
+                ['zenity', '--entry', '--title', commandName, '--text', `Enter value for ${this._placeholderText}:`],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+            );
 
-        // Perform template substitution
-        let substituted = substituteCommand(this._commandTemplate, text.trim());
-
-        // Spawn command line asynchronously via the helper function
-        _executeCommandAsync(substituted);
-
-        // Close the system menu
-        let parent = this;
-        while (parent && typeof parent.close !== 'function') {
-            parent = parent.parent;
-        }
-        if (parent && typeof parent.close === 'function') {
-            parent.close(true); // close with animation
+            proc.communicate_utf8_async(null, null, (subprocess, result) => {
+                try {
+                    let [success, stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                    if (success && subprocess.get_successful()) {
+                        let text = stdout ? stdout.trim() : '';
+                        if (validateInput(text)) {
+                            let substituted = substituteCommand(this._commandTemplate, text);
+                            GLib.spawn_command_line_async(substituted);
+                        }
+                    }
+                } catch (e) {
+                    console.error(`CmdBar: zenity dialog error: ${e.message}`);
+                }
+            });
+        } catch (e) {
+            console.error(`CmdBar: failed to spawn zenity: ${e.message}`);
         }
     }
 
     destroy() {
         if (this._activateId) {
-            this.entry.clutter_text.disconnect(this._activateId);
+            this.disconnect(this._activateId);
             this._activateId = 0;
         }
         super.destroy();
@@ -148,6 +182,7 @@ class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
             activate: true
         });
 
+        this._commandName = commandName;
         this._commandTemplate = commandTemplate;
 
         this.box = new St.BoxLayout({
@@ -165,7 +200,7 @@ class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
         this.add_child(this.box);
 
         this._activateId = this.connect('activate', () => {
-            _executeCommandAsync(this._commandTemplate);
+            runCommandAsync(this._commandName, this._commandTemplate);
         });
     }
 
@@ -213,6 +248,8 @@ class CmdBarIndicator extends PanelMenu.Button {
 
         this._extension = extension;
         this._monitor = null;
+        this._cachedConfig = null;
+        this._timeoutId = 0;
 
         // Display icon in the top-bar indicator
         let icon = new St.Icon({
@@ -232,30 +269,20 @@ class CmdBarIndicator extends PanelMenu.Button {
         return GLib.build_filenamev([GLib.get_user_config_dir(), 'cmdbar', 'commands.json']);
     }
 
-    _loadConfig() {
-        let path = this._getConfigPath();
-        let file = Gio.File.new_for_path(path);
+    async _reloadMenu() {
+        try {
+            let configPath = this._getConfigPath();
+            let extensionPath = this._extension.path.get_path();
+            let config = await loadConfig(configPath, extensionPath);
 
-        if (!file.query_exists(null)) {
-            try {
-                // Ensure parent directory structure exists
-                let parentDir = Gio.File.new_for_path(GLib.path_get_dirname(path));
-                if (!parentDir.query_exists(null)) {
-                    parentDir.make_directory_with_parents(null);
-                }
+            // Rebuild the menu dynamically
+            this.menu.removeAll();
 
-                // Copy default template commands.json from extension pack to config path
-                let defaultFile = Gio.File.new_for_path(
-                    GLib.build_filenamev([this._extension.path.get_path(), 'commands.json'])
-                );
-
-                if (defaultFile.query_exists(null)) {
-                    defaultFile.copy(file, Gio.FileCopyFlags.NONE, null, null);
-                }
-            } catch (e) {
-                console.error(`CmdBar: error creating initial commands.json config: ${e.message}`);
+            if (!config || !config.categories || config.categories.length === 0) {
+                let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
+                this.menu.addMenuItem(infoItem);
+                return;
             }
-        }
 
         // Try reading configuration
         if (file.query_exists(null)) {
@@ -264,11 +291,23 @@ class CmdBarIndicator extends PanelMenu.Button {
                 if (success) {
                     let decoder = new TextDecoder('utf-8');
                     let jsonString = decoder.decode(contents);
-                    return JSON.parse(jsonString);
+                    let parsed = JSON.parse(jsonString);
+                    if (parsed && parsed.categories && Array.isArray(parsed.categories)) {
+                        this._cachedConfig = parsed;
+                        return parsed;
+                    } else {
+                        console.error(`CmdBar: invalid config structure, 'categories' must be an array`);
+                    }
                 }
             } catch (e) {
                 console.error(`CmdBar: failed to parse config file: ${e.message}`);
             }
+        }
+
+        // Retain the last successfully loaded configuration in memory to use as a fallback when new edits are unparseable
+        if (this._cachedConfig) {
+            console.warn(`CmdBar: loading fallback configuration due to parsing/structure error.`);
+            return this._cachedConfig;
         }
 
         // Robust Fallback: load default commands directly from extension package
@@ -281,9 +320,13 @@ class CmdBarIndicator extends PanelMenu.Button {
                 if (success) {
                     let decoder = new TextDecoder('utf-8');
                     let jsonString = decoder.decode(contents);
-                    return JSON.parse(jsonString);
+                    let defaultConfig = JSON.parse(jsonString);
+                    if (defaultConfig && defaultConfig.categories && Array.isArray(defaultConfig.categories)) {
+                        this._cachedConfig = defaultConfig;
+                        return defaultConfig;
+                    }
                 }
-            }
+            });
         } catch (e) {
             console.error(`CmdBar: fallback parsing failed: ${e.message}`);
         }
@@ -292,37 +335,41 @@ class CmdBarIndicator extends PanelMenu.Button {
     }
 
     _reloadMenu() {
-        // Clear all current items in menu
-        this.menu.removeAll();
+        try {
+            // Clear all current items in menu
+            this.menu.removeAll();
 
-        let config = this._loadConfig();
+            let config = this._loadConfig();
 
-        if (!config || !config.categories || config.categories.length === 0) {
-            let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
-            this.menu.addMenuItem(infoItem);
-            return;
+            if (!config || !config.categories || config.categories.length === 0) {
+                let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
+                this.menu.addMenuItem(infoItem);
+                return;
+            }
+
+            config.categories.forEach((category, catIndex) => {
+                // Category header
+                if (catIndex > 0) {
+                    this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+                }
+                this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
+
+                // Category commands
+                if (category.commands && Array.isArray(category.commands)) {
+                    category.commands.forEach(cmd => {
+                        if (hasPlaceholder(cmd.command)) {
+                            // Commands requiring text inputs (Requirement 1 & 2)
+                            this.menu.addMenuItem(new CommandInputMenuItem(cmd.name, cmd.command, cmd.placeholder));
+                        } else {
+                            // Ordinary parameterless commands
+                            this.menu.addMenuItem(new CommandMenuItem(cmd.name, cmd.command));
+                        }
+                    });
+                }
+            });
+        } catch (e) {
+            console.error(`CmdBar: error reloading menu: ${e.message}`);
         }
-
-        config.categories.forEach((category, catIndex) => {
-            // Category header
-            if (catIndex > 0) {
-                this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-            }
-            this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
-
-            // Category commands
-            if (category.commands && Array.isArray(category.commands)) {
-                category.commands.forEach(cmd => {
-                    if (hasPlaceholder(cmd.command)) {
-                        // Commands requiring text inputs (Requirement 1 & 2)
-                        this.menu.addMenuItem(new CommandInputMenuItem(cmd.name, cmd.command, cmd.placeholder));
-                    } else {
-                        // Ordinary parameterless commands
-                        this.menu.addMenuItem(new CommandMenuItem(cmd.name, cmd.command));
-                    }
-                });
-            }
-        });
     }
 
     _setupFileMonitor() {
@@ -331,11 +378,23 @@ class CmdBarIndicator extends PanelMenu.Button {
 
         try {
             this._monitor = file.monitor_file(Gio.FileMonitorFlags.NONE, null);
+            this._timeoutId = 0;
             this._monitorId = this._monitor.connect('changed', (monitor, file, otherFile, eventType) => {
                 // Trigger dynamic live reload on modifications or updates
                 if (eventType === Gio.FileMonitorEvent.CHANGES_DONE_HINT || 
-                    eventType === Gio.FileMonitorEvent.CREATED) {
-                    this._reloadMenu();
+                    eventType === Gio.FileMonitorEvent.CREATED ||
+                    eventType === Gio.FileMonitorEvent.CHANGED ||
+                    eventType === Gio.FileMonitorEvent.ATTRIBUTE_CHANGED) {
+                    
+                    if (this._timeoutId) {
+                        GLib.Source.remove(this._timeoutId);
+                        this._timeoutId = 0;
+                    }
+                    this._timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 200, () => {
+                        this._timeoutId = 0;
+                        this._reloadMenu();
+                        return GLib.SOURCE_REMOVE !== undefined ? GLib.SOURCE_REMOVE : false;
+                    });
                 }
             });
         } catch (e) {
@@ -344,6 +403,10 @@ class CmdBarIndicator extends PanelMenu.Button {
     }
 
     destroy() {
+        if (this._timeoutId) {
+            GLib.Source.remove(this._timeoutId);
+            this._timeoutId = 0;
+        }
         if (this._monitor) {
             if (this._monitorId) {
                 this._monitor.disconnect(this._monitorId);
