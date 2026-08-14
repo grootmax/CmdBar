@@ -5,7 +5,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 import { St, Clutter, Gio, GLib, GObject } from 'gi';
 
-import { validateInput, substituteCommand, hasPlaceholder } from './commandProcessor.js';
+import { validateInput, substituteCommand, hasPlaceholder, tokenizeCommand, substituteTokens } from './commandProcessor.js';
 import { loadConfig } from './configSync.js';
 
 /**
@@ -58,6 +58,13 @@ function runCommandAsync(commandName, commandString) {
         console.error(`CmdBar: failed to spawn command: ${e.message}`);
         Main.notify(`Command Launch Failed: ${commandName}`, `Could not start command: ${e.message}`);
     }
+}
+
+/**
+ * Harvest environment variables on startup.
+ */
+function harvestEnvironment() {
+    // Placeholder for environment harvesting
 }
 
 /**
