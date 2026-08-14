@@ -1,0 +1,42 @@
+{
+  "categories": [
+    {
+      "name": "Projects",
+      "commands": [
+        {
+          "name": "Run Dev Server",
+          "command": ["npm", "run", "dev"]
+        },
+        {
+          "name": "Docker Logs",
+          "command": ["docker", "logs", "-f", "<container-id>"]
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure",
+      "commands": [
+        {
+          "name": "Deploy Service",
+          "command": [
+            "ansible-playbook",
+            "-i",
+            "inventory",
+            "deploy.yml",
+            "--extra-vars",
+            "service=<service-name> version=<version-tag>"
+          ]
+        },
+        {
+          "name": "Scale Deployment",
+          "command": [
+            "kubectl",
+            "scale",
+            "deployment/<deployment-name>",
+            "--replicas=<replica-count>"
+          ]
+        }
+      ]
+    }
+  ]
+}
