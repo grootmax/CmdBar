@@ -5,6 +5,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { St, Clutter, Gio, GLib, GObject } from 'gi';
 
 import { validateInput, substituteCommand, hasPlaceholder } from './commandProcessor.js';
+import { loadConfig } from './configSync.js';
 
 /**
  * Run a command asynchronously and notify the user when done.
@@ -222,30 +223,20 @@ class CmdBarIndicator extends PanelMenu.Button {
         return GLib.build_filenamev([GLib.get_user_config_dir(), 'cmdbar', 'commands.json']);
     }
 
-    _loadConfig() {
-        let path = this._getConfigPath();
-        let file = Gio.File.new_for_path(path);
+    async _reloadMenu() {
+        try {
+            let configPath = this._getConfigPath();
+            let extensionPath = this._extension.path.get_path();
+            let config = await loadConfig(configPath, extensionPath);
 
-        if (!file.query_exists(null)) {
-            try {
-                // Ensure parent directory structure exists
-                let parentDir = Gio.File.new_for_path(GLib.path_get_dirname(path));
-                if (!parentDir.query_exists(null)) {
-                    parentDir.make_directory_with_parents(null);
-                }
+            // Rebuild the menu dynamically
+            this.menu.removeAll();
 
-                // Copy default template commands.json from extension pack to config path
-                let defaultFile = Gio.File.new_for_path(
-                    GLib.build_filenamev([this._extension.path.get_path(), 'commands.json'])
-                );
-
-                if (defaultFile.query_exists(null)) {
-                    defaultFile.copy(file, Gio.FileCopyFlags.NONE, null, null);
-                }
-            } catch (e) {
-                console.error(`CmdBar: error creating initial commands.json config: ${e.message}`);
+            if (!config || !config.categories || config.categories.length === 0) {
+                let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
+                this.menu.addMenuItem(infoItem);
+                return;
             }
-        }
 
         // Try reading configuration
         if (file.query_exists(null)) {
@@ -289,7 +280,7 @@ class CmdBarIndicator extends PanelMenu.Button {
                         return defaultConfig;
                     }
                 }
-            }
+            });
         } catch (e) {
             console.error(`CmdBar: fallback parsing failed: ${e.message}`);
         }
