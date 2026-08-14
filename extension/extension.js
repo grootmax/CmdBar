@@ -59,6 +59,52 @@ function runCommandAsync(commandName, commandString) {
     }
 }
 
+/**
+ * Asynchronously executes a shell command and notifies the user on failure.
+ * 
+ * @param {string} commandLineString The command string to execute.
+ */
+function _executeCommandAsync(commandLineString) {
+    try {
+        // Parse the command line into argv
+        let [ok, argv] = GLib.shell_parse_argv(commandLineString);
+        if (!ok || !argv || argv.length === 0) {
+            Main.notify("Command Execution Failed", `Could not parse command: "${commandLineString}"`);
+            return;
+        }
+
+        // Spawn using Gio.Subprocess to capture stderr
+        let proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDERR_PIPE);
+
+        // Async read & status check
+        proc.communicate_utf8_async(null, null, (subprocess, result) => {
+            try {
+                let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+
+                if (!subprocess.get_successful()) {
+                    let exitStatus = subprocess.get_exit_status();
+                    let rawError = stderr ? stderr.trim() : "";
+                    let detailedError = rawError || `Process exited with code ${exitStatus}`;
+
+                    // Graceful truncation
+                    const MAX_ERR_LENGTH = 200;
+                    if (detailedError.length > MAX_ERR_LENGTH) {
+                        detailedError = detailedError.substring(0, MAX_ERR_LENGTH) + "...";
+                    }
+
+                    Main.notify("Command Execution Failed", detailedError);
+                }
+            } catch (e) {
+                console.error(`CmdBar error reading stderr: ${e.message}`);
+                Main.notify("Command Execution Failed", e.message);
+            }
+        });
+    } catch (e) {
+        console.error(`CmdBar parsing/spawn error: ${e.message}`);
+        Main.notify("Command Execution Failed", `Failed to start command: ${e.message}`);
+    }
+}
+
 // Custom menu item with an inline text entry for commands that have placeholders
 const CommandInputMenuItem = GObject.registerClass(
 class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
