@@ -101,4 +101,54 @@ describe('CmdBar Extension Core Unit Tests', () => {
             ]);
         });
     });
+
+    describe('Command Tokenization', () => {
+        test('should tokenize command by space', () => {
+            expect(tokenizeCommand('make build')).toEqual(['make', 'build']);
+            expect(tokenizeCommand('echo <task-id>')).toEqual(['echo', '<task-id>']);
+        });
+
+        test('should handle single and double quotes', () => {
+            expect(tokenizeCommand('echo "hello world"')).toEqual(['echo', 'hello world']);
+            expect(tokenizeCommand("echo 'hello world'")).toEqual(['echo', 'hello world']);
+        });
+
+        test('should handle backslash escapes', () => {
+            expect(tokenizeCommand('echo hello\\ world')).toEqual(['echo', 'hello world']);
+        });
+
+        test('should handle empty or invalid inputs', () => {
+            expect(tokenizeCommand('')).toEqual([]);
+            expect(tokenizeCommand(null)).toEqual([]);
+            expect(tokenizeCommand(undefined)).toEqual([]);
+        });
+    });
+
+    describe('Extract Placeholders', () => {
+        test('should extract angle brackets and double curly placeholders', () => {
+            expect(getPlaceholders('echo <task-id>')).toEqual(['<task-id>']);
+            expect(getPlaceholders('deploy {{service-name}}')).toEqual(['{{service-name}}']);
+            expect(getPlaceholders('aws ecs update-service --service {{service-name}} --desired-count {{count}}')).toEqual(['{{service-name}}', '{{count}}']);
+        });
+
+        test('should handle no placeholders', () => {
+            expect(getPlaceholders('make build')).toEqual([]);
+            expect(getPlaceholders('')).toEqual([]);
+            expect(getPlaceholders(null)).toEqual([]);
+        });
+    });
+
+    describe('Token Substitution with Mapping', () => {
+        test('should substitute mapped values safely', () => {
+            const tokens = ['echo', '<task-id>'];
+            const map = { '<task-id>': 'hello world; rm -rf /' };
+            expect(substituteTokens(tokens, map)).toEqual(['echo', 'hello world; rm -rf /']);
+        });
+
+        test('should handle empty or missing maps', () => {
+            const tokens = ['make', 'build'];
+            expect(substituteTokens(tokens, null)).toEqual(['make', 'build']);
+            expect(substituteTokens(tokens, {})).toEqual(['make', 'build']);
+        });
+    });
 });
