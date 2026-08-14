@@ -69,6 +69,12 @@ describe('CmdBar Extension Core Unit Tests', () => {
             expect(substituteCommand(null, 'val')).toBe('');
             expect(substituteCommand(undefined, 'val')).toBe('');
         });
+
+        test('should handle replacement values with special characters like $ safely and literally', () => {
+            const template = 'echo <task-id>';
+            const val = '$something$$';
+            expect(substituteCommand(template, val)).toBe('echo $something$$');
+        });
     });
 
     describe('Environment Parsing', () => {
