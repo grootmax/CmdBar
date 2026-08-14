@@ -5,108 +5,106 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 import { St, Clutter, Gio, GLib, GObject } from 'gi';
 
-import { validateInput, substituteCommand, hasPlaceholder, tokenizeCommand, getPlaceholders, substituteTokens } from './commandProcessor.js';
+import { validateInput, substituteCommand, hasPlaceholder } from './commandProcessor.js';
+import { loadConfig } from './configSync.js';
 
-// Dialog box for dynamic parameters (Requirement 1 & User Scenario 1)
-const CommandParameterDialog = GObject.registerClass(
-class CommandParameterDialog extends ModalDialog.ModalDialog {
-    _init(commandName, commandTemplate, placeholders, onSubmit) {
-        super._init({
-            styleClass: 'cmdbar-parameter-dialog'
-        });
+/**
+ * Run a command asynchronously and notify the user when done.
+ * @param {string} commandName
+ * @param {string} commandString
+ */
+function runCommandAsync(commandName, commandString) {
+    try {
+        let proc = Gio.Subprocess.new(
+            ['/bin/sh', '-c', commandString],
+            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+        );
 
-        this._commandName = commandName;
-        this._commandTemplate = commandTemplate;
-        this._placeholders = placeholders;
-        this._onSubmit = onSubmit;
+        proc.communicate_utf8_async(null, null, (subprocess, result) => {
+            try {
+                let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                
+                let success = subprocess.get_successful();
+                let exitStatus = 'unknown';
+                if (subprocess.get_if_exited()) {
+                    exitStatus = String(subprocess.get_exit_status());
+                } else if (subprocess.get_if_signaled()) {
+                    exitStatus = `Killed by signal ${subprocess.get_term_sig()}`;
+                }
 
-        // Content Box
-        let contentBox = new St.BoxLayout({
-            orientation: Clutter.Orientation.VERTICAL,
-            style: 'padding: 24px; width: 400px;'
-        });
-
-        // Title
-        let titleLabel = new St.Label({
-            text: `Run: ${commandName}`,
-            style: 'font-weight: bold; font-size: 1.25em; margin-bottom: 12px; color: #ffffff;'
-        });
-        contentBox.add_child(titleLabel);
-
-        // Subtitle / Template
-        let templateLabel = new St.Label({
-            text: `Template: ${commandTemplate}`,
-            style: 'font-size: 0.9em; color: #aaaaaa; margin-bottom: 16px;',
-            line_wrap: true
-        });
-        contentBox.add_child(templateLabel);
-
-        // Input Entries for each placeholder
-        this._entries = {};
-        for (const placeholder of placeholders) {
-            let label = new St.Label({
-                text: `Parameter: ${placeholder}`,
-                style: 'font-weight: bold; margin-bottom: 6px; font-size: 0.95em;'
-            });
-            contentBox.add_child(label);
-
-            let entry = new St.Entry({
-                hint_text: `Enter value for ${placeholder}...`,
-                can_focus: true,
-                style: 'padding: 8px; margin-bottom: 16px; background-color: #2e2e2e; border: 1px solid #444444; border-radius: 6px; color: #ffffff;'
-            });
-            contentBox.add_child(entry);
-            this._entries[placeholder] = entry;
-        }
-
-        this.contentLayout.add_child(contentBox);
-
-        // Buttons
-        this.setButtons([
-            {
-                label: 'Cancel',
-                action: () => {
-                    this.close();
-                },
-                key: Clutter.KEY_Escape
-            },
-            {
-                label: 'Execute',
-                action: () => {
-                    this._onExecute();
-                },
-                key: Clutter.KEY_Return
+                if (success) {
+                    let title = `Command Succeeded: ${commandName}`;
+                    let body = `Exit status: ${exitStatus}`;
+                    if (stdout && stdout.trim()) {
+                        body += `\n\nOutput:\n${stdout.trim()}`;
+                    }
+                    Main.notify(title, body);
+                } else {
+                    let title = `Command Failed: ${commandName}`;
+                    let body = `Exit status: ${exitStatus}`;
+                    if (stderr && stderr.trim()) {
+                        body += `\n\nError:\n${stderr.trim()}`;
+                    } else if (stdout && stdout.trim()) {
+                        body += `\n\nOutput:\n${stdout.trim()}`;
+                    }
+                    Main.notify(title, body);
+                }
+            } catch (err) {
+                console.error(`CmdBar: error finishing command: ${err.message}`);
+                Main.notify(`Command Error: ${commandName}`, `Failed to execute: ${err.message}`);
             }
-        ]);
+        });
+    } catch (e) {
+        console.error(`CmdBar: failed to spawn command: ${e.message}`);
+        Main.notify(`Command Launch Failed: ${commandName}`, `Could not start command: ${e.message}`);
     }
+}
 
-    _onExecute() {
-        let values = {};
-        let isValid = true;
-
-        for (const placeholder of this._placeholders) {
-            let entry = this._entries[placeholder];
-            let val = entry.get_text();
-            if (!validateInput(val)) {
-                isValid = false;
-                entry.style = 'padding: 8px; margin-bottom: 16px; background-color: #2e2e2e; border: 1px solid #ff3333; border-radius: 6px; color: #ffffff;';
-            } else {
-                entry.style = 'padding: 8px; margin-bottom: 16px; background-color: #2e2e2e; border: 1px solid #444444; border-radius: 6px; color: #ffffff;';
-                values[placeholder] = val.trim();
-            }
-        }
-
-        if (!isValid) {
+/**
+ * Asynchronously executes a shell command and notifies the user on failure.
+ * 
+ * @param {string} commandLineString The command string to execute.
+ */
+function _executeCommandAsync(commandLineString) {
+    try {
+        // Parse the command line into argv
+        let [ok, argv] = GLib.shell_parse_argv(commandLineString);
+        if (!ok || !argv || argv.length === 0) {
+            Main.notify("Command Execution Failed", `Could not parse command: "${commandLineString}"`);
             return;
         }
 
-        this.close();
-        if (typeof this._onSubmit === 'function') {
-            this._onSubmit(values);
-        }
+        // Spawn using Gio.Subprocess to capture stderr
+        let proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDERR_PIPE);
+
+        // Async read & status check
+        proc.communicate_utf8_async(null, null, (subprocess, result) => {
+            try {
+                let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+
+                if (!subprocess.get_successful()) {
+                    let exitStatus = subprocess.get_exit_status();
+                    let rawError = stderr ? stderr.trim() : "";
+                    let detailedError = rawError || `Process exited with code ${exitStatus}`;
+
+                    // Graceful truncation
+                    const MAX_ERR_LENGTH = 200;
+                    if (detailedError.length > MAX_ERR_LENGTH) {
+                        detailedError = detailedError.substring(0, MAX_ERR_LENGTH) + "...";
+                    }
+
+                    Main.notify("Command Execution Failed", detailedError);
+                }
+            } catch (e) {
+                console.error(`CmdBar error reading stderr: ${e.message}`);
+                Main.notify("Command Execution Failed", e.message);
+            }
+        });
+    } catch (e) {
+        console.error(`CmdBar parsing/spawn error: ${e.message}`);
+        Main.notify("Command Execution Failed", `Failed to start command: ${e.message}`);
     }
 }
-);
 
 // Custom menu item with an inline text entry for commands that have placeholders
 const CommandInputMenuItem = GObject.registerClass(
@@ -114,18 +112,16 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
     _init(indicator, commandName, commandTemplate, placeholderText) {
         super._init({
             reactive: true,
-            activate: false // prevent automatic closing on item click
+            activate: true
         });
 
-        this._indicator = indicator;
         this._commandName = commandName;
         this._commandTemplate = commandTemplate;
         this._placeholderText = placeholderText || "Enter parameter...";
 
         this.box = new St.BoxLayout({
             orientation: Clutter.Orientation.HORIZONTAL,
-            x_expand: true,
-            y_expand: true
+            x_expand: true
         });
 
         this.label = new St.Label({
@@ -135,63 +131,42 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
         });
         this.box.add_child(this.label);
 
-        this.entry = new St.Entry({
-            hint_text: this._placeholderText,
-            track_hover: true,
-            can_focus: true,
-            style: 'width: 150px; margin-left: 10px; padding: 2px 6px;'
-        });
-
-        // Prevent mouse clicks inside the text entry from triggering general menu click/close handlers
-        this.entry.connect('button-press-event', (actor, event) => {
-            this.entry.grab_key_focus();
-            return Clutter.EVENT_STOP;
-        });
-
-        this.connect('key-focus-in', () => {
-            this.entry.grab_key_focus();
-        });
-
-        // Trigger action on Enter keypress (clutter_text 'activate' signal)
-        let clutterText = this.entry.clutter_text;
-        this._activateId = clutterText.connect('activate', () => {
-            this._onSubmit();
-        });
-
-        this.box.add_child(this.entry);
         this.add_child(this.box);
+
+        this._activateId = this.connect('activate', () => {
+            this._onSubmit(commandName);
+        });
     }
 
-    _onSubmit() {
-        let text = this.entry.get_text();
-        
-        // Inline validation: check if text is empty or only whitespace
-        if (!validateInput(text)) {
-            // Keep the menu open and block command execution
-            return;
-        }
+    _onSubmit(commandName) {
+        try {
+            let proc = Gio.Subprocess.new(
+                ['zenity', '--entry', '--title', commandName, '--text', `Enter value for ${this._placeholderText}:`],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+            );
 
-        // Perform template substitution safely
-        let placeholders = getPlaceholders(this._commandTemplate);
-        let placeholder = placeholders[0] || '<task-id>';
-        let mapping = { [placeholder]: text.trim() };
-
-        // Execute via indicator (non-blocking, tokenized, secure!)
-        this._indicator.executeCommand(this._commandName, this._commandTemplate, mapping);
-
-        // Close the system menu
-        let parent = this;
-        while (parent && typeof parent.close !== 'function') {
-            parent = parent.parent;
-        }
-        if (parent && typeof parent.close === 'function') {
-            parent.close(true); // close with animation
+            proc.communicate_utf8_async(null, null, (subprocess, result) => {
+                try {
+                    let [success, stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                    if (success && subprocess.get_successful()) {
+                        let text = stdout ? stdout.trim() : '';
+                        if (validateInput(text)) {
+                            let substituted = substituteCommand(this._commandTemplate, text);
+                            GLib.spawn_command_line_async(substituted);
+                        }
+                    }
+                } catch (e) {
+                    console.error(`CmdBar: zenity dialog error: ${e.message}`);
+                }
+            });
+        } catch (e) {
+            console.error(`CmdBar: failed to spawn zenity: ${e.message}`);
         }
     }
 
     destroy() {
         if (this._activateId) {
-            this.entry.clutter_text.disconnect(this._activateId);
+            this.disconnect(this._activateId);
             this._activateId = 0;
         }
         super.destroy();
@@ -208,7 +183,6 @@ class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
             activate: true
         });
 
-        this._indicator = indicator;
         this._commandName = commandName;
         this._commandTemplate = commandTemplate;
 
@@ -227,15 +201,7 @@ class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
         this.add_child(this.box);
 
         this._activateId = this.connect('activate', () => {
-            if (hasPlaceholder(this._commandTemplate)) {
-                let placeholders = getPlaceholders(this._commandTemplate);
-                let dialog = new CommandParameterDialog(this._commandName, this._commandTemplate, placeholders, (mapping) => {
-                    this._indicator.executeCommand(this._commandName, this._commandTemplate, mapping);
-                });
-                dialog.open();
-            } else {
-                this._indicator.executeCommand(this._commandName, this._commandTemplate, {});
-            }
+            runCommandAsync(this._commandName, this._commandTemplate);
         });
     }
 
@@ -338,16 +304,34 @@ class CmdBarIndicator extends PanelMenu.Button {
 
         this._extension = extension;
         this._monitor = null;
-        this._activeJobs = new Map();
-        this._jobMenuItems = new Map();
-        this._nextJobId = 1;
+        this._cachedConfig = null;
+        this._timeoutId = 0;
+
+        // Container box to support text and icon side-by-side
+        this._box = new St.BoxLayout({
+            style_class: 'panel-status-menu-box',
+            pack_start: true,
+        });
 
         // Display icon in the top-bar indicator
-        let icon = new St.Icon({
+        this._icon = new St.Icon({
             gicon: new Gio.ThemedIcon({ name: 'system-run-symbolic' }),
             styleClass: 'system-status-icon'
         });
-        this.add_child(icon);
+        this._box.add_child(this._icon);
+
+        // Display text label next to icon (dynamically customized)
+        this._label = new St.Label({
+            text: '',
+            y_align: Clutter.ActorAlign.CENTER,
+            style_class: 'cmdbar-button-label'
+        });
+        this._box.add_child(this._label);
+
+        this.add_child(this._box);
+
+        // Harvest environment asynchronously on startup
+        harvestEnvironment();
 
         // Load configuration and construct the dynamic menu
         this._reloadMenu();
@@ -356,34 +340,34 @@ class CmdBarIndicator extends PanelMenu.Button {
         this._setupFileMonitor();
     }
 
+    setButtonLabel(labelText) {
+        if (labelText && labelText.trim().length > 0) {
+            this._label.text = labelText.trim();
+            this._label.visible = true;
+        } else {
+            this._label.text = '';
+            this._label.visible = false;
+        }
+    }
+
     _getConfigPath() {
         return GLib.build_filenamev([GLib.get_user_config_dir(), 'cmdbar', 'commands.json']);
     }
 
-    _loadConfig() {
-        let path = this._getConfigPath();
-        let file = Gio.File.new_for_path(path);
+    async _reloadMenu() {
+        try {
+            let configPath = this._getConfigPath();
+            let extensionPath = this._extension.path.get_path();
+            let config = await loadConfig(configPath, extensionPath);
 
-        if (!file.query_exists(null)) {
-            try {
-                // Ensure parent directory structure exists
-                let parentDir = Gio.File.new_for_path(GLib.path_get_dirname(path));
-                if (!parentDir.query_exists(null)) {
-                    parentDir.make_directory_with_parents(null);
-                }
+            // Rebuild the menu dynamically
+            this.menu.removeAll();
 
-                // Copy default template commands.json from extension pack to config path
-                let defaultFile = Gio.File.new_for_path(
-                    GLib.build_filenamev([this._extension.path.get_path(), 'commands.json'])
-                );
-
-                if (defaultFile.query_exists(null)) {
-                    defaultFile.copy(file, Gio.FileCopyFlags.NONE, null, null);
-                }
-            } catch (e) {
-                console.error(`CmdBar: error creating initial commands.json config: ${e.message}`);
+            if (!config || !config.categories || config.categories.length === 0) {
+                let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
+                this.menu.addMenuItem(infoItem);
+                return;
             }
-        }
 
         // Try reading configuration
         if (file.query_exists(null)) {
@@ -392,11 +376,23 @@ class CmdBarIndicator extends PanelMenu.Button {
                 if (success) {
                     let decoder = new TextDecoder('utf-8');
                     let jsonString = decoder.decode(contents);
-                    return JSON.parse(jsonString);
+                    let parsed = JSON.parse(jsonString);
+                    if (parsed && parsed.categories && Array.isArray(parsed.categories)) {
+                        this._cachedConfig = parsed;
+                        return parsed;
+                    } else {
+                        console.error(`CmdBar: invalid config structure, 'categories' must be an array`);
+                    }
                 }
             } catch (e) {
                 console.error(`CmdBar: failed to parse config file: ${e.message}`);
             }
+        }
+
+        // Retain the last successfully loaded configuration in memory to use as a fallback when new edits are unparseable
+        if (this._cachedConfig) {
+            console.warn(`CmdBar: loading fallback configuration due to parsing/structure error.`);
+            return this._cachedConfig;
         }
 
         // Robust Fallback: load default commands directly from extension package
@@ -409,9 +405,13 @@ class CmdBarIndicator extends PanelMenu.Button {
                 if (success) {
                     let decoder = new TextDecoder('utf-8');
                     let jsonString = decoder.decode(contents);
-                    return JSON.parse(jsonString);
+                    let defaultConfig = JSON.parse(jsonString);
+                    if (defaultConfig && defaultConfig.categories && Array.isArray(defaultConfig.categories)) {
+                        this._cachedConfig = defaultConfig;
+                        return defaultConfig;
+                    }
                 }
-            }
+            });
         } catch (e) {
             console.error(`CmdBar: fallback parsing failed: ${e.message}`);
         }
@@ -420,55 +420,40 @@ class CmdBarIndicator extends PanelMenu.Button {
     }
 
     _reloadMenu() {
-        // Clear all current items in menu
-        this.menu.removeAll();
+        try {
+            // Clear all current items in menu
+            this.menu.removeAll();
 
-        let config = this._loadConfig();
+            let config = this._loadConfig();
 
-        if (!config || !config.categories || config.categories.length === 0) {
-            let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
-            this.menu.addMenuItem(infoItem);
-            return;
-        }
-
-        config.categories.forEach((category, catIndex) => {
-            // Category header
-            if (catIndex > 0) {
-                this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+            if (!config || !config.categories || config.categories.length === 0) {
+                let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
+                this.menu.addMenuItem(infoItem);
+                return;
             }
-            this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
 
-            // Category commands
-            if (category.commands && Array.isArray(category.commands)) {
-                category.commands.forEach(cmd => {
-                    if (hasPlaceholder(cmd.command)) {
-                        // Commands requiring text inputs (Requirement 1 & 2)
-                        this.menu.addMenuItem(new CommandInputMenuItem(this, cmd.name, cmd.command, cmd.placeholder));
-                    } else {
-                        // Ordinary parameterless commands
-                        this.menu.addMenuItem(new CommandMenuItem(this, cmd.name, cmd.command));
-                    }
-                });
-            }
-        });
+            config.categories.forEach((category, catIndex) => {
+                // Category header
+                if (catIndex > 0) {
+                    this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+                }
+                this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
 
-        // Recreate the active jobs section (Requirement 3)
-        this._jobsSection = new PopupMenu.PopupMenuSection();
-        this.menu.addMenuItem(this._jobsSection);
-
-        if (this._activeJobs.size > 0) {
-            this._jobsSectionSeparator = new PopupMenu.PopupSeparatorMenuItem();
-            this._jobsSection.addMenuItem(this._jobsSectionSeparator);
-
-            this._jobsSectionHeader = new PopupMenu.PopupMenuItem("Active Background Jobs", { reactive: false });
-            this._jobsSectionHeader.label.style = 'font-weight: bold; color: #888888; font-size: 0.9em;';
-            this._jobsSection.addMenuItem(this._jobsSectionHeader);
-
-            for (let [jobId, job] of this._activeJobs) {
-                let item = new JobMenuItem(jobId, job.name, (id) => this._cancelJob(id));
-                this._jobsSection.addMenuItem(item);
-                this._jobMenuItems.set(jobId, item);
-            }
+                // Category commands
+                if (category.commands && Array.isArray(category.commands)) {
+                    category.commands.forEach(cmd => {
+                        if (hasPlaceholder(cmd.command)) {
+                            // Commands requiring text inputs (Requirement 1 & 2)
+                            this.menu.addMenuItem(new CommandInputMenuItem(cmd.name, cmd.command, cmd.placeholder));
+                        } else {
+                            // Ordinary parameterless commands
+                            this.menu.addMenuItem(new CommandMenuItem(cmd.name, cmd.command));
+                        }
+                    });
+                }
+            });
+        } catch (e) {
+            console.error(`CmdBar: error reloading menu: ${e.message}`);
         }
     }
 
@@ -478,11 +463,23 @@ class CmdBarIndicator extends PanelMenu.Button {
 
         try {
             this._monitor = file.monitor_file(Gio.FileMonitorFlags.NONE, null);
+            this._timeoutId = 0;
             this._monitorId = this._monitor.connect('changed', (monitor, file, otherFile, eventType) => {
                 // Trigger dynamic live reload on modifications or updates
                 if (eventType === Gio.FileMonitorEvent.CHANGES_DONE_HINT || 
-                    eventType === Gio.FileMonitorEvent.CREATED) {
-                    this._reloadMenu();
+                    eventType === Gio.FileMonitorEvent.CREATED ||
+                    eventType === Gio.FileMonitorEvent.CHANGED ||
+                    eventType === Gio.FileMonitorEvent.ATTRIBUTE_CHANGED) {
+                    
+                    if (this._timeoutId) {
+                        GLib.Source.remove(this._timeoutId);
+                        this._timeoutId = 0;
+                    }
+                    this._timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 200, () => {
+                        this._timeoutId = 0;
+                        this._reloadMenu();
+                        return GLib.SOURCE_REMOVE !== undefined ? GLib.SOURCE_REMOVE : false;
+                    });
                 }
             });
         } catch (e) {
@@ -634,22 +631,10 @@ class CmdBarIndicator extends PanelMenu.Button {
     }
 
     destroy() {
-        // Cancel all active jobs on extension unload/destroy (Guardrail: No Residual Processes)
-        for (let [jobId, job] of this._activeJobs) {
-            try {
-                job.process.force_exit();
-                let pid = job.process.get_identifier();
-                if (pid) {
-                    let pkillProc = Gio.Subprocess.new(['pkill', '-P', String(pid)], Gio.SubprocessFlags.NONE);
-                    pkillProc.communicate_utf8_async(null, null, null);
-                }
-            } catch (e) {
-                // Ignore errors on shutdown
-            }
+        if (this._timeoutId) {
+            GLib.Source.remove(this._timeoutId);
+            this._timeoutId = 0;
         }
-        this._activeJobs.clear();
-        this._jobMenuItems.clear();
-
         if (this._monitor) {
             if (this._monitorId) {
                 this._monitor.disconnect(this._monitorId);
@@ -665,12 +650,64 @@ class CmdBarIndicator extends PanelMenu.Button {
 
 export default class CmdBarExtension extends Extension {
     enable() {
+        this._settings = this.getSettings();
+
         this._indicator = new CmdBarIndicator(this);
         // Add to the system status bar panel
         Main.panel.addToStatusArea('cmdbar-indicator', this._indicator);
+
+        // Apply initial configuration values
+        this._updateIndicatorVisibility(this._settings.get_boolean('show-indicator'));
+        this._updateButtonLabel(this._settings.get_string('button-label'));
+
+        // Listen for live GSettings changes
+        this._showIndicatorId = this._settings.connect('changed::show-indicator', (settings, key) => {
+            const visible = settings.get_boolean(key);
+            this._updateIndicatorVisibility(visible);
+        });
+
+        this._buttonLabelId = this._settings.connect('changed::button-label', (settings, key) => {
+            const labelText = settings.get_string(key);
+            this._updateButtonLabel(labelText);
+        });
+
+        this._placeholderTextId = this._settings.connect('changed::placeholder-text', () => {
+            if (this._indicator) {
+                this._indicator._reloadMenu();
+            }
+        });
+    }
+
+    _updateIndicatorVisibility(visible) {
+        if (this._indicator) {
+            this._indicator.visible = visible;
+        }
+    }
+
+    _updateButtonLabel(labelText) {
+        if (this._indicator) {
+            this._indicator.setButtonLabel(labelText);
+        }
     }
 
     disable() {
+        // Clean up GSettings connections
+        if (this._settings) {
+            if (this._showIndicatorId) {
+                this._settings.disconnect(this._showIndicatorId);
+                this._showIndicatorId = 0;
+            }
+            if (this._buttonLabelId) {
+                this._settings.disconnect(this._buttonLabelId);
+                this._buttonLabelId = 0;
+            }
+            if (this._placeholderTextId) {
+                this._settings.disconnect(this._placeholderTextId);
+                this._placeholderTextId = 0;
+            }
+            this._settings = null;
+        }
+
         if (this._indicator) {
             this._indicator.destroy();
             this._indicator = null;

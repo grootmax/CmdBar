@@ -42,121 +42,39 @@ export function substituteCommand(commandTemplate, val) {
     const cleanVal = val !== undefined && val !== null ? String(val) : '';
     let substituted = commandTemplate;
     // Replace all occurrences of <something>
-    substituted = substituted.replace(/<[^>]+>/g, cleanVal);
+    substituted = substituted.replace(/<[^>]+>/g, () => cleanVal);
     // Replace all occurrences of {{something}}
-    substituted = substituted.replace(/\{\{[^}]+\}\}/g, cleanVal);
+    substituted = substituted.replace(/\{\{[^}]+\}\}/g, () => cleanVal);
     return substituted;
 }
 
 /**
- * Parses a command template string into an array of tokenized argument strings,
- * handling single/double quotes and backslash escapes properly.
- * @param {string} commandTemplate
- * @returns {string[]}
+ * Writes the configuration atomically by first writing to a temporary file
+ * and then renaming (or replacing) the target file with the temporary one.
+ * Supports both Node.js (with dynamic imports of 'fs') and GJS (with dynamic imports of 'gi').
+ * 
+ * @param {string} targetPath 
+ * @param {object|string} data 
+ * @returns {Promise<void>}
  */
-export function tokenizeCommand(commandTemplate) {
-    if (!commandTemplate || typeof commandTemplate !== 'string') {
-        return [];
+export async function writeConfigAtomically(targetPath, data) {
+    const contentStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
+
+    if (isNode) {
+        const fs = (await import('fs')).default;
+        const tempPath = targetPath + '.tmp';
+        fs.writeFileSync(tempPath, contentStr, 'utf8');
+        fs.renameSync(tempPath, targetPath);
+    } else {
+        // GJS (GNOME Shell) environment
+        const { Gio, GLib } = await import('gi');
+        const file = Gio.File.new_for_path(targetPath);
+        const tmpPath = targetPath + '.tmp';
+        const tmpFile = Gio.File.new_for_path(tmpPath);
+        const bytes = new GLib.Bytes(contentStr);
+        tmpFile.replace_contents(bytes, null, false, Gio.FileCreateFlags.NONE, null);
+        tmpFile.move(file, Gio.FileCopyFlags.OVERWRITE, null, null);
     }
-    const args = [];
-    let current = '';
-    let inDoubleQuotes = false;
-    let inSingleQuotes = false;
-    let escaped = false;
-
-    for (let i = 0; i < commandTemplate.length; i++) {
-        const char = commandTemplate[i];
-
-        if (escaped) {
-            current += char;
-            escaped = false;
-            continue;
-        }
-
-        if (char === '\\' && !inSingleQuotes) {
-            escaped = true;
-            continue;
-        }
-
-        if (char === '"' && !inSingleQuotes) {
-            inDoubleQuotes = !inDoubleQuotes;
-            continue;
-        }
-
-        if (char === "'" && !inDoubleQuotes) {
-            inSingleQuotes = !inSingleQuotes;
-            continue;
-        }
-
-        if (char === ' ' || char === '\t' || char === '\r' || char === '\n') {
-            if (inDoubleQuotes || inSingleQuotes) {
-                current += char;
-            } else if (current.length > 0) {
-                args.push(current);
-                current = '';
-            }
-        } else {
-            current += char;
-        }
-    }
-
-    if (current.length > 0) {
-        args.push(current);
-    }
-
-    return args;
-}
-
-/**
- * Extracts all placeholders (e.g., <parameter-name> or {{parameter-name}})
- * from the command template.
- * @param {string} commandTemplate
- * @returns {string[]}
- */
-export function getPlaceholders(commandTemplate) {
-    if (!commandTemplate || typeof commandTemplate !== 'string') {
-        return [];
-    }
-    const angleRegex = /<([^>]+)>/g;
-    const curlyRegex = /\{\{([^}]+)\}\}/g;
-    const matches = [];
-    
-    let match;
-    while ((match = angleRegex.exec(commandTemplate)) !== null) {
-        if (!matches.includes(match[0])) {
-            matches.push(match[0]);
-        }
-    }
-    while ((match = curlyRegex.exec(commandTemplate)) !== null) {
-        if (!matches.includes(match[0])) {
-            matches.push(match[0]);
-        }
-    }
-    return matches;
-}
-
-/**
- * Substitutes mapping values into a tokenized argument list.
- * @param {string[]} tokens
- * @param {Object.<string, string>} placeholderMap
- * @returns {string[]}
- */
-export function substituteTokens(tokens, placeholderMap) {
-    if (!tokens || !Array.isArray(tokens)) {
-        return [];
-    }
-    if (!placeholderMap || typeof placeholderMap !== 'object') {
-        return [...tokens];
-    }
-    return tokens.map(token => {
-        let substituted = token;
-        for (const [placeholder, val] of Object.entries(placeholderMap)) {
-            const cleanVal = val !== undefined && val !== null ? String(val) : '';
-            const escapedPlaceholder = placeholder.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-            const regex = new RegExp(escapedPlaceholder, 'g');
-            substituted = substituted.replace(regex, cleanVal);
-        }
-        return substituted;
-    });
 }
 
