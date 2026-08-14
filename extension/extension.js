@@ -64,7 +64,7 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
     _init(commandName, commandTemplate, placeholderText) {
         super._init({
             reactive: true,
-            activate: false // prevent automatic closing on item click
+            activate: true
         });
 
         this._commandName = commandName;
@@ -73,8 +73,7 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
 
         this.box = new St.BoxLayout({
             orientation: Clutter.Orientation.HORIZONTAL,
-            x_expand: true,
-            y_expand: true
+            x_expand: true
         });
 
         this.label = new St.Label({
@@ -84,61 +83,42 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
         });
         this.box.add_child(this.label);
 
-        this.entry = new St.Entry({
-            hint_text: this._placeholderText,
-            track_hover: true,
-            can_focus: true,
-            style: 'width: 150px; margin-left: 10px; padding: 2px 6px;'
-        });
-
-        // Prevent mouse clicks inside the text entry from triggering general menu click/close handlers
-        this.entry.connect('button-press-event', (actor, event) => {
-            this.entry.grab_key_focus();
-            return Clutter.EVENT_STOP;
-        });
-
-        this.connect('key-focus-in', () => {
-            this.entry.grab_key_focus();
-        });
-
-        // Trigger action on Enter keypress (clutter_text 'activate' signal)
-        let clutterText = this.entry.clutter_text;
-        this._activateId = clutterText.connect('activate', () => {
-            this._onSubmit();
-        });
-
-        this.box.add_child(this.entry);
         this.add_child(this.box);
+
+        this._activateId = this.connect('activate', () => {
+            this._onSubmit(commandName);
+        });
     }
 
-    _onSubmit() {
-        let text = this.entry.get_text();
-        
-        // Inline validation: check if text is empty or only whitespace
-        if (!validateInput(text)) {
-            // Keep the menu open and block command execution
-            return;
-        }
+    _onSubmit(commandName) {
+        try {
+            let proc = Gio.Subprocess.new(
+                ['zenity', '--entry', '--title', commandName, '--text', `Enter value for ${this._placeholderText}:`],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+            );
 
-        // Perform template substitution
-        let substituted = substituteCommand(this._commandTemplate, text.trim());
-
-        // Run command line asynchronously via Gio Subprocess and notify on completion
-        runCommandAsync(this._commandName, substituted);
-
-        // Close the system menu
-        let parent = this;
-        while (parent && typeof parent.close !== 'function') {
-            parent = parent.parent;
-        }
-        if (parent && typeof parent.close === 'function') {
-            parent.close(true); // close with animation
+            proc.communicate_utf8_async(null, null, (subprocess, result) => {
+                try {
+                    let [success, stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                    if (success && subprocess.get_successful()) {
+                        let text = stdout ? stdout.trim() : '';
+                        if (validateInput(text)) {
+                            let substituted = substituteCommand(this._commandTemplate, text);
+                            GLib.spawn_command_line_async(substituted);
+                        }
+                    }
+                } catch (e) {
+                    console.error(`CmdBar: zenity dialog error: ${e.message}`);
+                }
+            });
+        } catch (e) {
+            console.error(`CmdBar: failed to spawn zenity: ${e.message}`);
         }
     }
 
     destroy() {
         if (this._activateId) {
-            this.entry.clutter_text.disconnect(this._activateId);
+            this.disconnect(this._activateId);
             this._activateId = 0;
         }
         super.destroy();
