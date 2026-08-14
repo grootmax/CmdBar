@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.cmdbar" path="/org/gnome/shell/extensions/cmdbar/">
+    <key name="show-indicator" type="b">
+      <default>true</default>
+      <summary>Show Indicator</summary>
+      <description>Toggle CmdBar visibility in the top panel.</description>
+    </key>
+    <key name="placeholder-text" type="s">
+      <default>'Type arguments...'</default>
+      <summary>Placeholder Text</summary>
+      <description>Customize the input placeholder text for commands with parameters.</description>
+    </key>
+    <key name="button-label" type="s">
+      <default>''</default>
+      <summary>Button Label</summary>
+      <description>Customize the text displayed next to the icon in the top-bar button.</description>
+    </key>
+  </schema>
+</schemalist>

@@ -3,7 +3,7 @@
 UUID = cmdbar@yourdomain.com
 EXTENSION_DIR = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
 
-.PHONY: install uninstall test help
+.PHONY: install uninstall test compile-schemas help
 
 help:
 	@echo "Available commands:"
@@ -11,7 +11,11 @@ help:
 	@echo "  make uninstall   - Uninstall the local extension"
 	@echo "  make test        - Run the test suite"
 
-install:
+compile-schemas:
+	@echo "Compiling GSettings schemas..."
+	glib-compile-schemas extension/schemas/
+
+install: compile-schemas
 	@echo "Installing CmdBar extension..."
 	mkdir -p $(EXTENSION_DIR)
 	cp -r extension/* $(EXTENSION_DIR)/
