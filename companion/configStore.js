@@ -13,6 +13,7 @@ export function getConfigDir() {
 
 /**
  * Gets the standard commands.json file path.
+ * @public
  */
 export function getConfigPath() {
     return path.join(getConfigDir(), 'commands.json');
@@ -26,6 +27,7 @@ export function getConfigPath() {
  * 
  * @param {object} configData - The configuration object to save.
  * @param {string} [customPath] - Optional custom path for testing.
+ * @public
  */
 export function saveConfigAtomically(configData, customPath) {
     const targetPath = customPath || getConfigPath();

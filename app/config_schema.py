@@ -68,6 +68,7 @@ def validate_parameter_value(value, parameter_schema):
     """
     Validates a parameter value against its schema (regex + forbidden chars).
     Returns (is_valid, error_message).
+    :visibility: public
     """
     # 1. Check for forbidden characters
     forbidden = [';', '&&', '||', '|', '&', '`', '$', '(', ')', '>', '<']
@@ -90,6 +91,7 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
     """
     Resolves a command template for dry-run preview.
     Returns (resolved_string, errors_dict)
+    :visibility: public
     """
     errors = {}
     

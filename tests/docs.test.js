@@ -76,4 +76,36 @@ describe('Centralized Documentation Structure & Build Automation', () => {
         expect(developerIndexContent).toContain('href="index.html"');
         expect(developerIndexContent).toContain('class="active"');
     });
+
+    test('The generated API Reference pages must correctly apply visibility filters separating public versus internal targets', () => {
+        const publicApiFile = path.join(buildDir, 'public', 'api.html');
+        const developerApiFile = path.join(buildDir, 'developer', 'api.html');
+
+        expect(fs.existsSync(publicApiFile)).toBe(true);
+        expect(fs.existsSync(developerApiFile)).toBe(true);
+
+        const publicApiContent = fs.readFileSync(publicApiFile, 'utf8');
+        const developerApiContent = fs.readFileSync(developerApiFile, 'utf8');
+
+        // Public API must contain public-annotated functions
+        expect(publicApiContent).toContain('substituteCommand');
+        expect(publicApiContent).toContain('validateInput');
+        expect(publicApiContent).toContain('resolve_command_preview');
+        expect(publicApiContent).toContain('validate_input');
+
+        // Public API must NOT contain private/internal helper functions or GObject UI rendering logic
+        expect(publicApiContent).not.toContain('_create_sidebar');
+        expect(publicApiContent).not.toContain('getNodeUserConfigDir');
+        expect(publicApiContent).not.toContain('CmdBarApp');
+
+        // Developer API must contain both public and internal/private APIs
+        expect(developerApiContent).toContain('substituteCommand');
+        expect(developerApiContent).toContain('validateInput');
+        expect(developerApiContent).toContain('resolve_command_preview');
+        expect(developerApiContent).toContain('validate_input');
+        
+        expect(developerApiContent).toContain('_create_sidebar');
+        expect(developerApiContent).toContain('getNodeUserConfigDir');
+        expect(developerApiContent).toContain('CmdBarApp');
+    });
 });

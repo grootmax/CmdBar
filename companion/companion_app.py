@@ -102,6 +102,7 @@ def validate_input(value, pattern=None):
     r"""
     Validates user input against a regex pattern.
     If no pattern is provided, defaults to standard alphanumeric pattern: ^[a-zA-Z0-9_\-]+$
+    :visibility: public
     """
     if not pattern:
         pattern = r"^[a-zA-Z0-9_\-]+$"
