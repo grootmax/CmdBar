@@ -1,0 +1,14 @@
+{
+  "targets": {
+    "public": {
+      "sources": ["docs/public"],
+      "exclude": ["docs/developer", "docs/brainstorming"],
+      "output": "build/public"
+    },
+    "developer": {
+      "sources": ["docs/developer"],
+      "exclude": ["docs/brainstorming"],
+      "output": "build/developer"
+    }
+  }
+}
