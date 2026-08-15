@@ -93,8 +93,7 @@ export async function writeConfigAtomically(targetPath, data) {
 }
 
 /**
- * Parses stdout from env command into an array of environment variables.
- * Filters out invalid lines.
+ * Parses environment variables from stdout.
  * @param {string} stdout
  * @returns {string[]}
  */
@@ -103,94 +102,72 @@ export function parseEnv(stdout) {
         return [];
     }
     return stdout.split('\n')
+        .map(line => line.trim())
         .filter(line => line.includes('='));
 }
 
 /**
- * Tokenizes a command line string into arguments.
- * Uses native GLib.shell_parse_argv when available, falls back to JS simulation.
- * @param {string} commandLine
+ * Parses a command template string into an array of tokenized argument strings,
+ * handling single/double quotes and backslash escapes properly.
+ * @param {string} commandTemplate
  * @returns {string[]}
  */
-export function tokenizeCommand(commandLine) {
-    if (!commandLine || typeof commandLine !== 'string') {
+export function tokenizeCommand(commandTemplate) {
+    if (!commandTemplate || typeof commandTemplate !== 'string') {
         return [];
     }
-
-    if (GLib && typeof GLib.shell_parse_argv === 'function') {
-        try {
-            const [ok, argv] = GLib.shell_parse_argv(commandLine);
-            if (ok) {
-                return argv;
-            }
-        } catch (e) {
-            // Fall through to JS-based parser
-        }
-    }
-
-    // JS fallback tokenizer
-    const result = [];
+    const args = [];
     let current = '';
     let inDoubleQuotes = false;
     let inSingleQuotes = false;
     let escaped = false;
-    let hasToken = false;
 
-    for (let i = 0; i < commandLine.length; i++) {
-        const char = commandLine[i];
+    for (let i = 0; i < commandTemplate.length; i++) {
+        const char = commandTemplate[i];
 
         if (escaped) {
             current += char;
             escaped = false;
-            hasToken = true;
-        } else if (char === '\\') {
-            if (inSingleQuotes) {
-                current += char;
-            } else {
-                escaped = true;
-            }
-            hasToken = true;
-        } else if (char === '"') {
-            if (inSingleQuotes) {
-                current += char;
-            } else {
-                inDoubleQuotes = !inDoubleQuotes;
-                hasToken = true;
-            }
-        } else if (char === "'") {
-            if (inDoubleQuotes) {
-                current += char;
-            } else {
-                inSingleQuotes = !inSingleQuotes;
-                hasToken = true;
-            }
-        } else if (/\s/.test(char)) {
+            continue;
+        }
+
+        if (char === '\\' && !inSingleQuotes) {
+            escaped = true;
+            continue;
+        }
+
+        if (char === '"' && !inSingleQuotes) {
+            inDoubleQuotes = !inDoubleQuotes;
+            continue;
+        }
+
+        if (char === "'" && !inDoubleQuotes) {
+            inSingleQuotes = !inSingleQuotes;
+            continue;
+        }
+
+        if (char === ' ' || char === '\t' || char === '\r' || char === '\n') {
             if (inDoubleQuotes || inSingleQuotes) {
                 current += char;
-                hasToken = true;
-            } else {
-                if (hasToken || current.length > 0) {
-                    result.push(current);
-                    current = '';
-                    hasToken = false;
-                }
+            } else if (current.length > 0) {
+                args.push(current);
+                current = '';
             }
         } else {
             current += char;
-            hasToken = true;
         }
     }
 
-    if (hasToken || current.length > 0) {
-        result.push(current);
+    if (current.length > 0) {
+        args.push(current);
     }
 
-    return result;
+    return args;
 }
 
 /**
- * Extracts placeholders from a command template string.
- * Supports <placeholder> and {{placeholder}}.
+ * Extracts all placeholders (e.g., <parameter-name> or {{parameter-name}})
+ * from the command template.
  * @param {string} commandTemplate
  * @returns {string[]}
  */
@@ -198,31 +175,46 @@ export function getPlaceholders(commandTemplate) {
     if (!commandTemplate || typeof commandTemplate !== 'string') {
         return [];
     }
-
-    const regex = /<[^>]+>|\{\{[^}]+\}\}/g;
-    const matches = commandTemplate.match(regex);
-    return matches ? matches : [];
+    const angleRegex = /<([^>]+)>/g;
+    const curlyRegex = /\{\{([^}]+)\}\}/g;
+    const matches = [];
+    
+    let match;
+    while ((match = angleRegex.exec(commandTemplate)) !== null) {
+        if (!matches.includes(match[0])) {
+            matches.push(match[0]);
+        }
+    }
+    while ((match = curlyRegex.exec(commandTemplate)) !== null) {
+        if (!matches.includes(match[0])) {
+            matches.push(match[0]);
+        }
+    }
+    return matches;
 }
 
 /**
- * Substitutes keys inside mapped placeholder object.
+ * Substitutes mapping values into a tokenized argument list.
  * @param {string[]} tokens
- * @param {object} placeholderMap
+ * @param {Object.<string, string>} placeholderMap
  * @returns {string[]}
  */
 export function substituteTokens(tokens, placeholderMap) {
-    if (!Array.isArray(tokens)) {
+    if (!tokens || !Array.isArray(tokens)) {
         return [];
     }
     if (!placeholderMap || typeof placeholderMap !== 'object') {
-        return tokens;
+        return [...tokens];
     }
-
     return tokens.map(token => {
-        if (placeholderMap.hasOwnProperty(token)) {
-            return placeholderMap[token];
+        let substituted = token;
+        for (const [placeholder, val] of Object.entries(placeholderMap)) {
+            const cleanVal = val !== undefined && val !== null ? String(val) : '';
+            const escapedPlaceholder = placeholder.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+            const regex = new RegExp(escapedPlaceholder, 'g');
+            substituted = substituted.replace(regex, cleanVal);
         }
-        return token;
+        return substituted;
     });
 }
 
