@@ -5,7 +5,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 import { St, Clutter, Gio, GLib, GObject } from 'gi';
 
-import { validateInput, substituteCommand, hasPlaceholder } from './commandProcessor.js';
+import { validateInput, substituteCommand, hasPlaceholder, tokenizeCommand, substituteTokens, parseEnv } from './commandProcessor.js';
 import { loadConfig } from './configSync.js';
 
 /**
@@ -105,6 +105,33 @@ function _executeCommandAsync(commandLineString) {
         Main.notify("Command Execution Failed", `Failed to start command: ${e.message}`);
     }
 }
+
+/**
+ * Harvest environment asynchronously on startup using env command.
+ */
+function harvestEnvironment() {
+    try {
+        let proc = Gio.Subprocess.new(
+            ['/usr/bin/env'],
+            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+        );
+
+        proc.communicate_utf8_async(null, null, (subprocess, result) => {
+            try {
+                let [success, stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                if (success && subprocess.get_successful()) {
+                    let envLines = parseEnv(stdout);
+                    // Environment harvested successfully
+                }
+            } catch (err) {
+                console.error(`CmdBar: error harvesting environment: ${err.message}`);
+            }
+        });
+    } catch (e) {
+        console.error(`CmdBar: failed to spawn env: ${e.message}`);
+    }
+}
+
 
 // Custom menu item with an inline text entry for commands that have placeholders
 const CommandInputMenuItem = GObject.registerClass(
@@ -360,71 +387,8 @@ class CmdBarIndicator extends PanelMenu.Button {
             let extensionPath = this._extension.path.get_path();
             let config = await loadConfig(configPath, extensionPath);
 
-            // Rebuild the menu dynamically
-            this.menu.removeAll();
-
-            if (!config || !config.categories || config.categories.length === 0) {
-                let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
-                this.menu.addMenuItem(infoItem);
-                return;
-            }
-
-        // Try reading configuration
-        if (file.query_exists(null)) {
-            try {
-                let [success, contents] = file.load_contents(null);
-                if (success) {
-                    let decoder = new TextDecoder('utf-8');
-                    let jsonString = decoder.decode(contents);
-                    let parsed = JSON.parse(jsonString);
-                    if (parsed && parsed.categories && Array.isArray(parsed.categories)) {
-                        this._cachedConfig = parsed;
-                        return parsed;
-                    } else {
-                        console.error(`CmdBar: invalid config structure, 'categories' must be an array`);
-                    }
-                }
-            } catch (e) {
-                console.error(`CmdBar: failed to parse config file: ${e.message}`);
-            }
-        }
-
-        // Retain the last successfully loaded configuration in memory to use as a fallback when new edits are unparseable
-        if (this._cachedConfig) {
-            console.warn(`CmdBar: loading fallback configuration due to parsing/structure error.`);
-            return this._cachedConfig;
-        }
-
-        // Robust Fallback: load default commands directly from extension package
-        try {
-            let defaultFile = Gio.File.new_for_path(
-                GLib.build_filenamev([this._extension.path.get_path(), 'commands.json'])
-            );
-            if (defaultFile.query_exists(null)) {
-                let [success, contents] = defaultFile.load_contents(null);
-                if (success) {
-                    let decoder = new TextDecoder('utf-8');
-                    let jsonString = decoder.decode(contents);
-                    let defaultConfig = JSON.parse(jsonString);
-                    if (defaultConfig && defaultConfig.categories && Array.isArray(defaultConfig.categories)) {
-                        this._cachedConfig = defaultConfig;
-                        return defaultConfig;
-                    }
-                }
-            });
-        } catch (e) {
-            console.error(`CmdBar: fallback parsing failed: ${e.message}`);
-        }
-
-        return { categories: [] };
-    }
-
-    _reloadMenu() {
-        try {
             // Clear all current items in menu
             this.menu.removeAll();
-
-            let config = this._loadConfig();
 
             if (!config || !config.categories || config.categories.length === 0) {
                 let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
@@ -444,10 +408,10 @@ class CmdBarIndicator extends PanelMenu.Button {
                     category.commands.forEach(cmd => {
                         if (hasPlaceholder(cmd.command)) {
                             // Commands requiring text inputs (Requirement 1 & 2)
-                            this.menu.addMenuItem(new CommandInputMenuItem(cmd.name, cmd.command, cmd.placeholder));
+                            this.menu.addMenuItem(new CommandInputMenuItem(this, cmd.name, cmd.command, cmd.placeholder));
                         } else {
                             // Ordinary parameterless commands
-                            this.menu.addMenuItem(new CommandMenuItem(cmd.name, cmd.command));
+                            this.menu.addMenuItem(new CommandMenuItem(this, cmd.name, cmd.command));
                         }
                     });
                 }

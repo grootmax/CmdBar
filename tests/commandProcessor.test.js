@@ -1,4 +1,4 @@
-import { validateInput, hasPlaceholder, substituteCommand, parseEnv } from '../extension/commandProcessor.js';
+import { validateInput, hasPlaceholder, substituteCommand, parseEnv, tokenizeCommand, getPlaceholders, substituteTokens } from '../extension/commandProcessor.js';
 
 describe('CmdBar Extension Core Unit Tests', () => {
     
