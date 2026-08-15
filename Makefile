@@ -3,13 +3,15 @@
 UUID = cmdbar@yourdomain.com
 EXTENSION_DIR = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
 
-.PHONY: install uninstall test compile-schemas help
+.PHONY: install uninstall test compile-schemas help compile serve
 
 help:
 	@echo "Available commands:"
 	@echo "  make install     - Install the extension locally"
 	@echo "  make uninstall   - Uninstall the local extension"
 	@echo "  make test        - Run the test suite"
+	@echo "  make compile     - Compile public and developer HTML targets"
+	@echo "  make serve       - Start local live-reload documentation server"
 
 compile-schemas:
 	@echo "Compiling GSettings schemas..."
@@ -29,3 +31,9 @@ uninstall:
 
 test:
 	npm run test
+
+compile:
+	python3 scripts/compile_docs.py
+
+serve:
+	python3 scripts/serve_docs.py

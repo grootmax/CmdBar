@@ -79,26 +79,31 @@ export async function writeConfigAtomically(targetPath, data) {
 }
 
 /**
- * Parses environment variables from the output of an environment command.
+ * Parses environment variables from stdout.
  * @param {string} stdout
  * @returns {string[]}
  */
 export function parseEnv(stdout) {
-    if (!stdout) return [];
+    if (!stdout || typeof stdout !== 'string') {
+        return [];
+    }
     return stdout.split('\n')
         .map(line => line.trim())
         .filter(line => line.includes('='));
 }
 
 /**
- * Tokenizes a command template, respecting quotes and backslash escapes.
+ * Parses a command template string into an array of tokenized argument strings,
+ * handling single/double quotes and backslash escapes properly.
  * @param {string} commandTemplate
  * @returns {string[]}
  */
 export function tokenizeCommand(commandTemplate) {
-    if (!commandTemplate) return [];
-    const tokens = [];
-    let currentToken = '';
+    if (!commandTemplate || typeof commandTemplate !== 'string') {
+        return [];
+    }
+    const args = [];
+    let current = '';
     let inDoubleQuotes = false;
     let inSingleQuotes = false;
     let escaped = false;
@@ -107,17 +112,13 @@ export function tokenizeCommand(commandTemplate) {
         const char = commandTemplate[i];
 
         if (escaped) {
-            currentToken += char;
+            current += char;
             escaped = false;
             continue;
         }
 
-        if (char === '\\') {
-            if (inSingleQuotes) {
-                currentToken += char;
-            } else {
-                escaped = true;
-            }
+        if (char === '\\' && !inSingleQuotes) {
+            escaped = true;
             continue;
         }
 
@@ -131,50 +132,75 @@ export function tokenizeCommand(commandTemplate) {
             continue;
         }
 
-        if ((char === ' ' || char === '\t' || char === '\n' || char === '\r') && !inDoubleQuotes && !inSingleQuotes) {
-            if (currentToken.length > 0) {
-                tokens.push(currentToken);
-                currentToken = '';
+        if (char === ' ' || char === '\t' || char === '\r' || char === '\n') {
+            if (inDoubleQuotes || inSingleQuotes) {
+                current += char;
+            } else if (current.length > 0) {
+                args.push(current);
+                current = '';
             }
-            continue;
+        } else {
+            current += char;
         }
-
-        currentToken += char;
     }
 
-    if (currentToken.length > 0) {
-        tokens.push(currentToken);
+    if (current.length > 0) {
+        args.push(current);
     }
 
-    return tokens;
+    return args;
 }
 
 /**
- * Extracts placeholders from a command template.
+ * Extracts all placeholders (e.g., <parameter-name> or {{parameter-name}})
+ * from the command template.
  * @param {string} commandTemplate
  * @returns {string[]}
  */
 export function getPlaceholders(commandTemplate) {
-    if (!commandTemplate) return [];
-    const regex = /<[^>]+>|\{\{[^}]+\}\}/g;
-    const matches = commandTemplate.match(regex);
-    return matches ? Array.from(matches) : [];
+    if (!commandTemplate || typeof commandTemplate !== 'string') {
+        return [];
+    }
+    const angleRegex = /<([^>]+)>/g;
+    const curlyRegex = /\{\{([^}]+)\}\}/g;
+    const matches = [];
+    
+    let match;
+    while ((match = angleRegex.exec(commandTemplate)) !== null) {
+        if (!matches.includes(match[0])) {
+            matches.push(match[0]);
+        }
+    }
+    while ((match = curlyRegex.exec(commandTemplate)) !== null) {
+        if (!matches.includes(match[0])) {
+            matches.push(match[0]);
+        }
+    }
+    return matches;
 }
 
 /**
- * Substitutes matched placeholder tokens with mapping values.
+ * Substitutes mapping values into a tokenized argument list.
  * @param {string[]} tokens
- * @param {object} placeholderMap
+ * @param {Object.<string, string>} placeholderMap
  * @returns {string[]}
  */
 export function substituteTokens(tokens, placeholderMap) {
-    if (!tokens) return [];
-    if (!placeholderMap) return tokens;
+    if (!tokens || !Array.isArray(tokens)) {
+        return [];
+    }
+    if (!placeholderMap || typeof placeholderMap !== 'object') {
+        return [...tokens];
+    }
     return tokens.map(token => {
-        if (token in placeholderMap) {
-            return placeholderMap[token];
+        let substituted = token;
+        for (const [placeholder, val] of Object.entries(placeholderMap)) {
+            const cleanVal = val !== undefined && val !== null ? String(val) : '';
+            const escapedPlaceholder = placeholder.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+            const regex = new RegExp(escapedPlaceholder, 'g');
+            substituted = substituted.replace(regex, cleanVal);
         }
-        return token;
+        return substituted;
     });
 }
 
