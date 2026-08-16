@@ -74,16 +74,25 @@ def validate_parameter_value(value, parameter_schema):
     forbidden = [';', '&&', '||', '|', '&', '`', '$', '(', ')', '>', '<']
     for f in forbidden:
         if f in value:
-            return False, f"Input contains forbidden characters like '{f}'!"
+            err = f"Input contains forbidden characters like '{f}'!"
+            if parameter_schema.get("secure", False) and value:
+                err = err.replace(value, "[REDACTED]")
+            return False, err
             
     # 2. Check regex validation if any
     regex_pattern = parameter_schema.get("regex")
     if regex_pattern:
         try:
             if not re.match(regex_pattern, value):
-                return False, parameter_schema.get("error_message") or "Invalid input format!"
+                err = parameter_schema.get("error_message") or "Invalid input format!"
+                if parameter_schema.get("secure", False) and value:
+                    err = err.replace(value, "[REDACTED]")
+                return False, err
         except Exception as e:
-            return False, f"Invalid regex pattern: {e}"
+            err = f"Invalid regex pattern: {e}"
+            if parameter_schema.get("secure", False) and value:
+                err = err.replace(value, "[REDACTED]")
+            return False, err
             
     return True, None
 
@@ -103,12 +112,23 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
         if not is_valid:
             errors[name] = err_msg
             
+    # We should mask secure parameter values *only* for the preview substitution.
+    # The actual validation must have already run on the plain-text value.
+    preview_values = {}
+    for param in parameters_schema:
+        name = param.get("name")
+        val = parameter_values.get(name, "")
+        if param.get("secure", False):
+            preview_values[name] = "*" * len(val) if val else ""
+        else:
+            preview_values[name] = val
+
     if mode == "shell-quoted":
         # Substitution with shell quoting
         resolved = command_template
         for param in parameters_schema:
             name = param.get("name")
-            val = parameter_values.get(name, "")
+            val = preview_values.get(name, "")
             # Quote the value safely
             quoted_val = shlex.quote(val)
             resolved = resolved.replace(f"<{name}>", quoted_val)
@@ -124,7 +144,7 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
         for part in parts:
             for param in parameters_schema:
                 name = param.get("name")
-                val = parameter_values.get(name, "")
+                val = preview_values.get(name, "")
                 part = part.replace(f"<{name}>", val)
             resolved_parts.append(part)
             

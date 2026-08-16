@@ -65,3 +65,30 @@ def test_resolve_command_preview_direct_array():
     assert "world" in resolved
     assert "Args List:" in resolved
     assert '["/usr/bin/echo", "Hello", "world"]' in resolved
+
+def test_validate_parameter_value_secure_redaction():
+    schema = {
+        "name": "password",
+        "regex": "^[a-zA-Z0-9]+$",
+        "secure": True,
+        "error_message": "Invalid password!"
+    }
+    # Test forbidden character check redaction
+    is_valid, err_msg = validate_parameter_value("my;password", schema)
+    assert not is_valid
+    assert "my;password" not in err_msg
+    
+    # Test regex mismatch error redaction
+    is_valid, err_msg = validate_parameter_value("my_password", schema)
+    assert not is_valid
+    assert "my_password" not in err_msg
+
+def test_resolve_command_preview_secure_masking():
+    template = "login -p <password>"
+    schema = [
+        {"name": "password", "regex": "^[a-zA-Z0-9]+$", "secure": True}
+    ]
+    resolved, errors = resolve_command_preview(template, "shell-quoted", {"password": "secretPassword"}, schema)
+    assert resolved == "login -p '**************'"
+    assert "secretPassword" not in resolved
+    assert not errors

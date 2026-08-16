@@ -350,6 +350,12 @@ class CmdBarWindow(Adw.ApplicationWindow):
             err_entry.connect("changed", self._on_param_err_msg_changed, p_idx)
             row_box.append(err_entry)
 
+            # Secure Checkbox
+            secure_check = Gtk.CheckButton(label="Secure")
+            secure_check.set_active(param.get("secure", False))
+            secure_check.connect("toggled", self._on_param_secure_toggled, p_idx)
+            row_box.append(secure_check)
+
             # Delete Button
             del_btn = Gtk.Button(icon_name="edit-delete-symbolic")
             del_btn.add_css_class("destructive-action")
@@ -380,6 +386,8 @@ class CmdBarWindow(Adw.ApplicationWindow):
             
             input_row = Adw.EntryRow()
             input_row.set_title(f"Sample '{p_name}' value")
+            if param.get("secure", False):
+                input_row.set_visibility(False)
             input_row.connect("changed", self._on_sample_input_changed, p_name)
             self.preview_group.add(input_row)
             self.app.sample_inputs[p_name] = input_row
@@ -493,6 +501,12 @@ class CmdBarWindow(Adw.ApplicationWindow):
         s_idx = self.app.selected_shortcut_idx
         self.app.config["categories"][c_idx]["shortcuts"][s_idx]["parameters"][p_idx]["error_message"] = entry.get_text().strip()
         self._update_live_preview()
+
+    def _on_param_secure_toggled(self, check, p_idx):
+        c_idx = self.app.selected_category_idx
+        s_idx = self.app.selected_shortcut_idx
+        self.app.config["categories"][c_idx]["shortcuts"][s_idx]["parameters"][p_idx]["secure"] = check.get_active()
+        self._render_test_preview_section()
 
     # --- Button & Menu Click Handlers ---
     def _on_add_category_clicked(self, btn):
