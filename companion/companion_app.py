@@ -265,9 +265,6 @@ def add_command(config_data):
             param_cfg["placeholder"] = placeholder_text
         if regex_pattern:
             param_cfg["regex"] = regex_pattern
-        is_secure = input(f"Is parameter {{{ph}}} secure (y/N)? ").strip().lower() == 'y'
-        if is_secure:
-            param_cfg["secure"] = True
         
         parameters[ph] = param_cfg
         
@@ -336,15 +333,6 @@ def edit_command(config_data):
                 param_cfg.pop("placeholder", None)
             if not param_cfg["regex"]:
                 param_cfg.pop("regex", None)
-                
-            old_secure = old_cfg.get('secure', False)
-            secure_input = input(f"Is parameter {{{ph}}} secure (y/N) [{ 'y' if old_secure else 'n' }]: ").strip().lower()
-            if secure_input:
-                is_secure = (secure_input == 'y')
-            else:
-                is_secure = old_secure
-            if is_secure:
-                param_cfg["secure"] = True
                 
             new_params[ph] = param_cfg
         cmd['parameters'] = new_params
@@ -431,28 +419,19 @@ def test_run_command_flow(config_data):
     print(f"\n--- Testing Command: {cmd['name']} ---")
     print(f"Template: {template}")
     
-    sensitive_values = []
     for ph in placeholders:
         param_cfg = cmd.get("parameters", {}).get(ph, {})
         regex_pattern = param_cfg.get("regex")
         placeholder_text = param_cfg.get("placeholder", f"Enter value for {ph}")
-        is_secure = param_cfg.get("secure", False)
         
         while True:
-            if is_secure:
-                import getpass
-                val = getpass.getpass(f"{ph} ({placeholder_text}): ")
-            else:
-                val = input(f"{ph} ({placeholder_text}): ")
+            val = input(f"{ph} ({placeholder_text}): ")
             if validate_input(val, regex_pattern):
                 params_data[ph] = val
-                if is_secure:
-                    sensitive_values.append(val)
                 break
             else:
                 p = regex_pattern if regex_pattern else r"^[a-zA-Z0-9_\-]+$"
-                reported_val = "[REDACTED]" if is_secure else val
-                print(f"Error: Input '{reported_val}' violates validation regex '{p}'. Execution blocked.")
+                print(f"Error: Input '{val}' violates validation regex '{p}'. Execution blocked.")
                 retry = input("Do you want to retry? [Y/n]: ").strip().lower()
                 if retry == "n":
                     print("Test execution cancelled.")
@@ -460,18 +439,8 @@ def test_run_command_flow(config_data):
 
     # Substitute and quote
     final_command = substitute_and_quote_command(template, params_data)
-    
-    # Redact helper
-    def redact(text):
-        if not text:
-            return text
-        for sv in sensitive_values:
-            if sv:
-                text = text.replace(sv, "[REDACTED]")
-        return text
-
     print(f"\nFinal Constructed Shell Command:")
-    print(f"  {redact(final_command)}")
+    print(f"  {final_command}")
     
     run_now = input("\nDo you want to execute this command now? [Y/n]: ").strip().lower()
     if run_now != "n":
@@ -479,9 +448,9 @@ def test_run_command_flow(config_data):
         code, stdout, stderr = run_command_in_shell(final_command)
         print(f"Exit Code: {code}")
         if stdout:
-            print(f"--- Standard Output ---\n{redact(stdout)}")
+            print(f"--- Standard Output ---\n{stdout}")
         if stderr:
-            print(f"--- Standard Error ---\n{redact(stderr)}")
+            print(f"--- Standard Error ---\n{stderr}")
 
 
 # =====================================================================
@@ -497,6 +466,8 @@ if GUI_AVAILABLE:
             self.placeholders = find_placeholders(command['template'])
             self.entries = {}
             self.warning_labels = {}
+            self.proc = None
+            self.cancellable = None
             
             self.set_default_size(450, 300)
             
@@ -525,8 +496,6 @@ if GUI_AVAILABLE:
                 inputs_grid.attach(lbl, 0, i, 1, 1)
                 
                 entry = Gtk.Entry(placeholder_text=placeholder_text)
-                if param_cfg.get("secure", False):
-                    entry.set_visibility(False)
                 inputs_grid.attach(entry, 1, i, 1, 1)
                 self.entries[ph] = entry
                 
@@ -549,9 +518,15 @@ if GUI_AVAILABLE:
             self.run_btn.connect("clicked", self.on_run_clicked)
             btn_box.append(self.run_btn)
             
-            cancel_btn = Gtk.Button(label="Cancel")
-            cancel_btn.connect("clicked", lambda b: self.destroy())
-            btn_box.append(cancel_btn)
+            self.cancel_test_btn = Gtk.Button(label="Cancel")
+            self.cancel_test_btn.add_css_class("destructive-action")
+            self.cancel_test_btn.connect("clicked", self.on_cancel_test_clicked)
+            self.cancel_test_btn.set_visible(False)
+            btn_box.append(self.cancel_test_btn)
+            
+            close_btn = Gtk.Button(label="Close")
+            close_btn.connect("clicked", lambda b: self.destroy())
+            btn_box.append(close_btn)
             
             # Terminal output log
             self.output_view = Gtk.TextView(editable=False, cursor_visible=False)
@@ -560,6 +535,7 @@ if GUI_AVAILABLE:
             scroll.set_child(self.output_view)
             main_box.append(scroll)
             
+            self.connect("destroy", self.on_destroy)
             self.validate_all()
             
         def validate_all(self, *args):
@@ -580,7 +556,7 @@ if GUI_AVAILABLE:
                 else:
                     warn_lbl.set_text("")
                     
-            self.run_btn.set_sensitive(all_valid)
+            self.run_btn.set_sensitive(all_valid and self.proc is None)
             return all_valid
             
         def on_run_clicked(self, btn):
@@ -588,37 +564,93 @@ if GUI_AVAILABLE:
                 return
             
             params_data = {ph: self.entries[ph].get_text() for ph in self.placeholders}
-            
-            sensitive_values = []
-            for ph in self.placeholders:
-                param_cfg = self.command.get("parameters", {}).get(ph, {})
-                if param_cfg.get("secure", False):
-                    sensitive_values.append(params_data[ph])
-            
             final_cmd = substitute_and_quote_command(self.command['template'], params_data)
             
-            # Redact helper
-            def redact(text):
-                if not text:
-                    return text
-                for sv in sensitive_values:
-                    if sv:
-                        text = text.replace(sv, "[REDACTED]")
-                return text
-
             # Print construction & execution log
             buffer = self.output_view.get_buffer()
-            buffer.set_text(f"Constructed Command:\n{redact(final_cmd)}\n\nRunning in shell...\n")
+            buffer.set_text(f"Constructed Command:\n{final_cmd}\n\nRunning in shell...\n")
             
-            code, stdout, stderr = run_command_in_shell(final_cmd)
+            try:
+                self.cancellable = Gio.Cancellable()
+                try:
+                    self.proc = Gio.Subprocess.new(
+                        ['setsid', 'sh', '-c', final_cmd],
+                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                    )
+                except Exception:
+                    self.proc = Gio.Subprocess.new(
+                        ['sh', '-c', final_cmd],
+                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                    )
+                
+                self.run_btn.set_visible(False)
+                self.cancel_test_btn.set_visible(True)
+                self.cancel_test_btn.set_sensitive(True)
+                
+                self.proc.communicate_utf8_async(None, self.cancellable, self.on_communicate_complete)
+            except Exception as e:
+                buffer.insert(buffer.get_end_iter(), f"\nFailed to start execution: {str(e)}\n")
+                self.proc = None
+                self.cancellable = None
+                self.run_btn.set_visible(True)
+                self.cancel_test_btn.set_visible(False)
+                self.validate_all()
+                
+        def on_cancel_test_clicked(self, btn):
+            self.stop_running_process()
             
-            log_text = f"Exit Code: {code}\n"
-            if stdout:
-                log_text += f"\n--- Output ---\n{redact(stdout)}"
-            if stderr:
-                log_text += f"\n--- Error Output ---\n{redact(stderr)}"
+        def on_communicate_complete(self, proc, result):
+            try:
+                success, stdout, stderr = proc.communicate_utf8_finish(result)
+                code = proc.get_exit_status()
+                log_text = f"Exit Code: {code}\n"
+                if stdout:
+                    log_text += f"\n--- Output ---\n{stdout}"
+                if stderr:
+                    log_text += f"\n--- Error Output ---\n{stderr}"
+            except GLib.GError as e:
+                if e.matches(Gio.io_error_quark(), Gio.IOErrorEnum.CANCELLED):
+                    log_text = "\nExecution Cancelled.\n"
+                else:
+                    log_text = f"\nError: {e.message}\n"
+            except Exception as e:
+                log_text = f"\nException occurred during execution: {str(e)}\n"
+                
+            try:
+                buffer = self.output_view.get_buffer()
+                buffer.insert(buffer.get_end_iter(), log_text)
+                
+                # Reset UI state
+                self.proc = None
+                self.cancellable = None
+                self.cancel_test_btn.set_visible(False)
+                self.run_btn.set_visible(True)
+                self.validate_all()
+            except Exception:
+                pass
+                
+        def stop_running_process(self):
+            if self.cancellable and not self.cancellable.is_cancelled():
+                try:
+                    self.cancellable.cancel()
+                except Exception:
+                    pass
+            if self.proc:
+                try:
+                    pid = int(self.proc.get_identifier())
+                    import os, signal
+                    os.killpg(pid, signal.SIGTERM)
+                except Exception:
+                    pass
+                try:
+                    self.proc.force_exit()
+                except Exception:
+                    pass
+            self.proc = None
+            self.cancellable = None
             
-            buffer.insert(buffer.get_end_iter(), log_text)
+        def on_destroy(self, *args):
+            self.stop_running_process()
 
 
     class CmdBarAppWindow(Adw.ApplicationWindow):
@@ -759,12 +791,6 @@ if GUI_AVAILABLE:
                 reg_entry._ph = ph
                 reg_entry.connect("changed", self.on_param_regex_changed)
                 p_box.append(reg_entry)
-
-                secure_check = Gtk.CheckButton(label="Secure")
-                secure_check.set_active(params.get(ph, {}).get("secure", False))
-                secure_check._ph = ph
-                secure_check.connect("toggled", self.on_param_secure_toggled)
-                p_box.append(secure_check)
                 
                 self.params_box.append(p_box)
                 
@@ -778,14 +804,6 @@ if GUI_AVAILABLE:
                 params[ph]["regex"] = val
             else:
                 params[ph].pop("regex", None)
-
-        def on_param_secure_toggled(self, check):
-            ph = check._ph
-            val = check.get_active()
-            params = self.selected_cmd.setdefault("parameters", {})
-            if ph not in params:
-                params[ph] = {}
-            params[ph]["secure"] = val
                 
         def on_save_clicked(self, btn):
             if not self.selected_cmd:
