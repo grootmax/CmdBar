@@ -7,7 +7,7 @@ DEFAULT_CONFIG = {
   "categories": [
     {
       "name": "System Utilities",
-      "shortcuts": [
+      "commands": [
         {
           "name": "Ping Host",
           "command": "ping -c 3 <host>",
@@ -47,12 +47,69 @@ def load_config(path=None):
     
     if not os.path.exists(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        # Fallback & migrate legacy commands.json if it exists
+        legacy_path = os.path.join(os.path.dirname(path), "commands.json")
+        if os.path.exists(legacy_path):
+            try:
+                with open(legacy_path, "r") as f:
+                    legacy_config = json.load(f)
+                # Convert shortcuts to commands if present
+                for cat in legacy_config.get("categories", []):
+                    if "shortcuts" in cat:
+                        if "commands" not in cat:
+                            cat["commands"] = cat.pop("shortcuts")
+                        else:
+                            del cat["shortcuts"]
+                # Save as new unified config.json
+                save_config(legacy_config, path)
+                try:
+                    os.remove(legacy_path)
+                except Exception:
+                    pass
+                return legacy_config
+            except Exception:
+                pass
+        
+        # Otherwise, save & return DEFAULT_CONFIG
         save_config(DEFAULT_CONFIG, path)
         return DEFAULT_CONFIG
     
     try:
         with open(path, "r") as f:
-            return json.load(f)
+            config_data = json.load(f)
+        
+        # Normalize and migrate loaded configuration
+        migrated = False
+        for cat in config_data.get("categories", []):
+            # Migrate shortcuts to commands
+            if "shortcuts" in cat:
+                if "commands" not in cat:
+                    cat["commands"] = cat["shortcuts"]
+                del cat["shortcuts"]
+                migrated = True
+                
+            if "commands" in cat:
+                for cmd in cat["commands"]:
+                    # Support CLI Companion file loading without data structure mismatches
+                    if "template" in cmd and "command" not in cmd:
+                        cmd["command"] = cmd["template"]
+                        migrated = True
+                    if "parameters" in cmd and isinstance(cmd["parameters"], dict):
+                        params_list = []
+                        for param_name, param_cfg in cmd["parameters"].items():
+                            p_dict = {"name": param_name}
+                            if "regex" in param_cfg:
+                                p_dict["regex"] = param_cfg["regex"]
+                            if "placeholder" in param_cfg:
+                                p_dict["placeholder"] = param_cfg["placeholder"]
+                            params_list.append(p_dict)
+                        cmd["parameters"] = params_list
+                        migrated = True
+                        
+        if migrated:
+            save_config(config_data, path)
+            
+        return config_data
     except Exception:
         # Fallback to default if corrupt
         return DEFAULT_CONFIG

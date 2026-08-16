@@ -75,10 +75,46 @@ def load_config():
     config_path = init_config()
     try:
         with open(config_path, "r") as f:
-            return json.load(f)
+            config_data = json.load(f)
     except (json.JSONDecodeError, OSError) as e:
         print(f"Error loading configuration: {e}", file=sys.stderr)
         return {"categories": []}
+
+    # Normalize config_data for CLI companion compatibility
+    migrated = False
+    for cat in config_data.get("categories", []):
+        # Convert legacy "shortcuts" to "commands"
+        if "shortcuts" in cat:
+            if "commands" not in cat:
+                cat["commands"] = cat["shortcuts"]
+            del cat["shortcuts"]
+            migrated = True
+
+        if "commands" in cat:
+            for cmd in cat["commands"]:
+                # Translate "command" -> "template"
+                if "command" in cmd and "template" not in cmd:
+                    cmd["template"] = cmd["command"]
+                    migrated = True
+                # Translate "parameters" list of dicts -> dict
+                if "parameters" in cmd and isinstance(cmd["parameters"], list):
+                    params_dict = {}
+                    for p in cmd["parameters"]:
+                        p_name = p.get("name")
+                        if p_name:
+                            p_cfg = {}
+                            if "regex" in p:
+                                p_cfg["regex"] = p["regex"]
+                            if "placeholder" in p:
+                                p_cfg["placeholder"] = p["placeholder"]
+                            params_dict[p_name] = p_cfg
+                    cmd["parameters"] = params_dict
+                    migrated = True
+
+    if migrated:
+        save_config(config_data)
+
+    return config_data
 
 
 def save_config(config_data):

@@ -16,7 +16,7 @@ export function getConfigDir() {
  * @public
  */
 export function getConfigPath() {
-    return path.join(getConfigDir(), 'commands.json');
+    return path.join(getConfigDir(), 'config.json');
 }
 
 /**

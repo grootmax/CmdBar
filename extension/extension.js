@@ -410,7 +410,7 @@ class CmdBarIndicator extends PanelMenu.Button {
     }
 
     _getConfigPath() {
-        return GLib.build_filenamev([GLib.get_user_config_dir(), 'cmdbar', 'commands.json']);
+        return GLib.build_filenamev([GLib.get_user_config_dir(), 'cmdbar', 'config.json']);
     }
 
     async _reloadMenu() {

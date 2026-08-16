@@ -30,7 +30,7 @@ try {
 
     // 4. Atomic Persistence Tests (Sync & Async)
     const tempDir = path.join(os.tmpdir(), `cmdbar-standalone-test-${Date.now()}`);
-    const tempFile = path.join(tempDir, 'commands.json');
+    const tempFile = path.join(tempDir, 'config.json');
 
     // Synchronous write test
     const testDataSync = { val: 'sync-data' };
