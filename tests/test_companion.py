@@ -181,3 +181,63 @@ def test_execution_security_and_correctness():
     code, out, err = run_command_in_shell(cmd_pipe)
     assert code == 0
     assert out.strip() == "hello | echo INJECTED_PIPE"
+
+
+def test_test_command_dialog_async_and_cancellation():
+    import signal
+    from unittest.mock import MagicMock, patch
+    from companion.companion_app import TestCommandDialog, Gio, Gtk
+
+    command = {
+        "name": "Test Echo",
+        "template": "echo {msg}",
+        "parameters": {
+            "msg": {
+                "placeholder": "Enter message"
+            }
+        }
+    }
+
+    mock_proc = MagicMock()
+    mock_proc.get_identifier.return_value = "12345"
+
+    mock_cancellable = MagicMock()
+    mock_cancellable.is_cancelled.return_value = False
+
+    # Mock Gio.Subprocess.new and Gio.Cancellable directly on the imported Gio mock
+    old_subproc_new = Gio.Subprocess.new
+    old_cancellable = Gio.Cancellable
+    Gio.Subprocess.new = MagicMock(return_value=mock_proc)
+    Gio.Cancellable = MagicMock(return_value=mock_cancellable)
+
+    # Mock Gtk.Entry to avoid GError / validate_input exception on mock objects
+    old_entry = Gtk.Entry
+    mock_entry = MagicMock()
+    mock_entry.get_text.return_value = "hello"
+    Gtk.Entry = MagicMock(return_value=mock_entry)
+
+    try:
+        with patch("os.killpg") as mock_killpg:
+            dialog = TestCommandDialog(None, command, None)
+            
+            # Trigger run
+            dialog.on_run_clicked(None)
+
+            # Verify process is created and asynchronous run is initiated
+            assert dialog.proc == mock_proc
+            assert dialog.cancellable == mock_cancellable
+            Gio.Subprocess.new.assert_called_once()
+            mock_proc.communicate_utf8_async.assert_called_once()
+
+            # Test cancellation
+            dialog.on_cancel_test_clicked(None)
+            mock_cancellable.cancel.assert_called_once()
+            mock_killpg.assert_called_once_with(12345, signal.SIGTERM)
+            mock_proc.force_exit.assert_called_once()
+    finally:
+        # Restore mock state
+        Gio.Subprocess.new = old_subproc_new
+        Gio.Cancellable = old_cancellable
+        Gtk.Entry = old_entry
+
+

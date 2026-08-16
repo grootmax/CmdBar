@@ -22,7 +22,19 @@ class MockApplicationWindow:
         pass
 
 
+class MockGtkWindow:
+    def __init__(self, *args, **kwargs):
+        pass
+    def set_default_size(self, *args, **kwargs):
+        pass
+    def set_child(self, *args, **kwargs):
+        pass
+    def connect(self, *args, **kwargs):
+        pass
+
+
 Gtk_mock = MagicMock()
+Gtk_mock.Window = MockGtkWindow
 Adw_mock = MagicMock()
 Gio_mock = MagicMock()
 GLib_mock = MagicMock()
