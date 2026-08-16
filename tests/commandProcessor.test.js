@@ -145,6 +145,12 @@ describe('CmdBar Extension Core Unit Tests', () => {
             expect(substituteTokens(tokens, map)).toEqual(['echo', 'hello world; rm -rf /']);
         });
 
+        test('should handle substitution values with $ safely and literally', () => {
+            const tokens = ['echo', '<pwd>'];
+            const map = { '<pwd>': 'p@$$w0rd' };
+            expect(substituteTokens(tokens, map)).toEqual(['echo', 'p@$$w0rd']);
+        });
+
         test('should handle empty or missing maps', () => {
             const tokens = ['make', 'build'];
             expect(substituteTokens(tokens, null)).toEqual(['make', 'build']);

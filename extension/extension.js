@@ -8,12 +8,27 @@ import { St, Clutter, Gio, GLib, GObject } from 'gi';
 import { validateInput, substituteCommand, hasPlaceholder, tokenizeCommand, substituteTokens } from './commandProcessor.js';
 import { loadConfig } from './configSync.js';
 
+function redactSensitiveValues(text, sensitiveValues) {
+    if (!text || typeof text !== 'string') return text;
+    if (!sensitiveValues || sensitiveValues.length === 0) return text;
+    let redacted = text;
+    for (let value of sensitiveValues) {
+        if (value && value.trim().length > 0) {
+            let escaped = value.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+            let re = new RegExp(escaped, 'g');
+            redacted = redacted.replace(re, '[REDACTED]');
+        }
+    }
+    return redacted;
+}
+
 /**
  * Run a command asynchronously and notify the user when done.
  * @param {string} commandName
  * @param {string} commandString
  */
-function runCommandAsync(commandName, commandString) {
+function runCommandAsync(commandName, commandString, sensitiveValues = []) {
+    let redactedCommandString = redactSensitiveValues(commandString, sensitiveValues);
     try {
         let proc = Gio.Subprocess.new(
             ['/bin/sh', '-c', commandString],
@@ -32,31 +47,36 @@ function runCommandAsync(commandName, commandString) {
                     exitStatus = `Killed by signal ${subprocess.get_term_sig()}`;
                 }
 
+                let redactedStdout = redactSensitiveValues(stdout, sensitiveValues);
+                let redactedStderr = redactSensitiveValues(stderr, sensitiveValues);
+
                 if (success) {
                     let title = `Command Succeeded: ${commandName}`;
                     let body = `Exit status: ${exitStatus}`;
-                    if (stdout && stdout.trim()) {
-                        body += `\n\nOutput:\n${stdout.trim()}`;
+                    if (redactedStdout && redactedStdout.trim()) {
+                        body += `\n\nOutput:\n${redactedStdout.trim()}`;
                     }
                     Main.notify(title, body);
                 } else {
                     let title = `Command Failed: ${commandName}`;
                     let body = `Exit status: ${exitStatus}`;
-                    if (stderr && stderr.trim()) {
-                        body += `\n\nError:\n${stderr.trim()}`;
-                    } else if (stdout && stdout.trim()) {
-                        body += `\n\nOutput:\n${stdout.trim()}`;
+                    if (redactedStderr && redactedStderr.trim()) {
+                        body += `\n\nError:\n${redactedStderr.trim()}`;
+                    } else if (redactedStdout && redactedStdout.trim()) {
+                        body += `\n\nOutput:\n${redactedStdout.trim()}`;
                     }
                     Main.notify(title, body);
                 }
             } catch (err) {
-                console.error(`CmdBar: error finishing command: ${err.message}`);
-                Main.notify(`Command Error: ${commandName}`, `Failed to execute: ${err.message}`);
+                let redactedErrorMsg = redactSensitiveValues(err.message, sensitiveValues);
+                console.error(`CmdBar: error finishing command: ${redactedErrorMsg}`);
+                Main.notify(`Command Error: ${commandName}`, `Failed to execute: ${redactedErrorMsg}`);
             }
         });
     } catch (e) {
-        console.error(`CmdBar: failed to spawn command: ${e.message}`);
-        Main.notify(`Command Launch Failed: ${commandName}`, `Could not start command: ${e.message}`);
+        let redactedErrorMsg = redactSensitiveValues(e.message, sensitiveValues);
+        console.error(`CmdBar: failed to spawn command: ${redactedErrorMsg}`);
+        Main.notify(`Command Launch Failed: ${commandName}`, `Could not start command: ${redactedErrorMsg}`);
     }
 }
 
@@ -72,12 +92,13 @@ function harvestEnvironment() {
  * 
  * @param {string} commandLineString The command string to execute.
  */
-function _executeCommandAsync(commandLineString) {
+function _executeCommandAsync(commandLineString, sensitiveValues = []) {
+    let redactedCommandLineString = redactSensitiveValues(commandLineString, sensitiveValues);
     try {
         // Parse the command line into argv
         let [ok, argv] = GLib.shell_parse_argv(commandLineString);
         if (!ok || !argv || argv.length === 0) {
-            Main.notify("Command Execution Failed", `Could not parse command: "${commandLineString}"`);
+            Main.notify("Command Execution Failed", `Could not parse command: "${redactedCommandLineString}"`);
             return;
         }
 
@@ -89,9 +110,12 @@ function _executeCommandAsync(commandLineString) {
             try {
                 let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
 
+                let redactedStdout = redactSensitiveValues(stdout, sensitiveValues);
+                let redactedStderr = redactSensitiveValues(stderr, sensitiveValues);
+
                 if (!subprocess.get_successful()) {
                     let exitStatus = subprocess.get_exit_status();
-                    let rawError = stderr ? stderr.trim() : "";
+                    let rawError = redactedStderr ? redactedStderr.trim() : "";
                     let detailedError = rawError || `Process exited with code ${exitStatus}`;
 
                     // Graceful truncation
@@ -103,13 +127,15 @@ function _executeCommandAsync(commandLineString) {
                     Main.notify("Command Execution Failed", detailedError);
                 }
             } catch (e) {
-                console.error(`CmdBar error reading stderr: ${e.message}`);
-                Main.notify("Command Execution Failed", e.message);
+                let redactedErrorMsg = redactSensitiveValues(e.message, sensitiveValues);
+                console.error(`CmdBar error reading stderr: ${redactedErrorMsg}`);
+                Main.notify("Command Execution Failed", redactedErrorMsg);
             }
         });
     } catch (e) {
-        console.error(`CmdBar parsing/spawn error: ${e.message}`);
-        Main.notify("Command Execution Failed", `Failed to start command: ${e.message}`);
+        let redactedErrorMsg = redactSensitiveValues(e.message, sensitiveValues);
+        console.error(`CmdBar parsing/spawn error: ${redactedErrorMsg}`);
+        Main.notify("Command Execution Failed", `Failed to start command: ${redactedErrorMsg}`);
     }
 }
 
@@ -143,15 +169,17 @@ function harvestEnvironment() {
 // Custom menu item with an inline text entry for commands that have placeholders
 const CommandInputMenuItem = GObject.registerClass(
 class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
-    _init(indicator, commandName, commandTemplate, placeholderText) {
+    _init(indicator, commandName, commandTemplate, placeholderText, secure) {
         super._init({
             reactive: true,
             activate: true
         });
 
+        this._indicator = indicator;
         this._commandName = commandName;
         this._commandTemplate = commandTemplate;
         this._placeholderText = placeholderText || "Enter parameter...";
+        this._secure = secure || false;
 
         this.box = new St.BoxLayout({
             orientation: Clutter.Orientation.HORIZONTAL,
@@ -174,8 +202,12 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
 
     _onSubmit(commandName) {
         try {
+            let zenityArgs = ['zenity', '--entry', '--title', commandName, '--text', `Enter value for ${this._placeholderText}:` ];
+            if (this._secure) {
+                zenityArgs.push('--hide-text');
+            }
             let proc = Gio.Subprocess.new(
-                ['zenity', '--entry', '--title', commandName, '--text', `Enter value for ${this._placeholderText}:`],
+                zenityArgs,
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
             );
 
@@ -186,15 +218,18 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
                         let text = stdout ? stdout.trim() : '';
                         if (validateInput(text)) {
                             let substituted = substituteCommand(this._commandTemplate, text);
-                            GLib.spawn_command_line_async(substituted);
+                            let sensitiveValues = this._secure ? [text] : [];
+                            runCommandAsync(this._commandName, substituted, sensitiveValues);
                         }
                     }
                 } catch (e) {
-                    console.error(`CmdBar: zenity dialog error: ${e.message}`);
+                    let redactedErrorMsg = redactSensitiveValues(e.message, this._secure ? [text] : []);
+                    console.error(`CmdBar: zenity dialog error: ${redactedErrorMsg}`);
                 }
             });
         } catch (e) {
-            console.error(`CmdBar: failed to spawn zenity: ${e.message}`);
+            let redactedErrorMsg = redactSensitiveValues(e.message, this._secure ? [text] : []);
+            console.error(`CmdBar: failed to spawn zenity: ${redactedErrorMsg}`);
         }
     }
 
@@ -415,7 +450,15 @@ class CmdBarIndicator extends PanelMenu.Button {
                     category.commands.forEach(cmd => {
                         if (hasPlaceholder(cmd.command)) {
                             // Commands requiring text inputs (Requirement 1 & 2)
-                            this.menu.addMenuItem(new CommandInputMenuItem(this, cmd.name, cmd.command, cmd.placeholder));
+                            let secure = cmd.secure || false;
+                            if (cmd.parameters) {
+                                if (Array.isArray(cmd.parameters)) {
+                                    if (cmd.parameters.some(p => p.secure)) secure = true;
+                                } else if (typeof cmd.parameters === 'object') {
+                                    if (Object.values(cmd.parameters).some(p => p.secure)) secure = true;
+                                }
+                            }
+                            this.menu.addMenuItem(new CommandInputMenuItem(this, cmd.name, cmd.command, cmd.placeholder, secure));
                         } else {
                             // Ordinary parameterless commands
                             this.menu.addMenuItem(new CommandMenuItem(this, cmd.name, cmd.command));
@@ -458,7 +501,7 @@ class CmdBarIndicator extends PanelMenu.Button {
         }
     }
 
-    executeCommand(commandName, commandTemplate, placeholderMap) {
+    executeCommand(commandName, commandTemplate, placeholderMap, sensitiveValues = []) {
         let tokens = tokenizeCommand(commandTemplate);
         let argv = substituteTokens(tokens, placeholderMap);
 
@@ -468,7 +511,7 @@ class CmdBarIndicator extends PanelMenu.Button {
         }
 
         let jobId = String(this._nextJobId++);
-        let jobName = `${commandName} (${argv.join(' ')})`;
+        let jobName = redactSensitiveValues(`${commandName} (${argv.join(' ')})`, sensitiveValues);
 
         try {
             let proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
@@ -479,7 +522,8 @@ class CmdBarIndicator extends PanelMenu.Button {
                 process: proc,
                 commandName: commandName,
                 cancelled: false,
-                startTime: Date.now()
+                startTime: Date.now(),
+                sensitiveValues: sensitiveValues
             };
 
             this._activeJobs.set(jobId, job);
@@ -509,8 +553,9 @@ class CmdBarIndicator extends PanelMenu.Button {
             });
 
         } catch (e) {
-            console.error(`CmdBar: failed to execute command: ${e.message}`);
-            this._showNotification(`Execution Failed: ${commandName}`, e.message);
+            let redactedErrorMsg = redactSensitiveValues(e.message, sensitiveValues);
+            console.error(`CmdBar: failed to execute command: ${redactedErrorMsg}`);
+            this._showNotification(`Execution Failed: ${commandName}`, redactedErrorMsg);
         }
     }
 
@@ -519,6 +564,8 @@ class CmdBarIndicator extends PanelMenu.Button {
         if (!job) {
             return;
         }
+
+        let sensitiveValues = job.sensitiveValues || [];
 
         // Clean up UI and job tracking
         let item = this._jobMenuItems.get(jobId);
@@ -543,15 +590,18 @@ class CmdBarIndicator extends PanelMenu.Button {
         let title = "";
         let body = "";
 
+        let redactedStdout = redactSensitiveValues(stdout, sensitiveValues);
+        let redactedStderr = redactSensitiveValues(stderr, sensitiveValues);
+
         if (job.cancelled) {
             title = `Command Cancelled: ${job.commandName}`;
             body = `The process was stopped by the user.`;
         } else if (success) {
             title = `Command Succeeded: ${job.commandName}`;
-            body = stdout ? stdout.trim() : 'Execution completed successfully.';
+            body = redactedStdout ? redactedStdout.trim() : 'Execution completed successfully.';
         } else {
             title = `Command Failed: ${job.commandName}`;
-            body = stderr ? stderr.trim() : (stdout ? stdout.trim() : 'Execution failed with non-zero exit status.');
+            body = redactedStderr ? redactedStderr.trim() : (redactedStdout ? redactedStdout.trim() : 'Execution failed with non-zero exit status.');
         }
 
         if (body.length > 300) {

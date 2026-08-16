@@ -265,6 +265,9 @@ def add_command(config_data):
             param_cfg["placeholder"] = placeholder_text
         if regex_pattern:
             param_cfg["regex"] = regex_pattern
+        is_secure = input(f"Is parameter {{{ph}}} secure (y/N)? ").strip().lower() == 'y'
+        if is_secure:
+            param_cfg["secure"] = True
         
         parameters[ph] = param_cfg
         
@@ -333,6 +336,15 @@ def edit_command(config_data):
                 param_cfg.pop("placeholder", None)
             if not param_cfg["regex"]:
                 param_cfg.pop("regex", None)
+                
+            old_secure = old_cfg.get('secure', False)
+            secure_input = input(f"Is parameter {{{ph}}} secure (y/N) [{ 'y' if old_secure else 'n' }]: ").strip().lower()
+            if secure_input:
+                is_secure = (secure_input == 'y')
+            else:
+                is_secure = old_secure
+            if is_secure:
+                param_cfg["secure"] = True
                 
             new_params[ph] = param_cfg
         cmd['parameters'] = new_params
@@ -419,19 +431,28 @@ def test_run_command_flow(config_data):
     print(f"\n--- Testing Command: {cmd['name']} ---")
     print(f"Template: {template}")
     
+    sensitive_values = []
     for ph in placeholders:
         param_cfg = cmd.get("parameters", {}).get(ph, {})
         regex_pattern = param_cfg.get("regex")
         placeholder_text = param_cfg.get("placeholder", f"Enter value for {ph}")
+        is_secure = param_cfg.get("secure", False)
         
         while True:
-            val = input(f"{ph} ({placeholder_text}): ")
+            if is_secure:
+                import getpass
+                val = getpass.getpass(f"{ph} ({placeholder_text}): ")
+            else:
+                val = input(f"{ph} ({placeholder_text}): ")
             if validate_input(val, regex_pattern):
                 params_data[ph] = val
+                if is_secure:
+                    sensitive_values.append(val)
                 break
             else:
                 p = regex_pattern if regex_pattern else r"^[a-zA-Z0-9_\-]+$"
-                print(f"Error: Input '{val}' violates validation regex '{p}'. Execution blocked.")
+                reported_val = "[REDACTED]" if is_secure else val
+                print(f"Error: Input '{reported_val}' violates validation regex '{p}'. Execution blocked.")
                 retry = input("Do you want to retry? [Y/n]: ").strip().lower()
                 if retry == "n":
                     print("Test execution cancelled.")
@@ -439,8 +460,18 @@ def test_run_command_flow(config_data):
 
     # Substitute and quote
     final_command = substitute_and_quote_command(template, params_data)
+    
+    # Redact helper
+    def redact(text):
+        if not text:
+            return text
+        for sv in sensitive_values:
+            if sv:
+                text = text.replace(sv, "[REDACTED]")
+        return text
+
     print(f"\nFinal Constructed Shell Command:")
-    print(f"  {final_command}")
+    print(f"  {redact(final_command)}")
     
     run_now = input("\nDo you want to execute this command now? [Y/n]: ").strip().lower()
     if run_now != "n":
@@ -448,9 +479,9 @@ def test_run_command_flow(config_data):
         code, stdout, stderr = run_command_in_shell(final_command)
         print(f"Exit Code: {code}")
         if stdout:
-            print(f"--- Standard Output ---\n{stdout}")
+            print(f"--- Standard Output ---\n{redact(stdout)}")
         if stderr:
-            print(f"--- Standard Error ---\n{stderr}")
+            print(f"--- Standard Error ---\n{redact(stderr)}")
 
 
 # =====================================================================
@@ -494,6 +525,8 @@ if GUI_AVAILABLE:
                 inputs_grid.attach(lbl, 0, i, 1, 1)
                 
                 entry = Gtk.Entry(placeholder_text=placeholder_text)
+                if param_cfg.get("secure", False):
+                    entry.set_visibility(False)
                 inputs_grid.attach(entry, 1, i, 1, 1)
                 self.entries[ph] = entry
                 
@@ -555,19 +588,35 @@ if GUI_AVAILABLE:
                 return
             
             params_data = {ph: self.entries[ph].get_text() for ph in self.placeholders}
+            
+            sensitive_values = []
+            for ph in self.placeholders:
+                param_cfg = self.command.get("parameters", {}).get(ph, {})
+                if param_cfg.get("secure", False):
+                    sensitive_values.append(params_data[ph])
+            
             final_cmd = substitute_and_quote_command(self.command['template'], params_data)
             
+            # Redact helper
+            def redact(text):
+                if not text:
+                    return text
+                for sv in sensitive_values:
+                    if sv:
+                        text = text.replace(sv, "[REDACTED]")
+                return text
+
             # Print construction & execution log
             buffer = self.output_view.get_buffer()
-            buffer.set_text(f"Constructed Command:\n{final_cmd}\n\nRunning in shell...\n")
+            buffer.set_text(f"Constructed Command:\n{redact(final_cmd)}\n\nRunning in shell...\n")
             
             code, stdout, stderr = run_command_in_shell(final_cmd)
             
             log_text = f"Exit Code: {code}\n"
             if stdout:
-                log_text += f"\n--- Output ---\n{stdout}"
+                log_text += f"\n--- Output ---\n{redact(stdout)}"
             if stderr:
-                log_text += f"\n--- Error Output ---\n{stderr}"
+                log_text += f"\n--- Error Output ---\n{redact(stderr)}"
             
             buffer.insert(buffer.get_end_iter(), log_text)
 
@@ -710,6 +759,12 @@ if GUI_AVAILABLE:
                 reg_entry._ph = ph
                 reg_entry.connect("changed", self.on_param_regex_changed)
                 p_box.append(reg_entry)
+
+                secure_check = Gtk.CheckButton(label="Secure")
+                secure_check.set_active(params.get(ph, {}).get("secure", False))
+                secure_check._ph = ph
+                secure_check.connect("toggled", self.on_param_secure_toggled)
+                p_box.append(secure_check)
                 
                 self.params_box.append(p_box)
                 
@@ -723,6 +778,14 @@ if GUI_AVAILABLE:
                 params[ph]["regex"] = val
             else:
                 params[ph].pop("regex", None)
+
+        def on_param_secure_toggled(self, check):
+            ph = check._ph
+            val = check.get_active()
+            params = self.selected_cmd.setdefault("parameters", {})
+            if ph not in params:
+                params[ph] = {}
+            params[ph]["secure"] = val
                 
         def on_save_clicked(self, btn):
             if not self.selected_cmd:

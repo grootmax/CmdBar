@@ -215,7 +215,7 @@ export function substituteTokens(tokens, placeholderMap) {
             const cleanVal = val !== undefined && val !== null ? String(val) : '';
             const escapedPlaceholder = placeholder.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
             const regex = new RegExp(escapedPlaceholder, 'g');
-            substituted = substituted.replace(regex, cleanVal);
+            substituted = substituted.replace(regex, () => cleanVal);
         }
         return substituted;
     });
