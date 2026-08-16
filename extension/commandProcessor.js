@@ -20,6 +20,7 @@ if (!GLib) {
  * Checks if the entered text is non-empty and contains non-whitespace characters.
  * @param {string} text
  * @returns {boolean}
+ * @public
  */
 export function validateInput(text) {
     if (text === null || text === undefined) {
@@ -48,6 +49,7 @@ export function hasPlaceholder(commandTemplate) {
  * @param {string} commandTemplate
  * @param {string} val
  * @returns {string}
+ * @public
  */
 export function substituteCommand(commandTemplate, val) {
     if (!commandTemplate || typeof commandTemplate !== 'string') {
@@ -111,6 +113,7 @@ export function parseEnv(stdout) {
  * handling single/double quotes and backslash escapes properly.
  * @param {string} commandTemplate
  * @returns {string[]}
+ * @public
  */
 export function tokenizeCommand(commandTemplate) {
     if (!commandTemplate || typeof commandTemplate !== 'string') {
