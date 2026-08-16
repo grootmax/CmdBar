@@ -466,6 +466,8 @@ if GUI_AVAILABLE:
             self.placeholders = find_placeholders(command['template'])
             self.entries = {}
             self.warning_labels = {}
+            self.proc = None
+            self.cancellable = None
             
             self.set_default_size(450, 300)
             
@@ -516,9 +518,15 @@ if GUI_AVAILABLE:
             self.run_btn.connect("clicked", self.on_run_clicked)
             btn_box.append(self.run_btn)
             
-            cancel_btn = Gtk.Button(label="Cancel")
-            cancel_btn.connect("clicked", lambda b: self.destroy())
-            btn_box.append(cancel_btn)
+            self.cancel_test_btn = Gtk.Button(label="Cancel")
+            self.cancel_test_btn.add_css_class("destructive-action")
+            self.cancel_test_btn.connect("clicked", self.on_cancel_test_clicked)
+            self.cancel_test_btn.set_visible(False)
+            btn_box.append(self.cancel_test_btn)
+            
+            close_btn = Gtk.Button(label="Close")
+            close_btn.connect("clicked", lambda b: self.destroy())
+            btn_box.append(close_btn)
             
             # Terminal output log
             self.output_view = Gtk.TextView(editable=False, cursor_visible=False)
@@ -527,6 +535,7 @@ if GUI_AVAILABLE:
             scroll.set_child(self.output_view)
             main_box.append(scroll)
             
+            self.connect("destroy", self.on_destroy)
             self.validate_all()
             
         def validate_all(self, *args):
@@ -547,7 +556,7 @@ if GUI_AVAILABLE:
                 else:
                     warn_lbl.set_text("")
                     
-            self.run_btn.set_sensitive(all_valid)
+            self.run_btn.set_sensitive(all_valid and self.proc is None)
             return all_valid
             
         def on_run_clicked(self, btn):
@@ -561,15 +570,87 @@ if GUI_AVAILABLE:
             buffer = self.output_view.get_buffer()
             buffer.set_text(f"Constructed Command:\n{final_cmd}\n\nRunning in shell...\n")
             
-            code, stdout, stderr = run_command_in_shell(final_cmd)
+            try:
+                self.cancellable = Gio.Cancellable()
+                try:
+                    self.proc = Gio.Subprocess.new(
+                        ['setsid', 'sh', '-c', final_cmd],
+                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                    )
+                except Exception:
+                    self.proc = Gio.Subprocess.new(
+                        ['sh', '-c', final_cmd],
+                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                    )
+                
+                self.run_btn.set_visible(False)
+                self.cancel_test_btn.set_visible(True)
+                self.cancel_test_btn.set_sensitive(True)
+                
+                self.proc.communicate_utf8_async(None, self.cancellable, self.on_communicate_complete)
+            except Exception as e:
+                buffer.insert(buffer.get_end_iter(), f"\nFailed to start execution: {str(e)}\n")
+                self.proc = None
+                self.cancellable = None
+                self.run_btn.set_visible(True)
+                self.cancel_test_btn.set_visible(False)
+                self.validate_all()
+                
+        def on_cancel_test_clicked(self, btn):
+            self.stop_running_process()
             
-            log_text = f"Exit Code: {code}\n"
-            if stdout:
-                log_text += f"\n--- Output ---\n{stdout}"
-            if stderr:
-                log_text += f"\n--- Error Output ---\n{stderr}"
+        def on_communicate_complete(self, proc, result):
+            try:
+                success, stdout, stderr = proc.communicate_utf8_finish(result)
+                code = proc.get_exit_status()
+                log_text = f"Exit Code: {code}\n"
+                if stdout:
+                    log_text += f"\n--- Output ---\n{stdout}"
+                if stderr:
+                    log_text += f"\n--- Error Output ---\n{stderr}"
+            except GLib.GError as e:
+                if e.matches(Gio.io_error_quark(), Gio.IOErrorEnum.CANCELLED):
+                    log_text = "\nExecution Cancelled.\n"
+                else:
+                    log_text = f"\nError: {e.message}\n"
+            except Exception as e:
+                log_text = f"\nException occurred during execution: {str(e)}\n"
+                
+            try:
+                buffer = self.output_view.get_buffer()
+                buffer.insert(buffer.get_end_iter(), log_text)
+                
+                # Reset UI state
+                self.proc = None
+                self.cancellable = None
+                self.cancel_test_btn.set_visible(False)
+                self.run_btn.set_visible(True)
+                self.validate_all()
+            except Exception:
+                pass
+                
+        def stop_running_process(self):
+            if self.cancellable and not self.cancellable.is_cancelled():
+                try:
+                    self.cancellable.cancel()
+                except Exception:
+                    pass
+            if self.proc:
+                try:
+                    pid = int(self.proc.get_identifier())
+                    import os, signal
+                    os.killpg(pid, signal.SIGTERM)
+                except Exception:
+                    pass
+                try:
+                    self.proc.force_exit()
+                except Exception:
+                    pass
+            self.proc = None
+            self.cancellable = None
             
-            buffer.insert(buffer.get_end_iter(), log_text)
+        def on_destroy(self, *args):
+            self.stop_running_process()
 
 
     class CmdBarAppWindow(Adw.ApplicationWindow):
