@@ -5,7 +5,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 import { St, Clutter, Gio, GLib, GObject } from 'gi';
 
-import { validateInput, substituteCommand, hasPlaceholder, tokenizeCommand, substituteTokens } from './commandProcessor.js';
+import { validateInput, substituteCommand, hasPlaceholder, tokenizeCommand, substituteTokens, getPlaceholders } from './commandProcessor.js';
 import { loadConfig } from './configSync.js';
 
 /**
@@ -146,9 +146,10 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
     _init(indicator, commandName, commandTemplate, placeholderText) {
         super._init({
             reactive: true,
-            activate: true
+            activate: false
         });
 
+        this._indicator = indicator;
         this._commandName = commandName;
         this._commandTemplate = commandTemplate;
         this._placeholderText = placeholderText || "Enter parameter...";
@@ -185,8 +186,32 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
                     if (success && subprocess.get_successful()) {
                         let text = stdout ? stdout.trim() : '';
                         if (validateInput(text)) {
-                            let substituted = substituteCommand(this._commandTemplate, text);
-                            GLib.spawn_command_line_async(substituted);
+                            let tokens = tokenizeCommand(this._commandTemplate);
+                            let placeholders = getPlaceholders(this._commandTemplate);
+                            let placeholderMap = {};
+                            placeholders.forEach(ph => {
+                                placeholderMap[ph] = text;
+                            });
+                            let argv = substituteTokens(tokens, placeholderMap);
+
+                            if (argv.length === 0) {
+                                console.warn(`CmdBar: Command template parsed to empty argument list: ${this._commandTemplate}`);
+                                Main.notify("Execution Error", "Command template parsed to empty argument list.");
+                                return;
+                            }
+
+                            try {
+                                let cmdProc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
+                                if (this._indicator && this._indicator.menu && typeof this._indicator.menu.close === 'function') {
+                                    this._indicator.menu.close();
+                                }
+                            } catch (err) {
+                                console.error(`CmdBar: failed to spawn command: ${err.message}`);
+                                Main.notify("Command Execution Failed", `Failed to start command: ${err.message}`);
+                            }
+                        } else {
+                            console.warn(`CmdBar: Empty input validation failed for command: ${commandName}`);
+                            Main.notify("Command Validation Failed", `Parameter input cannot be empty.`);
                         }
                     }
                 } catch (e) {
