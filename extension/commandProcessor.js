@@ -2,6 +2,20 @@
  * Core business logic for CmdBar extension command processing and validation.
  */
 
+let GLib;
+try {
+    if (typeof globalThis.imports !== 'undefined' && globalThis.imports.gi) {
+        GLib = globalThis.imports.gi.GLib;
+    }
+} catch (e) {}
+
+if (!GLib) {
+    try {
+        const gi = await import('gi');
+        GLib = gi.GLib;
+    } catch (e) {}
+}
+
 /**
  * Checks if the entered text is non-empty and contains non-whitespace characters.
  * @param {string} text
