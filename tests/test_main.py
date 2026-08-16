@@ -20,7 +20,7 @@ def test_app_config_saving():
             "categories": [
                 {
                     "name": "Custom Category",
-                    "shortcuts": [
+                    "commands": [
                         {
                             "name": "Test CMD",
                             "command": "echo <msg>",
@@ -46,4 +46,73 @@ def test_app_config_saving():
         # Load from that location
         loaded = load_config(config_file)
         assert loaded["categories"][0]["name"] == "Custom Category"
-        assert loaded["categories"][0]["shortcuts"][0]["name"] == "Test CMD"
+        assert loaded["categories"][0]["commands"][0]["name"] == "Test CMD"
+
+def test_legacy_commands_json_migration():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_file = os.path.join(tmpdir, "config.json")
+        legacy_file = os.path.join(tmpdir, "commands.json")
+        
+        legacy_config = {
+            "categories": [
+                {
+                    "name": "Legacy Category",
+                    "shortcuts": [
+                        {
+                            "name": "Legacy Echo",
+                            "command": "echo hello"
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        with open(legacy_file, "w") as f:
+            json.dump(legacy_config, f, indent=2)
+            
+        # Load from config_file path (which does not exist yet)
+        # Should fallback, migrate, save to config.json, and delete commands.json
+        loaded = load_config(config_file)
+        
+        assert loaded["categories"][0]["name"] == "Legacy Category"
+        assert loaded["categories"][0]["commands"][0]["name"] == "Legacy Echo"
+        assert os.path.exists(config_file)
+        assert not os.path.exists(legacy_file)
+
+def test_cli_companion_compatibility_translation():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_file = os.path.join(tmpdir, "config.json")
+        
+        cli_config = {
+            "categories": [
+                {
+                    "name": "CLI Category",
+                    "commands": [
+                        {
+                            "name": "CLI Run",
+                            "template": "run {param1}",
+                            "parameters": {
+                                "param1": {
+                                    "regex": "^[a-z]+$",
+                                    "placeholder": "Enter param"
+                                }
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        with open(config_file, "w") as f:
+            json.dump(cli_config, f, indent=2)
+            
+        # Load and normalize
+        loaded = load_config(config_file)
+        
+        cmd = loaded["categories"][0]["commands"][0]
+        assert cmd["command"] == "run {param1}"
+        assert isinstance(cmd["parameters"], list)
+        assert cmd["parameters"][0]["name"] == "param1"
+        assert cmd["parameters"][0]["regex"] == "^[a-z]+$"
+        assert cmd["parameters"][0]["placeholder"] == "Enter param"
+

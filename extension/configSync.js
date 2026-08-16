@@ -367,9 +367,9 @@ async function gjs_acquireLock(lockPath, timeoutMs = 200) {
 export async function getDefaultConfigPath() {
     if (isNode) {
         const pathModule = await import('path');
-        return pathModule.join(getNodeUserConfigDir(), 'cmdbar', 'commands.json');
+        return pathModule.join(getNodeUserConfigDir(), 'cmdbar', 'config.json');
     } else {
-        return GLib.build_filenamev([GLib.get_user_config_dir(), 'cmdbar', 'commands.json']);
+        return GLib.build_filenamev([GLib.get_user_config_dir(), 'cmdbar', 'config.json']);
     }
 }
 
@@ -422,6 +422,40 @@ export async function loadConfig(configPath, extensionPath) {
 
     const exists = await fileExists(configPath);
     if (!exists) {
+        // Fallback to importing legacy commands.json if it exists and config.json does not
+        const legacyPath = configPath.endsWith('config.json') ? configPath.replace(/config\.json$/, 'commands.json') : null;
+        if (legacyPath && await fileExists(legacyPath)) {
+            let legacyContent;
+            try {
+                if (isNode) {
+                    legacyContent = await node_readFile(legacyPath);
+                } else {
+                    legacyContent = await gjs_readFile(legacyPath);
+                }
+            } catch (e) {
+                legacyContent = '';
+            }
+            let legacyConfig;
+            let isLegacyValid = false;
+            try {
+                legacyConfig = JSON.parse(legacyContent);
+                isLegacyValid = validateConfigSchema(legacyConfig);
+            } catch (e) {
+                isLegacyValid = false;
+            }
+            if (isLegacyValid) {
+                // Automatically migrate legacy file to config.json
+                if (isNode) {
+                    await node_writeFileAtomic(configPath, JSON.stringify(legacyConfig, null, 2));
+                    await node_deleteFile(legacyPath);
+                } else {
+                    await gjs_writeFileAtomic(configPath, JSON.stringify(legacyConfig, null, 2));
+                    await gjs_deleteFile(legacyPath);
+                }
+                return legacyConfig;
+            }
+        }
+
         let defaultLoaded = false;
         let defaultContent = '';
         if (extensionPath) {

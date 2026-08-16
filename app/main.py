@@ -146,7 +146,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
             cat_row.set_child(cat_box)
             self.sidebar_list.append(cat_row)
 
-            shortcuts = cat.get("shortcuts", [])
+            shortcuts = cat.get("commands", [])
             for s_idx, sc in enumerate(shortcuts):
                 sc_row = Gtk.ListBoxRow()
                 sc_row.c_idx = c_idx
@@ -204,7 +204,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
 
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        shortcut = self.app.config["categories"][c_idx]["shortcuts"][s_idx]
+        shortcut = self.app.config["categories"][c_idx]["commands"][s_idx]
 
         # Top Header Bar for content area
         content_header = Gtk.HeaderBar()
@@ -310,7 +310,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
 
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        shortcut = self.app.config["categories"][c_idx]["shortcuts"][s_idx]
+        shortcut = self.app.config["categories"][c_idx]["commands"][s_idx]
         parameters = shortcut.get("parameters", [])
 
         if len(parameters) == 0:
@@ -368,7 +368,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
 
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        shortcut = self.app.config["categories"][c_idx]["shortcuts"][s_idx]
+        shortcut = self.app.config["categories"][c_idx]["commands"][s_idx]
         parameters = shortcut.get("parameters", [])
 
         # Inputs list
@@ -412,7 +412,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
     def _update_live_preview(self):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        shortcut = self.app.config["categories"][c_idx]["shortcuts"][s_idx]
+        shortcut = self.app.config["categories"][c_idx]["commands"][s_idx]
 
         # Collect sample inputs
         vals = {}
@@ -456,13 +456,13 @@ class CmdBarWindow(Adw.ApplicationWindow):
     def _on_name_changed(self, row):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        self.app.config["categories"][c_idx]["shortcuts"][s_idx]["name"] = row.get_text().strip()
+        self.app.config["categories"][c_idx]["commands"][s_idx]["name"] = row.get_text().strip()
         self._refresh_sidebar()
 
     def _on_command_changed(self, row):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        self.app.config["categories"][c_idx]["shortcuts"][s_idx]["command"] = row.get_text().strip()
+        self.app.config["categories"][c_idx]["commands"][s_idx]["command"] = row.get_text().strip()
         self._update_live_preview()
 
     def _on_mode_changed(self, dropdown, pspec):
@@ -470,7 +470,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
         s_idx = self.app.selected_shortcut_idx
         selected = dropdown.get_selected()
         mode_str = "shell-quoted" if selected == 0 else "direct-array"
-        self.app.config["categories"][c_idx]["shortcuts"][s_idx]["mode"] = mode_str
+        self.app.config["categories"][c_idx]["commands"][s_idx]["mode"] = mode_str
         self._update_live_preview()
 
     def _on_sample_input_changed(self, row, param_name):
@@ -479,19 +479,19 @@ class CmdBarWindow(Adw.ApplicationWindow):
     def _on_param_name_changed(self, entry, p_idx):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        self.app.config["categories"][c_idx]["shortcuts"][s_idx]["parameters"][p_idx]["name"] = entry.get_text().strip()
+        self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"][p_idx]["name"] = entry.get_text().strip()
         self._render_test_preview_section()
 
     def _on_param_regex_changed(self, entry, p_idx):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        self.app.config["categories"][c_idx]["shortcuts"][s_idx]["parameters"][p_idx]["regex"] = entry.get_text().strip()
+        self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"][p_idx]["regex"] = entry.get_text().strip()
         self._update_live_preview()
 
     def _on_param_err_msg_changed(self, entry, p_idx):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        self.app.config["categories"][c_idx]["shortcuts"][s_idx]["parameters"][p_idx]["error_message"] = entry.get_text().strip()
+        self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"][p_idx]["error_message"] = entry.get_text().strip()
         self._update_live_preview()
 
     # --- Button & Menu Click Handlers ---
@@ -503,7 +503,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
         # Simply append a default and let user rename
         new_cat = {
             "name": f"New Category {len(self.app.config.get('categories', [])) + 1}",
-            "shortcuts": []
+            "commands": []
         }
         self.app.config.get("categories", []).append(new_cat)
         self._refresh_sidebar()
@@ -541,7 +541,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
         dialog = Adw.MessageDialog(
             transient_for=self,
             heading="Delete Category?",
-            body=f"Are you sure you want to delete category '{cat['name']}' and all its shortcuts?"
+            body=f"Are you sure you want to delete category '{cat['name']}' and all its commands?"
         )
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("delete", "Delete")
@@ -570,7 +570,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
         cat = categories[c_idx]
 
         new_sc = {
-            "name": f"New Shortcut {len(cat.get('shortcuts', [])) + 1}",
+            "name": f"New Shortcut {len(cat.get('commands', [])) + 1}",
             "command": "echo \"Hello\" <arg>",
             "mode": "shell-quoted",
             "parameters": [
@@ -581,9 +581,9 @@ class CmdBarWindow(Adw.ApplicationWindow):
                 }
             ]
         }
-        cat.get("shortcuts", []).append(new_sc)
+        cat.get("commands", []).append(new_sc)
         self.app.selected_category_idx = c_idx
-        self.app.selected_shortcut_idx = len(cat["shortcuts"]) - 1
+        self.app.selected_shortcut_idx = len(cat["commands"]) - 1
         self._refresh_sidebar()
         self._load_shortcut_editor()
         self._show_toast("Added New Shortcut!")
@@ -594,7 +594,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
         if c_idx is None or s_idx is None:
             return
 
-        self.app.config["categories"][c_idx]["shortcuts"].pop(s_idx)
+        self.app.config["categories"][c_idx]["commands"].pop(s_idx)
         self.app.selected_category_idx = None
         self.app.selected_shortcut_idx = None
         self._refresh_sidebar()
@@ -608,11 +608,11 @@ class CmdBarWindow(Adw.ApplicationWindow):
             return
 
         new_param = {
-            "name": f"param{len(self.app.config['categories'][c_idx]['shortcuts'][s_idx].get('parameters', [])) + 1}",
+            "name": f"param{len(self.app.config['categories'][c_idx]['commands'][s_idx].get('parameters', [])) + 1}",
             "regex": "",
             "error_message": ""
         }
-        self.app.config["categories"][c_idx]["shortcuts"][s_idx].get("parameters", []).append(new_param)
+        self.app.config["categories"][c_idx]["commands"][s_idx].get("parameters", []).append(new_param)
         self._render_parameters_list()
         self._render_test_preview_section()
 
@@ -622,7 +622,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
         if c_idx is None or s_idx is None:
             return
 
-        self.app.config["categories"][c_idx]["shortcuts"][s_idx]["parameters"].pop(p_idx)
+        self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"].pop(p_idx)
         self._render_parameters_list()
         self._render_test_preview_section()
 
@@ -651,7 +651,7 @@ if __name__ == "__main__":
         config = load_config()
         for cat in config.get("categories", []):
             print(f"\n[Category: {cat['name']}]")
-            for sc in cat.get("shortcuts", []):
+            for sc in cat.get("commands", []):
                 print(f"  - Shortcut: {sc['name']}")
                 print(f"    Command : {sc['command']}")
                 print(f"    Mode    : {sc['mode']}")

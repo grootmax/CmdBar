@@ -16,7 +16,7 @@ describe('Atomic Companion Persistence Tests', () => {
     beforeEach(() => {
         // Create a unique temporary directory for each test run to isolate test side-effects
         testDir = path.join(os.tmpdir(), `cmdbar-test-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`);
-        testFile = path.join(testDir, 'commands.json');
+        testFile = path.join(testDir, 'config.json');
     });
 
     afterEach(() => {
@@ -47,7 +47,7 @@ describe('Atomic Companion Persistence Tests', () => {
             const expectedDir = path.join(customXdg, 'cmdbar');
             expect(getConfigDir()).toBe(expectedDir);
 
-            const expectedPath = path.join(expectedDir, 'commands.json');
+            const expectedPath = path.join(expectedDir, 'config.json');
             expect(getConfigPath()).toBe(expectedPath);
 
             if (originalXdg) {
