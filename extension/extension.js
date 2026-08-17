@@ -125,8 +125,8 @@ function harvestEnvironment() {
 
         proc.communicate_utf8_async(null, null, (subprocess, result) => {
             try {
-                let [success, stdout, stderr] = subprocess.communicate_utf8_finish(result);
-                if (success && subprocess.get_successful()) {
+                let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                if (subprocess.get_successful()) {
                     let envLines = parseEnv(stdout);
                     // Environment harvested successfully
                 }
@@ -182,8 +182,8 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
 
             proc.communicate_utf8_async(null, null, (subprocess, result) => {
                 try {
-                    let [success, stdout, stderr] = subprocess.communicate_utf8_finish(result);
-                    if (success && subprocess.get_successful()) {
+                    let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                    if (subprocess.get_successful()) {
                         let text = stdout ? stdout.trim() : '';
                         if (validateInput(text)) {
                             let tokens = tokenizeCommand(this._commandTemplate);
@@ -526,7 +526,8 @@ class CmdBarIndicator extends PanelMenu.Button {
             // Execute asynchronously and non-blocking (Requirement 2 & 5)
             proc.communicate_utf8_async(null, null, (p, res) => {
                 try {
-                    let [success, stdout, stderr] = p.communicate_utf8_finish(res);
+                    let [stdout, stderr] = p.communicate_utf8_finish(res);
+                    let success = p.get_successful();
                     this._onJobFinished(jobId, success, stdout, stderr);
                 } catch (e) {
                     this._onJobFinished(jobId, false, '', e.message);
