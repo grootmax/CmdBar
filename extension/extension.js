@@ -22,9 +22,9 @@ function runCommandAsync(commandName, commandString) {
 
         proc.communicate_utf8_async(null, null, (subprocess, result) => {
             try {
-                let [success, stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
                 
-                let actualSuccess = success && subprocess.get_successful();
+                let success = subprocess.get_successful();
                 let exitStatus = 'unknown';
                 if (subprocess.get_if_exited()) {
                     exitStatus = String(subprocess.get_exit_status());
@@ -32,7 +32,7 @@ function runCommandAsync(commandName, commandString) {
                     exitStatus = `Killed by signal ${subprocess.get_term_sig()}`;
                 }
 
-                if (actualSuccess) {
+                if (success) {
                     let title = `Command Succeeded: ${commandName}`;
                     let body = `Exit status: ${exitStatus}`;
                     if (stdout && stdout.trim()) {
@@ -87,10 +87,9 @@ function _executeCommandAsync(commandLineString) {
         // Async read & status check
         proc.communicate_utf8_async(null, null, (subprocess, result) => {
             try {
-                let [success, stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
 
-                let actualSuccess = success && subprocess.get_successful();
-                if (!actualSuccess) {
+                if (!subprocess.get_successful()) {
                     let exitStatus = subprocess.get_exit_status();
                     let rawError = stderr ? stderr.trim() : "";
                     let detailedError = rawError || `Process exited with code ${exitStatus}`;
@@ -126,8 +125,8 @@ function harvestEnvironment() {
 
         proc.communicate_utf8_async(null, null, (subprocess, result) => {
             try {
-                let [success, stdout, stderr] = subprocess.communicate_utf8_finish(result);
-                if (success && subprocess.get_successful()) {
+                let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                if (subprocess.get_successful()) {
                     let envLines = parseEnv(stdout);
                     // Environment harvested successfully
                 }
@@ -183,8 +182,8 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
 
             proc.communicate_utf8_async(null, null, (subprocess, result) => {
                 try {
-                    let [success, stdout, stderr] = subprocess.communicate_utf8_finish(result);
-                    if (success && subprocess.get_successful()) {
+                    let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                    if (subprocess.get_successful()) {
                         let text = stdout ? stdout.trim() : '';
                         if (validateInput(text)) {
                             let tokens = tokenizeCommand(this._commandTemplate);
@@ -202,12 +201,12 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
                             }
 
                             try {
-                                this._indicator.executeCommand(this._commandName, this._commandTemplate, placeholderMap);
+                                let cmdProc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
                                 if (this._indicator && this._indicator.menu && typeof this._indicator.menu.close === 'function') {
                                     this._indicator.menu.close();
                                 }
                             } catch (err) {
-                                console.error(`CmdBar: failed to execute command: ${err.message}`);
+                                console.error(`CmdBar: failed to spawn command: ${err.message}`);
                                 Main.notify("Command Execution Failed", `Failed to start command: ${err.message}`);
                             }
                         } else {
@@ -243,7 +242,6 @@ class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
             activate: true
         });
 
-        this._indicator = indicator;
         this._commandName = commandName;
         this._commandTemplate = commandTemplate;
 
@@ -262,7 +260,7 @@ class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
         this.add_child(this.box);
 
         this._activateId = this.connect('activate', () => {
-            this._indicator.executeCommand(this._commandName, this._commandTemplate, {});
+            runCommandAsync(this._commandName, this._commandTemplate);
         });
     }
 
@@ -368,12 +366,6 @@ class CmdBarIndicator extends PanelMenu.Button {
         this._cachedConfig = null;
         this._timeoutId = 0;
 
-        this._nextJobId = 1;
-        this._activeJobs = new Map();
-        this._jobMenuItems = new Map();
-        this._commandsSection = new PopupMenu.PopupMenuSection();
-        this._jobsSection = new PopupMenu.PopupMenuSection();
-
         // Container box to support text and icon side-by-side
         this._box = new St.BoxLayout({
             style_class: 'panel-status-menu-box',
@@ -430,50 +422,28 @@ class CmdBarIndicator extends PanelMenu.Button {
             // Clear all current items in menu
             this.menu.removeAll();
 
-            this._commandsSection = new PopupMenu.PopupMenuSection();
-            this.menu.addMenuItem(this._commandsSection);
-
-            this._jobsSection = new PopupMenu.PopupMenuSection();
-            this.menu.addMenuItem(this._jobsSection);
-
-            // If there are existing active jobs, recreate their UI elements under the new _jobsSection
-            if (this._activeJobs && this._activeJobs.size > 0) {
-                this._jobsSectionSeparator = new PopupMenu.PopupSeparatorMenuItem();
-                this._jobsSection.addMenuItem(this._jobsSectionSeparator);
-
-                this._jobsSectionHeader = new PopupMenu.PopupMenuItem("Active Background Jobs", { reactive: false });
-                this._jobsSectionHeader.label.style = 'font-weight: bold; color: #888888; font-size: 0.9em;';
-                this._jobsSection.addMenuItem(this._jobsSectionHeader);
-
-                for (let [jobId, job] of this._activeJobs.entries()) {
-                    let jobMenuItem = new JobMenuItem(jobId, job.name, (id) => this._cancelJob(id));
-                    this._jobsSection.addMenuItem(jobMenuItem);
-                    this._jobMenuItems.set(jobId, jobMenuItem);
-                }
-            }
-
             if (!config || !config.categories || config.categories.length === 0) {
                 let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
-                this._commandsSection.addMenuItem(infoItem);
+                this.menu.addMenuItem(infoItem);
                 return;
             }
 
             config.categories.forEach((category, catIndex) => {
                 // Category header
                 if (catIndex > 0) {
-                    this._commandsSection.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+                    this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
                 }
-                this._commandsSection.addMenuItem(new CategoryHeaderMenuItem(category.name));
+                this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
 
                 // Category commands
                 if (category.commands && Array.isArray(category.commands)) {
                     category.commands.forEach(cmd => {
                         if (hasPlaceholder(cmd.command)) {
                             // Commands requiring text inputs (Requirement 1 & 2)
-                            this._commandsSection.addMenuItem(new CommandInputMenuItem(this, cmd.name, cmd.command, cmd.placeholder));
+                            this.menu.addMenuItem(new CommandInputMenuItem(this, cmd.name, cmd.command, cmd.placeholder));
                         } else {
                             // Ordinary parameterless commands
-                            this._commandsSection.addMenuItem(new CommandMenuItem(this, cmd.name, cmd.command));
+                            this.menu.addMenuItem(new CommandMenuItem(this, cmd.name, cmd.command));
                         }
                     });
                 }
@@ -556,9 +526,9 @@ class CmdBarIndicator extends PanelMenu.Button {
             // Execute asynchronously and non-blocking (Requirement 2 & 5)
             proc.communicate_utf8_async(null, null, (p, res) => {
                 try {
-                    let [success, stdout, stderr] = p.communicate_utf8_finish(res);
-                    let actualSuccess = success && p.get_successful();
-                    this._onJobFinished(jobId, actualSuccess, stdout, stderr);
+                    let [stdout, stderr] = p.communicate_utf8_finish(res);
+                    let success = p.get_successful();
+                    this._onJobFinished(jobId, success, stdout, stderr);
                 } catch (e) {
                     this._onJobFinished(jobId, false, '', e.message);
                 }

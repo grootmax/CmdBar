@@ -82,3 +82,33 @@ def test_gjs_substitution():
     # Verify exact substitution structure
     expected = "git checkout 'feature/safe-quoting' && git pull origin 'feature/safe-quoting'"
     assert final_cmd == expected
+
+
+def test_gjs_subprocess_unpacking_behavior():
+    """
+    Emulates the 2-tuple returned by Gio.Subprocess.communicate_utf8_finish in GJS.
+    It returns [stdout, stderr] without a 'success' boolean.
+    """
+    def mock_communicate_utf8_finish(result):
+        # returns [stdout, stderr]
+        return ["user-entered-parameter", ""]
+
+    res = mock_communicate_utf8_finish(None)
+    assert len(res) == 2
+    
+    # Legacy incorrect unpacking logic:
+    # let [success, stdout, stderr] = res;
+    success = res[0]  # "user-entered-parameter"
+    stdout = res[1] if len(res) > 1 else ""  # ""
+    
+    # This caused stdout to be empty, which incorrectly failed parameter validation!
+    assert stdout == ""
+    
+    # Corrected unpacking logic:
+    # let [stdout, stderr] = res;
+    stdout_corrected = res[0]
+    stderr_corrected = res[1]
+    
+    assert stdout_corrected == "user-entered-parameter"
+    assert stderr_corrected == ""
+
