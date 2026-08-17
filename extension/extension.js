@@ -9,55 +9,102 @@ import { validateInput, substituteCommand, hasPlaceholder, tokenizeCommand, subs
 import { loadConfig } from './configSync.js';
 
 /**
+ * Safely spawns a subprocess asynchronously and captures its streams.
+ * Handles different platform return shapes for communicate_utf8_finish.
+ *
+ * @param {string[]} argv Command arguments
+ * @param {Gio.SubprocessFlags} [flags] Subprocess flags
+ * @param {function(Gio.Subprocess, string, string, Error|null)} callback Completion callback
+ * @returns {Gio.Subprocess|null} The spawned subprocess, or null if spawning failed
+ */
+function spawnSubprocessAsync(argv, flags, callback) {
+    if (flags === undefined || flags === null) {
+        flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE;
+    }
+
+    try {
+        let proc = Gio.Subprocess.new(argv, flags);
+
+        proc.communicate_utf8_async(null, null, (subprocess, result) => {
+            let stdout = '';
+            let stderr = '';
+            let error = null;
+
+            try {
+                let res = subprocess.communicate_utf8_finish(result);
+                if (Array.isArray(res)) {
+                    if (res.length === 3) {
+                        // [success, stdout, stderr]
+                        stdout = res[1] || '';
+                        stderr = res[2] || '';
+                    } else if (res.length === 2) {
+                        // [stdout, stderr]
+                        stdout = res[0] || '';
+                        stderr = res[1] || '';
+                    }
+                }
+            } catch (err) {
+                error = err;
+            }
+
+            if (typeof callback === 'function') {
+                callback(subprocess, stdout, stderr, error);
+            }
+        });
+
+        return proc;
+    } catch (err) {
+        if (typeof callback === 'function') {
+            callback(null, '', '', err);
+        }
+        return null;
+    }
+}
+
+/**
  * Run a command asynchronously and notify the user when done.
  * @param {string} commandName
  * @param {string} commandString
  */
 function runCommandAsync(commandName, commandString) {
-    try {
-        let proc = Gio.Subprocess.new(
-            ['/bin/sh', '-c', commandString],
-            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-        );
+    spawnSubprocessAsync(['/bin/sh', '-c', commandString], null, (subprocess, stdout, stderr, error) => {
+        if (!subprocess) {
+            console.error(`CmdBar: failed to spawn command: ${error ? error.message : 'Unknown error'}`);
+            Main.notify(`Command Launch Failed: ${commandName}`, `Could not start command: ${error ? error.message : 'Unknown error'}`);
+            return;
+        }
+        if (error) {
+            console.error(`CmdBar: error finishing command: ${error.message}`);
+            Main.notify(`Command Error: ${commandName}`, `Failed to execute: ${error.message}`);
+            return;
+        }
 
-        proc.communicate_utf8_async(null, null, (subprocess, result) => {
-            try {
-                let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
-                
-                let success = subprocess.get_successful();
-                let exitStatus = 'unknown';
-                if (subprocess.get_if_exited()) {
-                    exitStatus = String(subprocess.get_exit_status());
-                } else if (subprocess.get_if_signaled()) {
-                    exitStatus = `Killed by signal ${subprocess.get_term_sig()}`;
-                }
+        let success = subprocess.get_successful();
+        let exitStatus = 'unknown';
+        if (subprocess.get_if_exited()) {
+            exitStatus = String(subprocess.get_exit_status());
+        } else if (subprocess.get_if_signaled()) {
+            exitStatus = `Killed by signal ${subprocess.get_term_sig()}`;
+        }
 
-                if (success) {
-                    let title = `Command Succeeded: ${commandName}`;
-                    let body = `Exit status: ${exitStatus}`;
-                    if (stdout && stdout.trim()) {
-                        body += `\n\nOutput:\n${stdout.trim()}`;
-                    }
-                    Main.notify(title, body);
-                } else {
-                    let title = `Command Failed: ${commandName}`;
-                    let body = `Exit status: ${exitStatus}`;
-                    if (stderr && stderr.trim()) {
-                        body += `\n\nError:\n${stderr.trim()}`;
-                    } else if (stdout && stdout.trim()) {
-                        body += `\n\nOutput:\n${stdout.trim()}`;
-                    }
-                    Main.notify(title, body);
-                }
-            } catch (err) {
-                console.error(`CmdBar: error finishing command: ${err.message}`);
-                Main.notify(`Command Error: ${commandName}`, `Failed to execute: ${err.message}`);
+        if (success) {
+            let title = `Command Succeeded: ${commandName}`;
+            let body = `Exit status: ${exitStatus}`;
+            if (stdout && stdout.trim()) {
+                body += `\n\nOutput:\n${stdout.trim()}`;
             }
-        });
-    } catch (e) {
-        console.error(`CmdBar: failed to spawn command: ${e.message}`);
-        Main.notify(`Command Launch Failed: ${commandName}`, `Could not start command: ${e.message}`);
-    }
+            Main.notify(title, body);
+        } else {
+            let title = `Command Failed: ${commandName}`;
+            let body = `Exit status: ${exitStatus}`;
+            if (stderr && stderr.trim()) {
+                body += `\n\nError:\n${stderr.trim()}`;
+            } else if (stdout && stdout.trim()) {
+                body += `\n\nOutput:\n${stdout.trim()}`;
+            }
+            Main.notify(title, body);
+        }
+    });
 }
 
 /**
@@ -81,30 +128,30 @@ function _executeCommandAsync(commandLineString) {
             return;
         }
 
-        // Spawn using Gio.Subprocess to capture stderr
-        let proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDERR_PIPE);
+        spawnSubprocessAsync(argv, Gio.SubprocessFlags.STDERR_PIPE, (subprocess, stdout, stderr, error) => {
+            if (!subprocess) {
+                console.error(`CmdBar parsing/spawn error: ${error ? error.message : 'Unknown error'}`);
+                Main.notify("Command Execution Failed", `Failed to start command: ${error ? error.message : 'Unknown error'}`);
+                return;
+            }
+            if (error) {
+                console.error(`CmdBar error reading stderr: ${error.message}`);
+                Main.notify("Command Execution Failed", error.message);
+                return;
+            }
 
-        // Async read & status check
-        proc.communicate_utf8_async(null, null, (subprocess, result) => {
-            try {
-                let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+            if (!subprocess.get_successful()) {
+                let exitStatus = subprocess.get_exit_status();
+                let rawError = stderr ? stderr.trim() : "";
+                let detailedError = rawError || `Process exited with code ${exitStatus}`;
 
-                if (!subprocess.get_successful()) {
-                    let exitStatus = subprocess.get_exit_status();
-                    let rawError = stderr ? stderr.trim() : "";
-                    let detailedError = rawError || `Process exited with code ${exitStatus}`;
-
-                    // Graceful truncation
-                    const MAX_ERR_LENGTH = 200;
-                    if (detailedError.length > MAX_ERR_LENGTH) {
-                        detailedError = detailedError.substring(0, MAX_ERR_LENGTH) + "...";
-                    }
-
-                    Main.notify("Command Execution Failed", detailedError);
+                // Graceful truncation
+                const MAX_ERR_LENGTH = 200;
+                if (detailedError.length > MAX_ERR_LENGTH) {
+                    detailedError = detailedError.substring(0, MAX_ERR_LENGTH) + "...";
                 }
-            } catch (e) {
-                console.error(`CmdBar error reading stderr: ${e.message}`);
-                Main.notify("Command Execution Failed", e.message);
+
+                Main.notify("Command Execution Failed", detailedError);
             }
         });
     } catch (e) {
@@ -117,26 +164,20 @@ function _executeCommandAsync(commandLineString) {
  * Harvest environment asynchronously on startup using env command.
  */
 function harvestEnvironment() {
-    try {
-        let proc = Gio.Subprocess.new(
-            ['/usr/bin/env'],
-            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-        );
-
-        proc.communicate_utf8_async(null, null, (subprocess, result) => {
-            try {
-                let [success, stdout, stderr] = subprocess.communicate_utf8_finish(result);
-                if (success && subprocess.get_successful()) {
-                    let envLines = parseEnv(stdout);
-                    // Environment harvested successfully
-                }
-            } catch (err) {
-                console.error(`CmdBar: error harvesting environment: ${err.message}`);
-            }
-        });
-    } catch (e) {
-        console.error(`CmdBar: failed to spawn env: ${e.message}`);
-    }
+    spawnSubprocessAsync(['/usr/bin/env'], null, (subprocess, stdout, stderr, error) => {
+        if (!subprocess) {
+            console.error(`CmdBar: failed to spawn env: ${error ? error.message : 'Unknown error'}`);
+            return;
+        }
+        if (error) {
+            console.error(`CmdBar: error harvesting environment: ${error.message}`);
+            return;
+        }
+        if (subprocess.get_successful()) {
+            let envLines = parseEnv(stdout);
+            // Environment harvested successfully
+        }
+    });
 }
 
 
@@ -174,53 +215,37 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
     }
 
     _onSubmit(commandName) {
-        try {
-            let proc = Gio.Subprocess.new(
-                ['zenity', '--entry', '--title', commandName, '--text', `Enter value for ${this._placeholderText}:`],
-                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-            );
-
-            proc.communicate_utf8_async(null, null, (subprocess, result) => {
-                try {
-                    let [success, stdout, stderr] = subprocess.communicate_utf8_finish(result);
-                    if (success && subprocess.get_successful()) {
-                        let text = stdout ? stdout.trim() : '';
-                        if (validateInput(text)) {
-                            let tokens = tokenizeCommand(this._commandTemplate);
-                            let placeholders = getPlaceholders(this._commandTemplate);
-                            let placeholderMap = {};
-                            placeholders.forEach(ph => {
-                                placeholderMap[ph] = text;
-                            });
-                            let argv = substituteTokens(tokens, placeholderMap);
-
-                            if (argv.length === 0) {
-                                console.warn(`CmdBar: Command template parsed to empty argument list: ${this._commandTemplate}`);
-                                Main.notify("Execution Error", "Command template parsed to empty argument list.");
-                                return;
-                            }
-
-                            try {
-                                let cmdProc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
-                                if (this._indicator && this._indicator.menu && typeof this._indicator.menu.close === 'function') {
-                                    this._indicator.menu.close();
-                                }
-                            } catch (err) {
-                                console.error(`CmdBar: failed to spawn command: ${err.message}`);
-                                Main.notify("Command Execution Failed", `Failed to start command: ${err.message}`);
-                            }
-                        } else {
-                            console.warn(`CmdBar: Empty input validation failed for command: ${commandName}`);
-                            Main.notify("Command Validation Failed", `Parameter input cannot be empty.`);
-                        }
-                    }
-                } catch (e) {
-                    console.error(`CmdBar: zenity dialog error: ${e.message}`);
+        spawnSubprocessAsync(
+            ['zenity', '--entry', '--title', commandName, '--text', `Enter value for ${this._placeholderText}:`],
+            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+            (subprocess, stdout, stderr, error) => {
+                if (!subprocess || error) {
+                    console.error(`CmdBar: zenity dialog error: ${error ? error.message : 'Unknown error'}`);
+                    return;
                 }
-            });
-        } catch (e) {
-            console.error(`CmdBar: failed to spawn zenity: ${e.message}`);
-        }
+
+                if (subprocess.get_successful()) {
+                    let text = stdout ? stdout.trim() : '';
+                    if (validateInput(text)) {
+                        let placeholders = getPlaceholders(this._commandTemplate);
+                        let placeholderMap = {};
+                        placeholders.forEach(ph => {
+                            placeholderMap[ph] = text;
+                        });
+
+                        if (this._indicator) {
+                            this._indicator.executeCommand(this._commandName, this._commandTemplate, placeholderMap);
+                            if (this._indicator.menu && typeof this._indicator.menu.close === 'function') {
+                                this._indicator.menu.close();
+                            }
+                        }
+                    } else {
+                        console.warn(`CmdBar: Empty input validation failed for command: ${commandName}`);
+                        Main.notify("Command Validation Failed", `Parameter input cannot be empty.`);
+                    }
+                }
+            }
+        );
     }
 
     destroy() {
@@ -366,6 +391,12 @@ class CmdBarIndicator extends PanelMenu.Button {
         this._cachedConfig = null;
         this._timeoutId = 0;
 
+        this._activeJobs = new Map();
+        this._jobMenuItems = new Map();
+        this._nextJobId = 1;
+        this._jobsSection = new PopupMenu.PopupMenuSection();
+        this.menu.addMenuItem(this._jobsSection);
+
         // Container box to support text and icon side-by-side
         this._box = new St.BoxLayout({
             style_class: 'panel-status-menu-box',
@@ -425,6 +456,7 @@ class CmdBarIndicator extends PanelMenu.Button {
             if (!config || !config.categories || config.categories.length === 0) {
                 let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
                 this.menu.addMenuItem(infoItem);
+                this.menu.addMenuItem(this._jobsSection);
                 return;
             }
 
@@ -448,6 +480,9 @@ class CmdBarIndicator extends PanelMenu.Button {
                     });
                 }
             });
+
+            // Always ensure the active jobs section is in the menu (at the bottom)
+            this.menu.addMenuItem(this._jobsSection);
         } catch (e) {
             console.error(`CmdBar: error reloading menu: ${e.message}`);
         }
@@ -495,48 +530,49 @@ class CmdBarIndicator extends PanelMenu.Button {
         let jobId = String(this._nextJobId++);
         let jobName = `${commandName} (${argv.join(' ')})`;
 
-        try {
-            let proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
-
-            let job = {
-                id: jobId,
-                name: jobName,
-                process: proc,
-                commandName: commandName,
-                cancelled: false,
-                startTime: Date.now()
-            };
-
-            this._activeJobs.set(jobId, job);
-
-            // Dynamically add to the jobs section without redrawing everything (Requirement 3 & 4)
-            if (this._activeJobs.size === 1) {
-                this._jobsSectionSeparator = new PopupMenu.PopupSeparatorMenuItem();
-                this._jobsSection.addMenuItem(this._jobsSectionSeparator);
-                
-                this._jobsSectionHeader = new PopupMenu.PopupMenuItem("Active Background Jobs", { reactive: false });
-                this._jobsSectionHeader.label.style = 'font-weight: bold; color: #888888; font-size: 0.9em;';
-                this._jobsSection.addMenuItem(this._jobsSectionHeader);
-            }
-
-            let jobMenuItem = new JobMenuItem(jobId, jobName, (id) => this._cancelJob(id));
-            this._jobsSection.addMenuItem(jobMenuItem);
-            this._jobMenuItems.set(jobId, jobMenuItem);
-
-            // Execute asynchronously and non-blocking (Requirement 2 & 5)
-            proc.communicate_utf8_async(null, null, (p, res) => {
-                try {
-                    let [success, stdout, stderr] = p.communicate_utf8_finish(res);
+        let proc = spawnSubprocessAsync(
+            argv,
+            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+            (subprocess, stdout, stderr, error) => {
+                if (error) {
+                    this._onJobFinished(jobId, false, stdout || '', error.message || String(error));
+                } else {
+                    let success = subprocess ? subprocess.get_successful() : false;
                     this._onJobFinished(jobId, success, stdout, stderr);
-                } catch (e) {
-                    this._onJobFinished(jobId, false, '', e.message);
                 }
-            });
+            }
+        );
 
-        } catch (e) {
-            console.error(`CmdBar: failed to execute command: ${e.message}`);
-            this._showNotification(`Execution Failed: ${commandName}`, e.message);
+        if (!proc) {
+            console.error(`CmdBar: failed to execute command "${commandName}": Could not spawn process`);
+            this._showNotification(`Execution Failed: ${commandName}`, "Could not spawn process");
+            return;
         }
+
+        let job = {
+            id: jobId,
+            name: jobName,
+            process: proc,
+            commandName: commandName,
+            cancelled: false,
+            startTime: Date.now()
+        };
+
+        this._activeJobs.set(jobId, job);
+
+        // Dynamically add to the jobs section without redrawing everything (Requirement 3 & 4)
+        if (this._activeJobs.size === 1) {
+            this._jobsSectionSeparator = new PopupMenu.PopupSeparatorMenuItem();
+            this._jobsSection.addMenuItem(this._jobsSectionSeparator);
+            
+            this._jobsSectionHeader = new PopupMenu.PopupMenuItem("Active Background Jobs", { reactive: false });
+            this._jobsSectionHeader.label.style = 'font-weight: bold; color: #888888; font-size: 0.9em;';
+            this._jobsSection.addMenuItem(this._jobsSectionHeader);
+        }
+
+        let jobMenuItem = new JobMenuItem(jobId, jobName, (id) => this._cancelJob(id));
+        this._jobsSection.addMenuItem(jobMenuItem);
+        this._jobMenuItems.set(jobId, jobMenuItem);
     }
 
     _onJobFinished(jobId, success, stdout, stderr) {
@@ -577,6 +613,16 @@ class CmdBarIndicator extends PanelMenu.Button {
         } else {
             title = `Command Failed: ${job.commandName}`;
             body = stderr ? stderr.trim() : (stdout ? stdout.trim() : 'Execution failed with non-zero exit status.');
+
+            // Logging exact execution failure to system log (Requirement 3)
+            console.error(`CmdBar: Background command "${job.name}" failed!`);
+            if (stderr && stderr.trim()) {
+                console.error(`CmdBar: Exact Standard Error:\n${stderr}`);
+            } else if (stdout && stdout.trim()) {
+                console.warn(`CmdBar: No stderr. Exact Standard Output:\n${stdout}`);
+            } else {
+                console.error(`CmdBar: Exit status indicates failure but no output was captured.`);
+            }
         }
 
         if (body.length > 300) {
@@ -603,8 +649,7 @@ class CmdBarIndicator extends PanelMenu.Button {
 
             // Spawn pkill -P <pid> asynchronously to terminate child processes
             if (pid) {
-                let pkillProc = Gio.Subprocess.new(['pkill', '-P', String(pid)], Gio.SubprocessFlags.NONE);
-                pkillProc.communicate_utf8_async(null, null, null);
+                spawnSubprocessAsync(['pkill', '-P', String(pid)], Gio.SubprocessFlags.NONE, null);
             }
         } catch (e) {
             console.error(`CmdBar: error cancelling job ${jobId}: ${e.message}`);
@@ -618,8 +663,7 @@ class CmdBarIndicator extends PanelMenu.Button {
             if (Main && typeof Main.notify === 'function') {
                 Main.notify(title, body);
             } else {
-                let proc = Gio.Subprocess.new(['notify-send', title, body], Gio.SubprocessFlags.NONE);
-                proc.communicate_utf8_async(null, null, null);
+                spawnSubprocessAsync(['notify-send', title, body], Gio.SubprocessFlags.NONE, null);
             }
         } catch (e) {
             console.error(`CmdBar notification error: ${e.message}`);

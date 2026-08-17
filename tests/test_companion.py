@@ -241,3 +241,18 @@ def test_test_command_dialog_async_and_cancellation():
         Gtk.Entry = old_entry
 
 
+def test_companion_validate_input_strips_whitespace():
+    # Input with leading/trailing spaces should be stripped first
+    assert validate_input("  validInput123  ") is True
+    # If the stripped version is empty, it should be blocked
+    assert validate_input("    ") is False
+
+def test_companion_substitute_and_quote_command_strips_whitespace():
+    template = "echo {msg}"
+    params = {"msg": "  hello world  "}
+    cmd = substitute_and_quote_command(template, params)
+    # The leading/trailing spaces should be stripped, so it should be quoted as 'hello world'
+    assert "'hello world'" in cmd or cmd.endswith("hello world")
+
+
+

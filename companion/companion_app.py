@@ -140,6 +140,7 @@ def validate_input(value, pattern=None):
     If no pattern is provided, defaults to standard alphanumeric pattern: ^[a-zA-Z0-9_\-]+$
     :visibility: public
     """
+    value = str(value).strip() if value is not None else ""
     if not pattern:
         pattern = r"^[a-zA-Z0-9_\-]+$"
     try:
@@ -165,7 +166,7 @@ def substitute_and_quote_command(template, params_data):
     placeholders = find_placeholders(template)
     for ph in placeholders:
         if ph in params_data:
-            val = params_data[ph]
+            val = str(params_data[ph]).strip() if params_data[ph] is not None else ""
             quoted_val = shlex.quote(val)
             final_cmd = final_cmd.replace(f"{{{ph}}}", quoted_val)
     return final_cmd
