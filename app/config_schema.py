@@ -127,6 +127,7 @@ def validate_parameter_value(value, parameter_schema):
     Returns (is_valid, error_message).
     :visibility: public
     """
+    value = str(value).strip() if value is not None else ""
     # 1. Check for forbidden characters
     forbidden = [';', '&&', '||', '|', '&', '`', '$', '(', ')', '>', '<']
     for f in forbidden:
@@ -175,6 +176,7 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
     for param in parameters_schema:
         name = param.get("name")
         val = parameter_values.get(name, "")
+        val = str(val).strip() if val is not None else ""
         if param.get("secure", False):
             preview_values[name] = "*" * len(val) if val else ""
         else:

@@ -92,3 +92,21 @@ def test_resolve_command_preview_secure_masking():
     assert resolved == "login -p '**************'"
     assert "secretPassword" not in resolved
     assert not errors
+
+def test_validate_parameter_value_strips_whitespace():
+    schema = {
+        "name": "host",
+        "regex": "^[a-zA-Z0-9.-]+$",
+        "error_message": "Invalid host format!"
+    }
+    # validate_parameter_value should strip the string before validating against the regex
+    is_valid, err_msg = validate_parameter_value("  google.com  ", schema)
+    assert is_valid
+    assert err_msg is None
+
+    # resolve_command_preview should use stripped value
+    template = "ping -c 3 <host>"
+    resolved, errors = resolve_command_preview(template, "shell-quoted", {"host": "  google.com  "}, [schema])
+    assert resolved == "ping -c 3 google.com"
+    assert not errors
+
