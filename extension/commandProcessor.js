@@ -40,7 +40,7 @@ export function hasPlaceholder(commandTemplate) {
     if (!commandTemplate || typeof commandTemplate !== 'string') {
         return false;
     }
-    return /<[^>]+>/.test(commandTemplate) || /\{\{[^}]+\}\}/.test(commandTemplate);
+    return /<[^>]+>|\{\{[^}]+\}\}|\{[^}]+\}/.test(commandTemplate);
 }
 
 /**
@@ -56,12 +56,7 @@ export function substituteCommand(commandTemplate, val) {
         return '';
     }
     const cleanVal = val !== undefined && val !== null ? String(val) : '';
-    let substituted = commandTemplate;
-    // Replace all occurrences of <something>
-    substituted = substituted.replace(/<[^>]+>/g, () => cleanVal);
-    // Replace all occurrences of {{something}}
-    substituted = substituted.replace(/\{\{[^}]+\}\}/g, () => cleanVal);
-    return substituted;
+    return commandTemplate.replace(/\{\{[^}]+\}\}|<[^>]+>|\{[^}]+\}/g, () => cleanVal);
 }
 
 /**
@@ -178,17 +173,10 @@ export function getPlaceholders(commandTemplate) {
     if (!commandTemplate || typeof commandTemplate !== 'string') {
         return [];
     }
-    const angleRegex = /<([^>]+)>/g;
-    const curlyRegex = /\{\{([^}]+)\}\}/g;
+    const regex = /\{\{[^}]+\}\}|<[^>]+>|\{[^}]+\}/g;
     const matches = [];
-    
     let match;
-    while ((match = angleRegex.exec(commandTemplate)) !== null) {
-        if (!matches.includes(match[0])) {
-            matches.push(match[0]);
-        }
-    }
-    while ((match = curlyRegex.exec(commandTemplate)) !== null) {
+    while ((match = regex.exec(commandTemplate)) !== null) {
         if (!matches.includes(match[0])) {
             matches.push(match[0]);
         }
@@ -209,9 +197,20 @@ export function substituteTokens(tokens, placeholderMap) {
     if (!placeholderMap || typeof placeholderMap !== 'object') {
         return [...tokens];
     }
+    const expandedMap = {};
+    for (const [key, val] of Object.entries(placeholderMap)) {
+        if (key.startsWith('<') || key.startsWith('{')) {
+            expandedMap[key] = val;
+        } else {
+            expandedMap[`<${key}>`] = val;
+            expandedMap[`{{${key}}}`] = val;
+            expandedMap[`{${key}}`] = val;
+        }
+    }
+    const entries = Object.entries(expandedMap).sort((a, b) => b[0].length - a[0].length);
     return tokens.map(token => {
         let substituted = token;
-        for (const [placeholder, val] of Object.entries(placeholderMap)) {
+        for (const [placeholder, val] of entries) {
             const cleanVal = val !== undefined && val !== null ? String(val) : '';
             const escapedPlaceholder = placeholder.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
             const regex = new RegExp(escapedPlaceholder, 'g');

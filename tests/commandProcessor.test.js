@@ -32,6 +32,11 @@ describe('CmdBar Extension Core Unit Tests', () => {
             expect(hasPlaceholder('aws ecs update-service --service {{service-name}}')).toBe(true);
         });
 
+        test('should detect placeholders with single curly braces {...}', () => {
+            expect(hasPlaceholder('git checkout {branch}')).toBe(true);
+            expect(hasPlaceholder('echo {ticket_id}')).toBe(true);
+        });
+
         test('should return false if there are no placeholders in the command', () => {
             expect(hasPlaceholder('make build')).toBe(false);
             expect(hasPlaceholder('echo hello')).toBe(false);
@@ -53,10 +58,16 @@ describe('CmdBar Extension Core Unit Tests', () => {
             expect(substituteCommand(template, val)).toBe('deploy auth-api');
         });
 
-        test('should substitute multiple placeholders of the same type', () => {
-            const template = 'echo <task-id> and <task-id>';
+        test('should substitute values into single curly brace placeholders {...}', () => {
+            const template = 'git checkout {branch}';
+            const val = 'feature-123';
+            expect(substituteCommand(template, val)).toBe('git checkout feature-123');
+        });
+
+        test('should substitute multiple placeholders of mixed syntax types', () => {
+            const template = 'echo <task-id> {{service}} {branch}';
             const val = '123';
-            expect(substituteCommand(template, val)).toBe('echo 123 and 123');
+            expect(substituteCommand(template, val)).toBe('echo 123 123 123');
         });
 
         test('should handle null/undefined inputs gracefully', () => {
@@ -125,10 +136,11 @@ describe('CmdBar Extension Core Unit Tests', () => {
     });
 
     describe('Extract Placeholders', () => {
-        test('should extract angle brackets and double curly placeholders', () => {
+        test('should extract angle brackets, double curly, and single curly placeholders', () => {
             expect(getPlaceholders('echo <task-id>')).toEqual(['<task-id>']);
             expect(getPlaceholders('deploy {{service-name}}')).toEqual(['{{service-name}}']);
-            expect(getPlaceholders('aws ecs update-service --service {{service-name}} --desired-count {{count}}')).toEqual(['{{service-name}}', '{{count}}']);
+            expect(getPlaceholders('git checkout {branch}')).toEqual(['{branch}']);
+            expect(getPlaceholders('aws ecs update-service --service {{service-name}} --desired-count {count} --host <host>')).toEqual(['{{service-name}}', '{count}', '<host>']);
         });
 
         test('should handle no placeholders', () => {
@@ -139,6 +151,12 @@ describe('CmdBar Extension Core Unit Tests', () => {
     });
 
     describe('Token Substitution with Mapping', () => {
+        test('should substitute mapped values safely across mixed placeholder syntaxes', () => {
+            const tokens = ['aws', 'ecs', 'update', '--service', '{{service}}', '--count', '{count}', '--host', '<host>'];
+            const map = { '{{service}}': 'auth-api', '{count}': '5', '<host>': 'prod-host' };
+            expect(substituteTokens(tokens, map)).toEqual(['aws', 'ecs', 'update', '--service', 'auth-api', '--count', '5', '--host', 'prod-host']);
+        });
+
         test('should substitute mapped values safely', () => {
             const tokens = ['echo', '<task-id>'];
             const map = { '<task-id>': 'hello world; rm -rf /' };
