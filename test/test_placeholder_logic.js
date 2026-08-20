@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 // Extract the core functions to test (array-based versions)
 function findPlaceholders(commandArray) {
-    let placeholderRegex = /<([^>]+)>/g;
+    let placeholderRegex = /\{\{[^}]+\}\}|<[^>]+>|\{[^}]+\}/g;
     let uniquePlaceholders = [];
     for (let arg of commandArray) {
         let matches = [...arg.matchAll(placeholderRegex)];
@@ -17,9 +17,10 @@ function findPlaceholders(commandArray) {
 }
 
 function substitutePlaceholders(commandArray, replacements) {
+    const keys = Object.keys(replacements).sort((a, b) => b.length - a.length);
     return commandArray.map(arg => {
         let result = arg;
-        for (let placeholder of Object.keys(replacements)) {
+        for (let placeholder of keys) {
             result = result.replaceAll(placeholder, replacements[placeholder]);
         }
         return result;

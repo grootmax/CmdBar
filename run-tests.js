@@ -19,12 +19,14 @@ try {
     // 2. hasPlaceholder Tests
     assert.strictEqual(hasPlaceholder('echo <task-id>'), true, 'Should detect <...> placeholder');
     assert.strictEqual(hasPlaceholder('deploy {{service}}'), true, 'Should detect {{...}} placeholder');
+    assert.strictEqual(hasPlaceholder('git checkout {branch}'), true, 'Should detect {...} single brace placeholder');
     assert.strictEqual(hasPlaceholder('make build'), false, 'Should return false when no placeholders exist');
     assert.strictEqual(hasPlaceholder(''), false, 'Should handle empty string gracefully');
 
     // 3. substituteCommand Tests
     assert.strictEqual(substituteCommand('echo <task-id>', '999'), 'echo 999', 'Should replace angle bracket placeholder');
     assert.strictEqual(substituteCommand('deploy {{service}}', 'api'), 'deploy api', 'Should replace double curly placeholder');
+    assert.strictEqual(substituteCommand('git checkout {branch}', 'main'), 'git checkout main', 'Should replace single curly placeholder');
     assert.strictEqual(substituteCommand('echo <task-id> and <task-id>', '123'), 'echo 123 and 123', 'Should replace multiple placeholders');
     assert.strictEqual(substituteCommand(null, 'val'), '', 'Should handle null template gracefully');
 
