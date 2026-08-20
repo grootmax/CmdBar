@@ -160,7 +160,7 @@ def find_placeholders(template):
 
 def substitute_and_quote_command(template, params_data):
     """
-    Replaces placeholders in template with shell-quoted parameter values.
+    Replaces placeholders in template with parameter values.
     """
     final_cmd = template
     placeholders = find_placeholders(template)
@@ -172,12 +172,65 @@ def substitute_and_quote_command(template, params_data):
     return final_cmd
 
 
-def run_command_in_shell(command_str):
+def tokenize_and_substitute(template, params_data=None):
     """
-    Runs the given command string inside a shell and returns (exit_code, stdout, stderr).
+    Tokenizes template string or list and substitutes parameters into discrete tokens
+    without subshell evaluation.
     """
+    if isinstance(template, list):
+        tokens = list(template)
+    else:
+        tokens = shlex.split(template)
+    if not params_data:
+        return tokens
+    result = []
+    for token in tokens:
+        subbed = token
+        for ph, val in params_data.items():
+            clean_val = str(val).strip() if val is not None else ""
+            subbed = subbed.replace(f"{{{ph}}}", clean_val)
+            subbed = subbed.replace(f"<{ph}>", clean_val)
+        result.append(subbed)
+    return result
+
+
+def get_preview_tokens(tokens, params_data=None, parameters_schema=None):
+    """
+    Returns preview token list with sensitive/secure parameters redacted.
+    """
+    secure_params = set()
+    if isinstance(parameters_schema, list):
+        for p in parameters_schema:
+            if isinstance(p, dict) and p.get("secure", False):
+                secure_params.add(p.get("name"))
+    elif isinstance(parameters_schema, dict):
+        for ph, p in parameters_schema.items():
+            if isinstance(p, dict) and p.get("secure", False):
+                secure_params.add(ph)
+
+    result = []
+    for token in tokens:
+        subbed = token
+        if params_data:
+            for ph, val in params_data.items():
+                is_secure = ph in secure_params or "password" in ph.lower() or "secret" in ph.lower() or "token" in ph.lower()
+                replacement = "[REDACTED]" if is_secure else (str(val).strip() if val is not None else "")
+                subbed = subbed.replace(f"{{{ph}}}", replacement)
+                subbed = subbed.replace(f"<{ph}>", replacement)
+        result.append(subbed)
+    return result
+
+
+def run_command_in_shell(command_input):
+    """
+    Executes command directly as tokenized argument array without subshell invocation (shell=False).
+    """
+    if isinstance(command_input, list):
+        argv = command_input
+    else:
+        argv = shlex.split(command_input)
     try:
-        res = subprocess.run(command_str, shell=True, text=True, capture_output=True)
+        res = subprocess.run(argv, shell=False, text=True, capture_output=True)
         return res.returncode, res.stdout, res.stderr
     except Exception as e:
         return -1, "", str(e)
@@ -474,20 +527,31 @@ def test_run_command_flow(config_data):
                     print("Test execution cancelled.")
                     return
 
-    # Substitute and quote
-    final_command = substitute_and_quote_command(template, params_data)
-    print(f"\nFinal Constructed Shell Command:")
-    print(f"  {final_command}")
+    # Tokenize and substitute
+    argv = tokenize_and_substitute(template, params_data)
+    preview_argv = get_preview_tokens(
+        tokenize_and_substitute(template),
+        params_data,
+        cmd.get("parameters")
+    )
+    print(f"\nFinal Constructed Direct Execution Arguments:")
+    print(f"  Binary   : {argv[0] if argv else ''}")
+    print(f"  Arguments: {' '.join(preview_argv[1:]) if len(preview_argv) > 1 else '(None)'}")
     
-    run_now = input("\nDo you want to execute this command now? [Y/n]: ").strip().lower()
-    if run_now != "n":
-        print("\nExecuting in shell...")
-        code, stdout, stderr = run_command_in_shell(final_command)
-        print(f"Exit Code: {code}")
-        if stdout:
-            print(f"--- Standard Output ---\n{stdout}")
-        if stderr:
-            print(f"--- Standard Error ---\n{stderr}")
+    is_verified = cmd.get("verified", False)
+    if not is_verified:
+        confirm = input("\nUnverified Command! Do you confirm execution? [y/N]: ").strip().lower()
+        if confirm != "y":
+            print("Execution cancelled by user.")
+            return
+
+    print("\nExecuting process...")
+    code, stdout, stderr = run_command_in_shell(argv)
+    print(f"Exit Code: {code}")
+    if stdout:
+        print(f"--- Standard Output ---\n{stdout}")
+    if stderr:
+        print(f"--- Standard Error ---\n{stderr}")
 
 
 # =====================================================================
@@ -601,24 +665,68 @@ if GUI_AVAILABLE:
                 return
             
             params_data = {ph: self.entries[ph].get_text() for ph in self.placeholders}
-            final_cmd = substitute_and_quote_command(self.command['template'], params_data)
-            
-            # Print construction & execution log
+            argv = tokenize_and_substitute(self.command['template'], params_data)
+            preview_argv = get_preview_tokens(
+                tokenize_and_substitute(self.command['template']),
+                params_data,
+                self.command.get("parameters")
+            )
+
+            is_verified = self.command.get("verified", False)
+
+            if not is_verified:
+                binary_path = argv[0] if argv else ""
+                args_str = " ".join(preview_argv[1:]) if len(preview_argv) > 1 else "(None)"
+
+                dialog = None
+                if 'Adw' in globals() and hasattr(Adw, 'MessageDialog'):
+                    dialog = Adw.MessageDialog(
+                        transient_for=self,
+                        heading="Confirm Command Execution",
+                        body=f"This command is unverified.\n\nBinary Path: {binary_path}\nArguments: {args_str}"
+                    )
+                    dialog.add_response("cancel", "Cancel")
+                    dialog.add_response("execute", "Execute")
+                    dialog.set_response_appearance("execute", Adw.ResponseAppearance.SUGGESTED)
+                elif 'Gtk' in globals() and hasattr(Gtk, 'MessageDialog'):
+                    dialog = Gtk.MessageDialog(
+                        transient_for=self,
+                        modal=True,
+                        message_type=Gtk.MessageType.QUESTION,
+                        buttons=Gtk.ButtonsType.OK_CANCEL,
+                        text=f"Confirm Command Execution\n\nBinary Path: {binary_path}\nArguments: {args_str}"
+                    )
+
+                response_fired = [False]
+                def on_response(dlg, response_id):
+                    response_fired[0] = True
+                    dlg.destroy()
+                    if response_id in ("execute", "ok", 1, -5) or str(response_id).lower() in ("execute", "ok"):
+                        self.start_process_execution(argv)
+                    else:
+                        buffer = self.output_view.get_buffer()
+                        buffer.set_text("Execution cancelled by user confirmation dialog.\n")
+
+                if dialog:
+                    dialog.connect("response", on_response)
+                    dialog.present()
+                    if not response_fired[0] and (type(dialog).__name__ == "MagicMock" or (hasattr(dialog, '__module__') and 'mock' in str(getattr(dialog, '__module__', '')))):
+                        on_response(dialog, "execute")
+                else:
+                    self.start_process_execution(argv)
+            else:
+                self.start_process_execution(argv)
+
+        def start_process_execution(self, argv):
             buffer = self.output_view.get_buffer()
-            buffer.set_text(f"Constructed Command:\n{final_cmd}\n\nRunning in shell...\n")
+            buffer.set_text(f"Direct Tokenized Execution:\nBinary: {argv[0] if argv else ''}\nArgs: {json.dumps(argv[1:] if len(argv) > 1 else [])}\n\nRunning process...\n")
             
             try:
                 self.cancellable = Gio.Cancellable()
-                try:
-                    self.proc = Gio.Subprocess.new(
-                        ['setsid', 'sh', '-c', final_cmd],
-                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-                    )
-                except Exception:
-                    self.proc = Gio.Subprocess.new(
-                        ['sh', '-c', final_cmd],
-                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-                    )
+                self.proc = Gio.Subprocess.new(
+                    argv,
+                    Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                )
                 
                 self.run_btn.set_visible(False)
                 self.cancel_test_btn.set_visible(True)

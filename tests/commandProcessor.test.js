@@ -1,4 +1,4 @@
-import { validateInput, hasPlaceholder, substituteCommand, parseEnv, tokenizeCommand, getPlaceholders, substituteTokens } from '../extension/commandProcessor.js';
+import { validateInput, hasPlaceholder, substituteCommand, parseEnv, tokenizeCommand, getPlaceholders, substituteTokens, getPreviewTokens } from '../extension/commandProcessor.js';
 
 describe('CmdBar Extension Core Unit Tests', () => {
     
@@ -155,6 +155,27 @@ describe('CmdBar Extension Core Unit Tests', () => {
             const tokens = ['make', 'build'];
             expect(substituteTokens(tokens, null)).toEqual(['make', 'build']);
             expect(substituteTokens(tokens, {})).toEqual(['make', 'build']);
+        });
+    });
+
+    describe('Sensitive Parameter Redaction in Confirmation Previews', () => {
+        test('should redact secure parameter values in preview tokens', () => {
+            const argv = ['login', '-u', 'jules', '-p', 'mySecretPass123'];
+            const map = { 'password': 'mySecretPass123' };
+            const schema = [{ name: 'password', secure: true }];
+            expect(getPreviewTokens(argv, map, schema)).toEqual(['login', '-u', 'jules', '-p', '[REDACTED]']);
+        });
+
+        test('should automatically redact parameter keys containing password, secret, or token', () => {
+            const argv = ['curl', '-H', 'Authorization: Bearer secretTokenABC'];
+            const map = { 'token': 'secretTokenABC' };
+            expect(getPreviewTokens(argv, map, [])).toEqual(['curl', '-H', 'Authorization: Bearer [REDACTED]']);
+        });
+
+        test('should keep non-sensitive parameter values visible in preview', () => {
+            const argv = ['git', 'checkout', 'feature/safe-quoting'];
+            const map = { 'branch': 'feature/safe-quoting' };
+            expect(getPreviewTokens(argv, map, [])).toEqual(['git', 'checkout', 'feature/safe-quoting']);
         });
     });
 });
