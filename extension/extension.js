@@ -5,7 +5,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 import { St, Clutter, Gio, GLib, GObject } from 'gi';
 
-import { validateInput, substituteCommand, hasPlaceholder, tokenizeCommand, substituteTokens, getPlaceholders } from './commandProcessor.js';
+import { validateInput, substituteCommand, hasPlaceholder, tokenizeCommand, substituteTokens, getPlaceholders, isBinaryAllowlisted } from './commandProcessor.js';
 import { loadConfig } from './configSync.js';
 
 /**
@@ -15,8 +15,21 @@ import { loadConfig } from './configSync.js';
  */
 function runCommandAsync(commandName, commandString) {
     try {
+        let tokens = tokenizeCommand(commandString);
+        if (!tokens || tokens.length === 0) {
+            Main.notify(`Command Error: ${commandName}`, "Empty or invalid command.");
+            return;
+        }
+
+        let binary = tokens[0];
+        if (!isBinaryAllowlisted(binary)) {
+            console.warn(`CmdBar: Execution blocked for non-allowlisted binary: ${binary}`);
+            Main.notify("Security Alert: Execution Blocked", `Binary path '${binary}' is not in the approved allowlist.`);
+            return;
+        }
+
         let proc = Gio.Subprocess.new(
-            ['/bin/sh', '-c', commandString],
+            tokens,
             Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
         );
 
@@ -78,6 +91,13 @@ function _executeCommandAsync(commandLineString) {
         let [ok, argv] = GLib.shell_parse_argv(commandLineString);
         if (!ok || !argv || argv.length === 0) {
             Main.notify("Command Execution Failed", `Could not parse command: "${commandLineString}"`);
+            return;
+        }
+
+        let binary = argv[0];
+        if (!isBinaryAllowlisted(binary)) {
+            console.warn(`CmdBar: Execution blocked for non-allowlisted binary: ${binary}`);
+            Main.notify("Security Alert: Execution Blocked", `Binary path '${binary}' is not in the approved allowlist.`);
             return;
         }
 
@@ -197,6 +217,13 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
                             if (argv.length === 0) {
                                 console.warn(`CmdBar: Command template parsed to empty argument list: ${this._commandTemplate}`);
                                 Main.notify("Execution Error", "Command template parsed to empty argument list.");
+                                return;
+                            }
+
+                            let binary = argv[0];
+                            if (!isBinaryAllowlisted(binary)) {
+                                console.warn(`CmdBar: Execution blocked for non-allowlisted binary: ${binary}`);
+                                Main.notify("Security Alert: Execution Blocked", `Binary path '${binary}' is not in the approved allowlist.`);
                                 return;
                             }
 
@@ -489,6 +516,13 @@ class CmdBarIndicator extends PanelMenu.Button {
 
         if (argv.length === 0) {
             this._showNotification("Execution Error", "Command template parsed to empty argument list.");
+            return;
+        }
+
+        let binary = argv[0];
+        if (!isBinaryAllowlisted(binary)) {
+            console.warn(`CmdBar: Execution blocked for non-allowlisted binary: ${binary}`);
+            this._showNotification("Security Alert: Execution Blocked", `Binary path '${binary}' is not in the approved allowlist.`);
             return;
         }
 

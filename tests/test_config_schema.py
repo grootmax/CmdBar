@@ -110,3 +110,42 @@ def test_validate_parameter_value_strips_whitespace():
     assert resolved == "ping -c 3 google.com"
     assert not errors
 
+def test_python_config_signing_and_tamper_rejection(tmp_path):
+    import json
+    from app.config_schema import load_config, save_config, DEFAULT_CONFIG
+
+    cfg_file = tmp_path / "config.json"
+    custom_cfg = {
+        "categories": [
+            {
+                "name": "Custom Cat",
+                "commands": [{"name": "Echo", "command": "echo test"}]
+            }
+        ]
+    }
+
+    # Save should attach signature
+    save_config(custom_cfg, str(cfg_file))
+    with open(cfg_file, "r") as f:
+        data = json.load(f)
+    assert "signature" in data
+    assert len(data["signature"]) == 64
+
+    # Load should verify and succeed
+    loaded = load_config(str(cfg_file))
+    assert loaded["categories"][0]["name"] == "Custom Cat"
+
+    # Tampering without updating signature should reject, archive to .bak, and load default
+    data["categories"][0]["commands"][0]["command"] = "/tmp/malicious"
+    with open(cfg_file, "w") as f:
+        json.dump(data, f)
+
+    loaded_tampered = load_config(str(cfg_file))
+    assert loaded_tampered == DEFAULT_CONFIG
+    bak_file = tmp_path / "config.json.bak"
+    assert bak_file.exists()
+    with open(bak_file, "r") as f:
+        bak_data = json.load(f)
+    assert bak_data["categories"][0]["commands"][0]["command"] == "/tmp/malicious"
+
+
