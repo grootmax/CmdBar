@@ -3,13 +3,14 @@
 UUID = cmdbar@yourdomain.com
 EXTENSION_DIR = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
 
-.PHONY: install uninstall test compile-schemas help compile serve
+.PHONY: install uninstall test compile-schemas help compile serve a11y test-a11y
 
 help:
 	@echo "Available commands:"
 	@echo "  make install     - Install the extension locally"
 	@echo "  make uninstall   - Uninstall the local extension"
 	@echo "  make test        - Run the test suite"
+	@echo "  make a11y        - Run WCAG accessibility compliance audits"
 	@echo "  make compile     - Compile public and developer HTML targets"
 	@echo "  make serve       - Start local live-reload documentation server"
 
@@ -37,3 +38,9 @@ compile:
 
 serve:
 	python3 scripts/serve_docs.py
+
+a11y: compile
+	npm run test:a11y
+
+test-a11y: compile
+	npm run test:a11y
