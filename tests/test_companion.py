@@ -118,11 +118,22 @@ def test_validate_input_custom_pattern():
 def test_find_placeholders():
     assert find_placeholders("git checkout {branch}") == ["branch"]
     assert find_placeholders("docker run -d {image} {tag}") == ["image", "tag"]
+    assert find_placeholders("deploy {{service}}") == ["service"]
+    assert find_placeholders("ping <host>") == ["host"]
+    assert find_placeholders("aws ecs update --service {{service}} --id {task} --host <host>") == ["service", "task", "host"]
     assert find_placeholders("echo hello") == []
     assert find_placeholders("echo {name} is {adjective}") == ["name", "adjective"]
 
 
 def test_substitute_and_quote_command():
+    # Test multi-syntax placeholder substitution
+    mixed_template = "aws ecs update --service {{service}} --id {task} --host <host>"
+    mixed_params = {"service": "auth-api", "task": "123", "host": "prod host"}
+    mixed_cmd = substitute_and_quote_command(mixed_template, mixed_params)
+    assert "auth-api" in mixed_cmd
+    assert "123" in mixed_cmd
+    assert "'prod host'" in mixed_cmd
+
     # Verify that single-quoting works and is applied via shlex.quote
     template = "git checkout {branch}"
     params = {"branch": "feature/safe-quoting"}

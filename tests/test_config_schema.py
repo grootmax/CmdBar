@@ -49,6 +49,20 @@ def test_resolve_command_preview_shell_quoted():
     assert resolved == "ping -c 3 google.com"
     assert not errors
 
+    # Single brace {host}
+    single_template = "git checkout {branch}"
+    single_schema = [{"name": "branch"}]
+    resolved, errors = resolve_command_preview(single_template, "shell-quoted", {"branch": "main"}, single_schema)
+    assert resolved == "git checkout main"
+    assert not errors
+
+    # Double brace {{host}} and mixed syntaxes
+    mixed_template = "aws ecs --service {{service}} --id {task} --host <host>"
+    mixed_schema = [{"name": "service"}, {"name": "task"}, {"name": "host"}]
+    resolved, errors = resolve_command_preview(mixed_template, "shell-quoted", {"service": "auth-api", "task": "123", "host": "prod.com"}, mixed_schema)
+    assert resolved == "aws ecs --service auth-api --id 123 --host prod.com"
+    assert not errors
+
     # Quote characters inside param
     resolved, errors = resolve_command_preview(template, "shell-quoted", {"host": "google's.com"}, schema)
     # shlex.quote("google's.com") -> '"google'\''s.com"' or similar

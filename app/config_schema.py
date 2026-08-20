@@ -182,15 +182,17 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
         else:
             preview_values[name] = val
 
+    pattern = r"\{\{([^}]+)\}\}|<([^>]+)>|\{([^}]+)\}"
     if mode == "shell-quoted":
         # Substitution with shell quoting
-        resolved = command_template
-        for param in parameters_schema:
-            name = param.get("name")
-            val = preview_values.get(name, "")
-            # Quote the value safely
-            quoted_val = shlex.quote(val)
-            resolved = resolved.replace(f"<{name}>", quoted_val)
+        def replacer(match):
+            ph = match.group(1) or match.group(2) or match.group(3)
+            if ph in preview_values:
+                val = preview_values[ph]
+                return shlex.quote(val)
+            return match.group(0)
+
+        resolved = re.sub(pattern, replacer, command_template)
         return resolved, errors
     else:
         # direct-array mode
@@ -201,11 +203,14 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
             
         resolved_parts = []
         for part in parts:
-            for param in parameters_schema:
-                name = param.get("name")
-                val = preview_values.get(name, "")
-                part = part.replace(f"<{name}>", val)
-            resolved_parts.append(part)
+            def replacer_part(match):
+                ph = match.group(1) or match.group(2) or match.group(3)
+                if ph in preview_values:
+                    return preview_values[ph]
+                return match.group(0)
+
+            resolved_part = re.sub(pattern, replacer_part, part)
+            resolved_parts.append(resolved_part)
             
         # Preview representation for direct-array is the list of individual args
         array_preview = "Direct Array: " + " ".join(shlex.quote(p) for p in resolved_parts)

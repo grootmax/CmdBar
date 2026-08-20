@@ -153,23 +153,37 @@ def validate_input(value, pattern=None):
 
 def find_placeholders(template):
     """
-    Extracts all placeholders from command template. E.g. {branch} -> ['branch']
+    Extracts all placeholders from command template. E.g. {branch}, {{service}}, or <host> -> ['branch', 'service', 'host']
     """
-    return re.findall(r"\{([^}]+)\}", template)
+    if not template or not isinstance(template, str):
+        return []
+    pattern = r"\{\{([^}]+)\}\}|<([^>]+)>|\{([^}]+)\}"
+    matches = re.findall(pattern, template)
+    placeholders = []
+    for g1, g2, g3 in matches:
+        ph = g1 or g2 or g3
+        if ph and ph not in placeholders:
+            placeholders.append(ph)
+    return placeholders
 
 
 def substitute_and_quote_command(template, params_data):
     """
     Replaces placeholders in template with shell-quoted parameter values.
+    Supports {ph}, {{ph}}, and <ph> placeholder syntaxes.
     """
-    final_cmd = template
-    placeholders = find_placeholders(template)
-    for ph in placeholders:
+    if not template or not isinstance(template, str):
+        return ""
+
+    def replacer(match):
+        ph = match.group(1) or match.group(2) or match.group(3)
         if ph in params_data:
             val = str(params_data[ph]).strip() if params_data[ph] is not None else ""
-            quoted_val = shlex.quote(val)
-            final_cmd = final_cmd.replace(f"{{{ph}}}", quoted_val)
-    return final_cmd
+            return shlex.quote(val)
+        return match.group(0)
+
+    pattern = r"\{\{([^}]+)\}\}|<([^>]+)>|\{([^}]+)\}"
+    return re.sub(pattern, replacer, template)
 
 
 def run_command_in_shell(command_str):
