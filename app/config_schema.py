@@ -114,12 +114,68 @@ def load_config(path=None):
         # Fallback to default if corrupt
         return DEFAULT_CONFIG
 
+import time
+
+def acquire_lock(lock_path, timeout_ms=500):
+    start = time.time()
+    timeout_sec = timeout_ms / 1000.0
+    while True:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            info = json.dumps({"pid": os.getpid(), "timestamp": int(time.time() * 1000)})
+            os.write(fd, info.encode('utf-8'))
+            os.close(fd)
+            return True
+        except OSError:
+            try:
+                if os.path.exists(lock_path):
+                    mtime = os.path.getmtime(lock_path)
+                    if time.time() - mtime > 1.0:
+                        try:
+                            os.unlink(lock_path)
+                        except OSError:
+                            pass
+            except OSError:
+                pass
+
+            if (time.time() - start) >= timeout_sec:
+                raise TimeoutError("Lock acquisition timeout")
+            time.sleep(0.015)
+
+
+def release_lock(lock_path):
+    try:
+        if os.path.exists(lock_path):
+            os.unlink(lock_path)
+    except OSError:
+        pass
+
+
 def save_config(config_data, path=None):
     if path is None:
         path = get_config_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(config_data, f, indent=2)
+
+    lock_path = path + ".lock"
+    acquire_lock(lock_path, timeout_ms=500)
+
+    tmp_path = f"{path}.{os.getpid()}_{int(time.time()*1000)}.tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(config_data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+        return True
+    except Exception as e:
+        if os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        raise e
+    finally:
+        release_lock(lock_path)
 
 def validate_parameter_value(value, parameter_schema):
     """

@@ -6,6 +6,7 @@ import re
 import shlex
 import subprocess
 import argparse
+import time
 
 # Check for GTK/Adwaita availability
 GUI_AVAILABLE = False
@@ -117,21 +118,73 @@ def load_config():
     return config_data
 
 
+def acquire_lock(lock_path, timeout_ms=500):
+    start = time.time()
+    timeout_sec = timeout_ms / 1000.0
+    while True:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            info = json.dumps({"pid": os.getpid(), "timestamp": int(time.time() * 1000)})
+            os.write(fd, info.encode('utf-8'))
+            os.close(fd)
+            return True
+        except OSError:
+            try:
+                if os.path.exists(lock_path):
+                    mtime = os.path.getmtime(lock_path)
+                    if time.time() - mtime > 1.0:
+                        try:
+                            os.unlink(lock_path)
+                        except OSError:
+                            pass
+            except OSError:
+                pass
+
+            if (time.time() - start) >= timeout_sec:
+                raise TimeoutError("Lock acquisition timeout")
+            time.sleep(0.015)
+
+
+def release_lock(lock_path):
+    try:
+        if os.path.exists(lock_path):
+            os.unlink(lock_path)
+    except OSError:
+        pass
+
+
 def save_config(config_data):
     """
-    Saves the configuration to the file safely.
+    Saves the configuration to the file safely using atomic swap and cooperative locking.
     """
     config_path = get_config_path()
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    lock_path = config_path + ".lock"
+
     try:
-        # Write to a temporary file first, then rename, to avoid corrupted configs
-        tmp_path = config_path + ".tmp"
-        with open(tmp_path, "w") as f:
+        acquire_lock(lock_path, timeout_ms=500)
+    except Exception as e:
+        print(f"Error acquiring lock: {e}", file=sys.stderr)
+        return False
+
+    tmp_path = f"{config_path}.{os.getpid()}_{int(time.time()*1000)}.tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=4)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp_path, config_path)
         return True
     except OSError as e:
         print(f"Error saving configuration: {e}", file=sys.stderr)
+        if os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
         return False
+    finally:
+        release_lock(lock_path)
 
 
 def validate_input(value, pattern=None):

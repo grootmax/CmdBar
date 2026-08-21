@@ -527,18 +527,7 @@ export async function loadConfig(configPath, extensionPath) {
     }
 
     if (!isValid) {
-        // Requirement 7: Archive the broken configuration file and generate a fresh default file
-        const backupPath = configPath + '.bak';
-        try {
-            if (isNode) {
-                await node_backupFile(configPath, backupPath);
-            } else {
-                await gjs_backupFile(configPath, backupPath);
-            }
-        } catch (e) {
-            console.error(`CmdBar: Failed to archive corrupted config file: ${e.message}`);
-        }
-
+        // Non-destructive memory fallback: preserve invalid file on disk as-is, load default in memory
         let defaultContent = '';
         let defaultLoaded = false;
         if (extensionPath) {
@@ -572,19 +561,18 @@ export async function loadConfig(configPath, extensionPath) {
         try {
             configObj = JSON.parse(defaultContent);
             if (!validateConfigSchema(configObj)) {
-                configObj = DEFAULT_CONFIG;
-                defaultContent = JSON.stringify(DEFAULT_CONFIG, null, 2);
+                configObj = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
             }
         } catch (e) {
-            configObj = DEFAULT_CONFIG;
-            defaultContent = JSON.stringify(DEFAULT_CONFIG, null, 2);
+            configObj = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
         }
 
-        if (isNode) {
-            await node_writeFileAtomic(configPath, defaultContent);
-        } else {
-            await gjs_writeFileAtomic(configPath, defaultContent);
-        }
+        Object.defineProperty(configObj, '_isInvalid', {
+            value: true,
+            writable: true,
+            enumerable: false,
+            configurable: true
+        });
 
         return configObj;
     }

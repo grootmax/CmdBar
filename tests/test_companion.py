@@ -4,6 +4,7 @@ import json
 import re
 import shlex
 import subprocess
+import time
 import pytest
 
 from companion.companion_app import (
@@ -264,6 +265,110 @@ def test_companion_substitute_and_quote_command_strips_whitespace():
     cmd = substitute_and_quote_command(template, params)
     # The leading/trailing spaces should be stripped, so it should be quoted as 'hello world'
     assert "'hello world'" in cmd or cmd.endswith("hello world")
+
+
+def test_companion_atomic_save_uses_same_dir_tmp_file_and_lock(temp_config_file, monkeypatch):
+    """
+    Verifies that save_config writes to a temporary file in the same directory,
+    atomically renames it, and respects cooperative file locking (.lock).
+    """
+    if os.path.exists(temp_config_file):
+        os.remove(temp_config_file)
+    init_config()
+    written_files = []
+    renamed_pairs = []
+
+    real_open = open
+    real_replace = os.replace
+
+    def spy_replace(src, dst):
+        renamed_pairs.append((src, dst))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy_replace)
+
+    test_data = {"categories": [{"name": "Atomic Test", "commands": []}]}
+    success = save_config(test_data)
+    assert success is True
+
+    # Check rename pair: src must be in same dir and end with .tmp
+    assert len(renamed_pairs) >= 1
+    src, dst = renamed_pairs[-1]
+    assert dst == temp_config_file
+    assert os.path.dirname(src) == os.path.dirname(temp_config_file)
+    assert src.endswith(".tmp")
+
+    # Lock file should be cleaned up after save completes
+    lock_file = temp_config_file + ".lock"
+    assert not os.path.exists(lock_file)
+
+
+def test_companion_lock_file_blocks_concurrent_write(temp_config_file):
+    """
+    Verifies that a held cooperative lock file blocks concurrent save operations.
+    """
+    if os.path.exists(temp_config_file):
+        os.remove(temp_config_file)
+    init_config()
+    lock_file = temp_config_file + ".lock"
+
+    # Simulate another process holding the lock file
+    with open(lock_file, "w") as f:
+        json.dump({"pid": 99999, "timestamp": int(time.time() * 1000)}, f)
+
+    test_data = {"categories": [{"name": "Blocked Save", "commands": []}]}
+    # Attempting to save with a held non-stale lock should fail or time out
+    success = save_config(test_data)
+    assert success is False
+
+    # Clean up lock file
+    if os.path.exists(lock_file):
+        os.remove(lock_file)
+
+
+def test_companion_aborted_write_preserves_original_config(temp_config_file, monkeypatch):
+    """
+    Verifies that if a write operation is aborted midway, the original config file
+    remains valid and unmodified on disk.
+    """
+    if os.path.exists(temp_config_file):
+        os.remove(temp_config_file)
+    init_config()
+    original_data = load_config()
+    assert original_data["categories"][0]["name"] == "Projects"
+
+    # Mock json.dump to raise an Exception midway through writing
+    def failing_json_dump(*args, **kwargs):
+        raise IOError("Simulated power loss or write abort midway")
+
+    monkeypatch.setattr(json, "dump", failing_json_dump)
+
+    new_data = {"categories": [{"name": "Corrupted Data", "commands": []}]}
+    success = save_config(new_data)
+    assert success is False
+
+    # Verify original configuration file is unmodified and valid on disk
+    loaded_after_abort = load_config()
+    assert loaded_after_abort["categories"][0]["name"] == "Projects"
+
+
+def test_companion_load_corrupted_config_preserves_file_on_disk(temp_config_file):
+    """
+    Verifies that loading a corrupted config file returns default config in memory
+    and DOES NOT overwrite or modify the corrupted file on disk.
+    """
+    corrupted_content = "INVALID_JSON_CORRUPTED { { {"
+    with open(temp_config_file, "w") as f:
+        f.write(corrupted_content)
+
+    config = load_config()
+    assert config == {"categories": []}
+
+    # Verify file on disk is strictly preserved exactly as-is
+    with open(temp_config_file, "r") as f:
+        on_disk = f.read()
+    assert on_disk == corrupted_content
+
 
 
 

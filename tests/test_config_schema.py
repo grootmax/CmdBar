@@ -124,3 +124,53 @@ def test_validate_parameter_value_strips_whitespace():
     assert resolved == "ping -c 3 google.com"
     assert not errors
 
+
+def test_schema_save_config_atomic_and_locking(tmp_path, monkeypatch):
+    import os
+    import json
+    import time
+    from app.config_schema import save_config, load_config
+
+    config_file = str(tmp_path / "config.json")
+    renamed_pairs = []
+    real_replace = os.replace
+
+    def spy_replace(src, dst):
+        renamed_pairs.append((src, dst))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy_replace)
+
+    data = {"categories": [{"name": "Schema Test", "commands": []}]}
+    save_config(data, config_file)
+
+    assert len(renamed_pairs) == 1
+    src, dst = renamed_pairs[0]
+    assert dst == config_file
+    assert src.endswith(".tmp")
+    assert os.path.dirname(src) == os.path.dirname(config_file)
+
+    loaded = load_config(config_file)
+    assert loaded["categories"][0]["name"] == "Schema Test"
+
+    # Ensure lock file is cleaned up
+    assert not os.path.exists(config_file + ".lock")
+
+
+def test_schema_load_config_preserves_corrupted_file(tmp_path):
+    from app.config_schema import load_config, DEFAULT_CONFIG
+
+    config_file = str(tmp_path / "config.json")
+    corrupt_str = "BAD_JSON { {"
+    with open(config_file, "w") as f:
+        f.write(corrupt_str)
+
+    loaded = load_config(config_file)
+    assert loaded == DEFAULT_CONFIG
+
+    # File on disk must remain uncorrupted/unmodified exactly as written
+    with open(config_file, "r") as f:
+        content = f.read()
+    assert content == corrupt_str
+
+

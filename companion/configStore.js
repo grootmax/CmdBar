@@ -20,6 +20,51 @@ export function getConfigPath() {
 }
 
 /**
+ * Acquires a cooperative lock file synchronously.
+ */
+export function acquireLockSync(lockPath, timeoutMs = 500) {
+    const start = Date.now();
+    while (true) {
+        try {
+            fs.writeFileSync(
+                lockPath,
+                JSON.stringify({ pid: process.pid, timestamp: Date.now() }),
+                { flag: 'wx' }
+            );
+            return true;
+        } catch (err) {
+            try {
+                const stats = fs.statSync(lockPath);
+                if (Date.now() - stats.mtimeMs > 1000) {
+                    fs.unlinkSync(lockPath);
+                }
+            } catch (statErr) {
+                // Ignore stat/unlink errors
+            }
+
+            if (Date.now() - start >= timeoutMs) {
+                throw new Error('Lock acquisition timeout');
+            }
+            const endSleep = Date.now() + 15;
+            while (Date.now() < endSleep) {}
+        }
+    }
+}
+
+/**
+ * Releases a cooperative lock file.
+ */
+export function releaseLockSync(lockPath) {
+    try {
+        if (fs.existsSync(lockPath)) {
+            fs.unlinkSync(lockPath);
+        }
+    } catch (err) {
+        // Ignore
+    }
+}
+
+/**
  * Writes the configuration data atomically (synchronously).
  * 1. Ensures the target directory exists.
  * 2. Writes the JSON content to a temporary file in the same directory.
@@ -94,7 +139,9 @@ export async function saveConfigAtomicallyAsync(configData, customPath) {
     } catch (error) {
         // Clean up the temporary file if it was created and write failed/errored
         try {
-            await fs.promises.unlink(tempPath);
+            if (fs.existsSync(tempPath)) {
+                await fs.promises.unlink(tempPath);
+            }
         } catch (cleanupError) {
             // Ignore cleanup errors
         }
