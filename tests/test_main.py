@@ -116,3 +116,13 @@ def test_cli_companion_compatibility_translation():
         assert cmd["parameters"][0]["regex"] == "^[a-z]+$"
         assert cmd["parameters"][0]["placeholder"] == "Enter param"
 
+
+def test_app_css_stylesheet_exists():
+    style_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app", "style.css")
+    assert os.path.exists(style_path)
+    with open(style_path, "r") as f:
+        content = f.read()
+    assert ".editor-fields-container" in content
+    assert ".preview-box" in content
+
+

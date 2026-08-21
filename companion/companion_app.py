@@ -509,9 +509,35 @@ def test_run_command_flow(config_data):
 # =====================================================================
 
 if GUI_AVAILABLE:
+    def load_companion_stylesheet():
+        """
+        Loads the central CSS stylesheet for the companion application.
+        """
+        try:
+            from gi.repository import Gdk
+            css_path = os.path.join(os.path.dirname(__file__), "style.css")
+            if os.path.exists(css_path):
+                css_provider = Gtk.CssProvider()
+                if hasattr(css_provider, 'load_from_path'):
+                    css_provider.load_from_path(css_path)
+                elif hasattr(css_provider, 'load_from_data'):
+                    with open(css_path, 'rb') as f:
+                        css_provider.load_from_data(f.read())
+                
+                display = Gdk.Display.get_default()
+                if display:
+                    Gtk.StyleContext.add_provider_for_display(
+                        display,
+                        css_provider,
+                        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+                    )
+        except Exception as e:
+            print(f"Warning: Could not load CSS stylesheet: {e}", file=sys.stderr)
+
     class TestCommandDialog(Gtk.Window):
         def __init__(self, parent, command, callback):
             super().__init__(transient_for=parent, modal=True, title=f"Test Run: {command['name']}")
+            load_companion_stylesheet()
             self.command = command
             self.callback = callback
             self.placeholders = find_placeholders(command['template'])
@@ -524,10 +550,8 @@ if GUI_AVAILABLE:
             
             # Layout
             main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
-            main_box.set_margin_top(15)
-            main_box.set_margin_bottom(15)
-            main_box.set_margin_start(15)
-            main_box.set_margin_end(15)
+            main_box.add_css_class("dialog-panel")
+            main_box.add_css_class("cmdbar-dialog-content")
             self.set_child(main_box)
             
             # Title
@@ -707,6 +731,7 @@ if GUI_AVAILABLE:
     class CmdBarAppWindow(Adw.ApplicationWindow):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
+            load_companion_stylesheet()
             self.set_title("CmdBar Management Utility")
             self.set_default_size(800, 600)
             
@@ -730,7 +755,8 @@ if GUI_AVAILABLE:
             
             # Left Pane: Command List
             left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-            left_box.set_margin_all(10)
+            left_box.add_css_class("left-container")
+            left_box.add_css_class("left-pane")
             paned.set_start_child(left_box)
             
             scroll = Gtk.ScrolledWindow()
@@ -742,7 +768,8 @@ if GUI_AVAILABLE:
             
             # Right Pane: Command Editor Form
             self.right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
-            self.right_box.set_margin_all(15)
+            self.right_box.add_css_class("right-container")
+            self.right_box.add_css_class("right-pane")
             self.right_box.set_sensitive(False)
             paned.set_end_child(self.right_box)
             
@@ -797,7 +824,8 @@ if GUI_AVAILABLE:
                 for cmd in cat.get("commands", []):
                     row = Gtk.ListBoxRow()
                     box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-                    box.set_margin_all(5)
+                    box.add_css_class("command-row")
+                    box.add_css_class("list-row-box")
                     row.set_child(box)
                     
                     lbl = Gtk.Label(label=f"[{cat['name']}] {cmd['name']}", xalign=0)

@@ -17,6 +17,32 @@ from app.config_schema import (
     get_config_path
 )
 
+def load_app_stylesheet():
+    """
+    Loads the central CSS stylesheet for the application.
+    """
+    try:
+        from gi.repository import Gdk
+        css_path = os.path.join(os.path.dirname(__file__), "style.css")
+        if os.path.exists(css_path):
+            css_provider = Gtk.CssProvider()
+            if hasattr(css_provider, 'load_from_path'):
+                css_provider.load_from_path(css_path)
+            elif hasattr(css_provider, 'load_from_data'):
+                with open(css_path, 'rb') as f:
+                    css_provider.load_from_data(f.read())
+            
+            display = Gdk.Display.get_default()
+            if display:
+                Gtk.StyleContext.add_provider_for_display(
+                    display,
+                    css_provider,
+                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+                )
+    except Exception as e:
+        print(f"Warning: Could not load CSS stylesheet: {e}", file=sys.stderr)
+
+
 class CmdBarApp(Adw.Application):
     def __init__(self):
         super().__init__(
@@ -36,6 +62,7 @@ class CmdBarApp(Adw.Application):
 class CmdBarWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
+        load_app_stylesheet()
         self.app = app
         self.set_title("CmdBar Companion")
         self.set_default_size(960, 640)
@@ -121,9 +148,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
             cat_row = Gtk.ListBoxRow()
             cat_row.set_selectable(False)
             cat_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            cat_box.set_margin_top(10)
-            cat_box.set_margin_bottom(4)
-            cat_box.set_margin_start(8)
+            cat_box.add_css_class("category-row-box")
 
             cat_label = Gtk.Label()
             cat_label.set_markup(f"<b>{GLib.markup_escape_text(cat['name'])}</b>")
@@ -153,9 +178,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
                 sc_row.s_idx = s_idx
 
                 sc_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-                sc_box.set_margin_start(20)
-                sc_box.set_margin_top(6)
-                sc_box.set_margin_bottom(6)
+                sc_box.add_css_class("shortcut-row-box")
 
                 sc_icon = Gtk.Image.new_from_icon_name("utilities-terminal-symbolic")
                 sc_box.append(sc_icon)
@@ -229,10 +252,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
         self.content_box.append(scrolled)
 
         fields_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        fields_box.set_margin_start(24)
-        fields_box.set_margin_end(24)
-        fields_box.set_margin_top(24)
-        fields_box.set_margin_bottom(24)
+        fields_box.add_css_class("editor-fields-container")
         scrolled.set_child(fields_box)
 
         # --- Name, Command, Mode ---
@@ -256,10 +276,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
 
         # Mode Selector
         mode_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        mode_box.set_margin_top(8)
-        mode_box.set_margin_bottom(8)
-        mode_box.set_margin_start(12)
-        mode_box.set_margin_end(12)
+        mode_box.add_css_class("mode-selection-box")
 
         mode_label = Gtk.Label(label="Execution Mode")
         mode_label.set_hexpand(True)
@@ -323,10 +340,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
         for p_idx, param in enumerate(parameters):
             param_row = Adw.PreferencesRow()
             row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            row_box.set_margin_start(12)
-            row_box.set_margin_end(12)
-            row_box.set_margin_top(8)
-            row_box.set_margin_bottom(8)
+            row_box.add_css_class("param-row-box")
             param_row.set_child(row_box)
 
             # Name Input
@@ -395,10 +409,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
         # Visual Preview Box
         preview_row = Adw.PreferencesRow()
         self.preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self.preview_box.set_margin_start(16)
-        self.preview_box.set_margin_end(16)
-        self.preview_box.set_margin_top(12)
-        self.preview_box.set_margin_bottom(12)
+        self.preview_box.add_css_class("preview-box")
         preview_row.set_child(self.preview_box)
 
         preview_header = Gtk.Label()
@@ -411,7 +422,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
         self.preview_label.set_selectable(True)
         # Styled with a dark background and monospace green text
         self.preview_label.add_css_class("card")
-        self.preview_label.set_margin_top(4)
+        self.preview_label.add_css_class("preview-label")
         self.preview_box.append(self.preview_label)
 
         self.preview_group.add(preview_row)

@@ -266,4 +266,15 @@ def test_companion_substitute_and_quote_command_strips_whitespace():
     assert "'hello world'" in cmd or cmd.endswith("hello world")
 
 
+def test_companion_css_stylesheet_exists():
+    style_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "companion", "style.css")
+    assert os.path.exists(style_path)
+    with open(style_path, "r") as f:
+        content = f.read()
+    assert ".left-container" in content
+    assert ".right-container" in content
+    assert ".dialog-panel" in content
+
+
+
 
