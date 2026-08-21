@@ -3,7 +3,7 @@ import os
 import tempfile
 import json
 from app.config_schema import load_config, save_config
-from app.main import CmdBarApp
+from app.main import CmdBarApp, set_uniform_margin
 
 def test_app_config_initialization():
     # Verify app loads default config
@@ -115,4 +115,16 @@ def test_cli_companion_compatibility_translation():
         assert cmd["parameters"][0]["name"] == "param1"
         assert cmd["parameters"][0]["regex"] == "^[a-z]+$"
         assert cmd["parameters"][0]["placeholder"] == "Enter param"
+
+
+def test_main_set_uniform_margin():
+    from unittest.mock import MagicMock
+    mock_box = MagicMock()
+    set_uniform_margin(mock_box, 24)
+
+    mock_box.set_margin_top.assert_called_once_with(24)
+    mock_box.set_margin_bottom.assert_called_once_with(24)
+    mock_box.set_margin_start.assert_called_once_with(24)
+    mock_box.set_margin_end.assert_called_once_with(24)
+
 

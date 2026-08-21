@@ -14,7 +14,8 @@ from companion.companion_app import (
     validate_input,
     find_placeholders,
     substitute_and_quote_command,
-    run_command_in_shell
+    run_command_in_shell,
+    set_uniform_margin
 )
 
 # Test configuration path override using environment variables
@@ -264,6 +265,23 @@ def test_companion_substitute_and_quote_command_strips_whitespace():
     cmd = substitute_and_quote_command(template, params)
     # The leading/trailing spaces should be stripped, so it should be quoted as 'hello world'
     assert "'hello world'" in cmd or cmd.endswith("hello world")
+
+
+def test_set_uniform_margin_helper():
+    from unittest.mock import MagicMock
+    mock_widget = MagicMock()
+    set_uniform_margin(mock_widget, 12)
+
+    mock_widget.set_margin_top.assert_called_once_with(12)
+    mock_widget.set_margin_bottom.assert_called_once_with(12)
+    mock_widget.set_margin_start.assert_called_once_with(12)
+    mock_widget.set_margin_end.assert_called_once_with(12)
+
+
+def test_set_uniform_margin_none_handling():
+    # Must not raise an exception when widget is None
+    set_uniform_margin(None, 15)
+
 
 
 

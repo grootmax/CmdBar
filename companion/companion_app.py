@@ -19,6 +19,32 @@ except (ImportError, ValueError):
     GUI_AVAILABLE = False
 
 
+def set_uniform_margin(widget, margin: int):
+    """
+    Applies uniform margins (top, bottom, start, end) in integer pixels to a UI container widget.
+    :visibility: public
+    """
+    if widget is None:
+        return
+    margin_val = int(margin)
+    if hasattr(widget, "set_margin_top"):
+        widget.set_margin_top(margin_val)
+    if hasattr(widget, "set_margin_bottom"):
+        widget.set_margin_bottom(margin_val)
+    if hasattr(widget, "set_margin_start"):
+        widget.set_margin_start(margin_val)
+    if hasattr(widget, "set_margin_end"):
+        widget.set_margin_end(margin_val)
+
+
+apply_uniform_margin = set_uniform_margin
+set_margin_all = set_uniform_margin
+
+if GUI_AVAILABLE:
+    if not hasattr(Gtk.Widget, "set_margin_all"):
+        Gtk.Widget.set_margin_all = set_uniform_margin
+
+
 def get_config_path():
     """
     Returns the path to the configuration file, supporting environment variable override.
@@ -524,10 +550,7 @@ if GUI_AVAILABLE:
             
             # Layout
             main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
-            main_box.set_margin_top(15)
-            main_box.set_margin_bottom(15)
-            main_box.set_margin_start(15)
-            main_box.set_margin_end(15)
+            set_uniform_margin(main_box, 15)
             self.set_child(main_box)
             
             # Title
@@ -730,7 +753,7 @@ if GUI_AVAILABLE:
             
             # Left Pane: Command List
             left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-            left_box.set_margin_all(10)
+            set_uniform_margin(left_box, 10)
             paned.set_start_child(left_box)
             
             scroll = Gtk.ScrolledWindow()
@@ -742,7 +765,7 @@ if GUI_AVAILABLE:
             
             # Right Pane: Command Editor Form
             self.right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
-            self.right_box.set_margin_all(15)
+            set_uniform_margin(self.right_box, 15)
             self.right_box.set_sensitive(False)
             paned.set_end_child(self.right_box)
             
@@ -797,7 +820,7 @@ if GUI_AVAILABLE:
                 for cmd in cat.get("commands", []):
                     row = Gtk.ListBoxRow()
                     box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-                    box.set_margin_all(5)
+                    set_uniform_margin(box, 5)
                     row.set_child(box)
                     
                     lbl = Gtk.Label(label=f"[{cat['name']}] {cmd['name']}", xalign=0)
