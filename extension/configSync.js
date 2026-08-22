@@ -110,9 +110,32 @@ async function node_readFile(filePath) {
 
 async function node_writeFileAtomic(filePath, content) {
     const fs = await import('fs');
-    const tempPath = filePath + '.' + Math.random().toString(36).slice(2) + '.tmp';
-    await fs.promises.writeFile(tempPath, content, 'utf8');
-    await fs.promises.rename(tempPath, filePath);
+    const tempPath = filePath + '.tmp';
+
+    let mode;
+    if (fs.existsSync(filePath)) {
+        try {
+            const stats = await fs.promises.stat(filePath);
+            mode = stats.mode;
+        } catch (e) {}
+    }
+
+    try {
+        await fs.promises.writeFile(tempPath, content, 'utf8');
+        if (mode !== undefined) {
+            try {
+                await fs.promises.chmod(tempPath, mode);
+            } catch (e) {}
+        }
+        await fs.promises.rename(tempPath, filePath);
+    } catch (err) {
+        try {
+            if (fs.existsSync(tempPath)) {
+                await fs.promises.unlink(tempPath);
+            }
+        } catch (cleanupErr) {}
+        throw err;
+    }
 }
 
 async function node_deleteFile(filePath) {
@@ -211,11 +234,13 @@ function gjs_readFile(filePath) {
 
 function gjs_writeFileAtomic(filePath, content) {
     return new Promise((resolve, reject) => {
+        const tmpPath = filePath + '.tmp';
         try {
             let file = Gio.File.new_for_path(filePath);
+            let tmpFile = Gio.File.new_for_path(tmpPath);
             let encoder = new TextEncoder();
             let bytes = encoder.encode(content);
-            file.replace_contents_async(
+            tmpFile.replace_contents_async(
                 bytes,
                 null,
                 false,
@@ -224,18 +249,35 @@ function gjs_writeFileAtomic(filePath, content) {
                 (obj, res) => {
                     try {
                         let [success] = obj.replace_contents_finish(res);
-                        if (success) {
-                            resolve();
-                        } else {
-                            reject(new Error("Failed to replace contents"));
+                        if (!success) {
+                            throw new Error("Failed to replace contents");
                         }
+                        tmpFile.move_async(
+                            file,
+                            Gio.FileCopyFlags.OVERWRITE,
+                            GLib.PRIORITY_DEFAULT,
+                            null,
+                            null,
+                            (moveObj, moveRes) => {
+                                try {
+                                    let [moveSuccess] = moveObj.move_finish(moveRes);
+                                    if (moveSuccess) {
+                                        resolve();
+                                    } else {
+                                        throw new Error("Failed to rename temporary file");
+                                    }
+                                } catch (moveErr) {
+                                    gjs_deleteFile(tmpPath).then(() => reject(moveErr));
+                                }
+                            }
+                        );
                     } catch (e) {
-                        reject(e);
+                        gjs_deleteFile(tmpPath).then(() => reject(e));
                     }
                 }
             );
         } catch (e) {
-            reject(e);
+            gjs_deleteFile(tmpPath).then(() => reject(e));
         }
     });
 }
