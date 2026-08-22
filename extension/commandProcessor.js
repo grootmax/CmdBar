@@ -40,7 +40,7 @@ export function hasPlaceholder(commandTemplate) {
     if (!commandTemplate || typeof commandTemplate !== 'string') {
         return false;
     }
-    return /<[^>]+>/.test(commandTemplate) || /\{\{[^}]+\}\}/.test(commandTemplate);
+    return /<[^>]+>|\{\{[^}]+\}\}|\{[^}]+\}/.test(commandTemplate);
 }
 
 /**
@@ -56,12 +56,7 @@ export function substituteCommand(commandTemplate, val) {
         return '';
     }
     const cleanVal = val !== undefined && val !== null ? String(val) : '';
-    let substituted = commandTemplate;
-    // Replace all occurrences of <something>
-    substituted = substituted.replace(/<[^>]+>/g, () => cleanVal);
-    // Replace all occurrences of {{something}}
-    substituted = substituted.replace(/\{\{[^}]+\}\}/g, () => cleanVal);
-    return substituted;
+    return commandTemplate.replace(/\{\{[^}]+\}\}|<[^>]+>|\{[^}]+\}/g, () => cleanVal);
 }
 
 /**
@@ -178,17 +173,10 @@ export function getPlaceholders(commandTemplate) {
     if (!commandTemplate || typeof commandTemplate !== 'string') {
         return [];
     }
-    const angleRegex = /<([^>]+)>/g;
-    const curlyRegex = /\{\{([^}]+)\}\}/g;
+    const regex = /\{\{[^}]+\}\}|<[^>]+>|\{[^}]+\}/g;
     const matches = [];
-    
     let match;
-    while ((match = angleRegex.exec(commandTemplate)) !== null) {
-        if (!matches.includes(match[0])) {
-            matches.push(match[0]);
-        }
-    }
-    while ((match = curlyRegex.exec(commandTemplate)) !== null) {
+    while ((match = regex.exec(commandTemplate)) !== null) {
         if (!matches.includes(match[0])) {
             matches.push(match[0]);
         }
@@ -279,9 +267,20 @@ export function substituteTokens(tokens, placeholderMap) {
     if (!placeholderMap || typeof placeholderMap !== 'object') {
         return [...tokens];
     }
+    const expandedMap = {};
+    for (const [key, val] of Object.entries(placeholderMap)) {
+        if (key.startsWith('<') || key.startsWith('{')) {
+            expandedMap[key] = val;
+        } else {
+            expandedMap[`<${key}>`] = val;
+            expandedMap[`{{${key}}}`] = val;
+            expandedMap[`{${key}}`] = val;
+        }
+    }
+    const entries = Object.entries(expandedMap).sort((a, b) => b[0].length - a[0].length);
     return tokens.map(token => {
         let substituted = token;
-        for (const [placeholder, val] of Object.entries(placeholderMap)) {
+        for (const [placeholder, val] of entries) {
             const cleanVal = val !== undefined && val !== null ? String(val) : '';
             const escapedPlaceholder = placeholder.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
             const regex = new RegExp(escapedPlaceholder, 'g');
@@ -290,4 +289,56 @@ export function substituteTokens(tokens, placeholderMap) {
         return substituted;
     });
 }
+
+/**
+ * Returns preview token array with sensitive parameter values redacted.
+ * @param {string[]} argv
+ * @param {Object.<string, string>} [placeholderMap]
+ * @param {Array<Object>|Object} [parametersSchema]
+ * @returns {string[]}
+ */
+export function getPreviewTokens(argv, placeholderMap, parametersSchema) {
+    if (!argv || !Array.isArray(argv)) {
+        return [];
+    }
+    const secureKeys = new Set();
+    if (Array.isArray(parametersSchema)) {
+        for (const p of parametersSchema) {
+            if (p && p.secure) {
+                secureKeys.add(p.name);
+            }
+        }
+    } else if (parametersSchema && typeof parametersSchema === 'object') {
+        for (const [ph, p] of Object.entries(parametersSchema)) {
+            if (p && p.secure) {
+                secureKeys.add(ph);
+            }
+        }
+    }
+
+    return argv.map(arg => {
+        let previewArg = arg;
+        if (placeholderMap && typeof placeholderMap === 'object') {
+            for (const [key, val] of Object.entries(placeholderMap)) {
+                if (val !== undefined && val !== null) {
+                    const cleanVal = String(val);
+                    const cleanKey = key.replace(/<|>/g, '');
+                    const isSecure = secureKeys.has(cleanKey) ||
+                                     cleanKey.toLowerCase().includes('password') ||
+                                     cleanKey.toLowerCase().includes('secret') ||
+                                     cleanKey.toLowerCase().includes('token');
+
+                    if (isSecure) {
+                        if (cleanVal.length > 0) {
+                            const escapedVal = cleanVal.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                            previewArg = previewArg.replace(new RegExp(escapedVal, 'g'), '[REDACTED]');
+                        }
+                    }
+                }
+            }
+        }
+        return previewArg;
+    });
+}
+
 

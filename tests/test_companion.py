@@ -118,11 +118,22 @@ def test_validate_input_custom_pattern():
 def test_find_placeholders():
     assert find_placeholders("git checkout {branch}") == ["branch"]
     assert find_placeholders("docker run -d {image} {tag}") == ["image", "tag"]
+    assert find_placeholders("deploy {{service}}") == ["service"]
+    assert find_placeholders("ping <host>") == ["host"]
+    assert find_placeholders("aws ecs update --service {{service}} --id {task} --host <host>") == ["service", "task", "host"]
     assert find_placeholders("echo hello") == []
     assert find_placeholders("echo {name} is {adjective}") == ["name", "adjective"]
 
 
 def test_substitute_and_quote_command():
+    # Test multi-syntax placeholder substitution
+    mixed_template = "aws ecs update --service {{service}} --id {task} --host <host>"
+    mixed_params = {"service": "auth-api", "task": "123", "host": "prod host"}
+    mixed_cmd = substitute_and_quote_command(mixed_template, mixed_params)
+    assert "auth-api" in mixed_cmd
+    assert "123" in mixed_cmd
+    assert "'prod host'" in mixed_cmd
+
     # Verify that single-quoting works and is applied via shlex.quote
     template = "git checkout {branch}"
     params = {"branch": "feature/safe-quoting"}
@@ -253,6 +264,81 @@ def test_companion_substitute_and_quote_command_strips_whitespace():
     cmd = substitute_and_quote_command(template, params)
     # The leading/trailing spaces should be stripped, so it should be quoted as 'hello world'
     assert "'hello world'" in cmd or cmd.endswith("hello world")
+
+
+def test_tokenize_and_substitute_direct_array():
+    from companion.companion_app import tokenize_and_substitute
+    template = "git checkout {branch}"
+    params = {"branch": "feature/safe-quoting"}
+    argv = tokenize_and_substitute(template, params)
+    assert argv == ["git", "checkout", "feature/safe-quoting"]
+
+
+def test_get_preview_tokens_redacts_sensitive_parameters():
+    from companion.companion_app import tokenize_and_substitute, get_preview_tokens
+    template = "login -u {user} -p {password}"
+    params = {"user": "jules", "password": "superSecretPassword123"}
+    schema = [{"name": "password", "secure": True}]
+    
+    tokens = tokenize_and_substitute(template)
+    preview = get_preview_tokens(tokens, params, schema)
+    
+    assert "superSecretPassword123" not in preview
+    assert preview == ["login", "-u", "jules", "-p", "[REDACTED]"]
+
+
+def test_unverified_modal_cancellation_halts_execution():
+    from unittest.mock import MagicMock, patch
+    from companion.companion_app import TestCommandDialog, Gio, Gtk
+
+    command = {
+        "name": "Unverified Test Command",
+        "template": "echo {msg}",
+        "verified": False,
+        "parameters": {
+            "msg": {
+                "placeholder": "Enter message"
+            }
+        }
+    }
+
+    mock_proc_new = MagicMock()
+    old_subproc_new = Gio.Subprocess.new
+    Gio.Subprocess.new = mock_proc_new
+
+    old_entry = Gtk.Entry
+    mock_entry = MagicMock()
+    mock_entry.get_text.return_value = "hello"
+    Gtk.Entry = MagicMock(return_value=mock_entry)
+
+    try:
+        dialog = TestCommandDialog(None, command, None)
+        
+        # Patch on_response to simulate user cancelling the dialog
+        def mock_cancel_response(dlg, response_id):
+            dlg.destroy()
+            # User clicks Cancel
+            buffer = dialog.output_view.get_buffer()
+            buffer.set_text("Execution cancelled by user confirmation dialog.\n")
+
+        with patch("companion.companion_app.Adw") as mock_adw:
+            mock_msg_dlg = MagicMock()
+            mock_adw.MessageDialog.return_value = mock_msg_dlg
+            
+            # Simulate cancel response callback
+            def fake_connect(event, cb):
+                if event == "response":
+                    cb(mock_msg_dlg, "cancel")
+            mock_msg_dlg.connect.side_effect = fake_connect
+
+            dialog.on_run_clicked(None)
+
+            # Gio.Subprocess.new should NOT be called because execution was cancelled!
+            mock_proc_new.assert_not_called()
+    finally:
+        Gio.Subprocess.new = old_subproc_new
+        Gtk.Entry = old_entry
+
 
 
 
