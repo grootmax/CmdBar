@@ -220,3 +220,55 @@ export function substituteTokens(tokens, placeholderMap) {
     });
 }
 
+/**
+ * Returns preview token array with sensitive parameter values redacted.
+ * @param {string[]} argv
+ * @param {Object.<string, string>} [placeholderMap]
+ * @param {Array<Object>|Object} [parametersSchema]
+ * @returns {string[]}
+ */
+export function getPreviewTokens(argv, placeholderMap, parametersSchema) {
+    if (!argv || !Array.isArray(argv)) {
+        return [];
+    }
+    const secureKeys = new Set();
+    if (Array.isArray(parametersSchema)) {
+        for (const p of parametersSchema) {
+            if (p && p.secure) {
+                secureKeys.add(p.name);
+            }
+        }
+    } else if (parametersSchema && typeof parametersSchema === 'object') {
+        for (const [ph, p] of Object.entries(parametersSchema)) {
+            if (p && p.secure) {
+                secureKeys.add(ph);
+            }
+        }
+    }
+
+    return argv.map(arg => {
+        let previewArg = arg;
+        if (placeholderMap && typeof placeholderMap === 'object') {
+            for (const [key, val] of Object.entries(placeholderMap)) {
+                if (val !== undefined && val !== null) {
+                    const cleanVal = String(val);
+                    const cleanKey = key.replace(/<|>/g, '');
+                    const isSecure = secureKeys.has(cleanKey) ||
+                                     cleanKey.toLowerCase().includes('password') ||
+                                     cleanKey.toLowerCase().includes('secret') ||
+                                     cleanKey.toLowerCase().includes('token');
+
+                    if (isSecure) {
+                        if (cleanVal.length > 0) {
+                            const escapedVal = cleanVal.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                            previewArg = previewArg.replace(new RegExp(escapedVal, 'g'), '[REDACTED]');
+                        }
+                    }
+                }
+            }
+        }
+        return previewArg;
+    });
+}
+
+

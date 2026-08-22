@@ -254,6 +254,14 @@ class CmdBarWindow(Adw.ApplicationWindow):
         cmd_row.connect("changed", self._on_command_changed)
         pref_group.add(cmd_row)
 
+        # Verified Switch
+        verified_row = Adw.SwitchRow()
+        verified_row.set_title("Verified Command")
+        verified_row.set_subtitle("Bypass modal confirmation dialog when executing this command")
+        verified_row.set_active(shortcut.get("verified", False))
+        verified_row.connect("notify::active", self._on_verified_toggled)
+        pref_group.add(verified_row)
+
         # Mode Selector
         mode_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         mode_box.set_margin_top(8)
@@ -502,10 +510,15 @@ class CmdBarWindow(Adw.ApplicationWindow):
         self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"][p_idx]["error_message"] = entry.get_text().strip()
         self._update_live_preview()
 
+    def _on_verified_toggled(self, row, pspec):
+        c_idx = self.app.selected_category_idx
+        s_idx = self.app.selected_shortcut_idx
+        self.app.config["categories"][c_idx]["commands"][s_idx]["verified"] = row.get_active()
+
     def _on_param_secure_toggled(self, check, p_idx):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        self.app.config["categories"][c_idx]["shortcuts"][s_idx]["parameters"][p_idx]["secure"] = check.get_active()
+        self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"][p_idx]["secure"] = check.get_active()
         self._render_test_preview_section()
 
     # --- Button & Menu Click Handlers ---
