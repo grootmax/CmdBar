@@ -6,6 +6,44 @@ import re
 import shlex
 import subprocess
 import argparse
+import hmac
+import hashlib
+import secrets
+
+def canonical_json(obj):
+    if isinstance(obj, dict):
+        clean = {k: v for k, v in obj.items() if k != "signature"}
+        return json.dumps(clean, sort_keys=True, separators=(',', ':'))
+    elif isinstance(obj, list):
+        return '[' + ','.join(canonical_json(x) for x in obj) + ']'
+    return json.dumps(obj, separators=(',', ':'))
+
+def get_key_path(config_path):
+    return os.path.join(os.path.dirname(config_path), ".key")
+
+def get_or_create_signing_key(key_path):
+    dir_path = os.path.dirname(key_path)
+    os.makedirs(dir_path, exist_ok=True)
+    if os.path.exists(key_path):
+        try:
+            with open(key_path, "r") as f:
+                content = f.read().strip()
+                if content:
+                    return content
+        except Exception:
+            pass
+    key = secrets.token_hex(32)
+    try:
+        with open(key_path, "w") as f:
+            f.write(key)
+        os.chmod(key_path, 0o600)
+    except Exception:
+        pass
+    return key
+
+def compute_signature(config_data, key):
+    str_val = canonical_json(config_data)
+    return hmac.new(key.encode("utf-8"), str_val.encode("utf-8"), hashlib.sha256).hexdigest()
 
 # Check for GTK/Adwaita availability
 GUI_AVAILABLE = False
@@ -89,19 +127,62 @@ def init_config():
                 }
             ]
         }
-        with open(config_path, "w") as f:
-            json.dump(default_config, f, indent=4)
+        save_config(default_config)
     return config_path
 
 
 def load_config():
     """
-    Loads and parses the configuration file.
+    Loads and parses the configuration file, verifying its signature.
     """
     config_path = init_config()
+    key_path = get_key_path(config_path)
+    key = get_or_create_signing_key(key_path)
     try:
         with open(config_path, "r") as f:
             config_data = json.load(f)
+        
+        # Verify cryptographic signature
+        sig = config_data.get("signature") if isinstance(config_data, dict) else None
+        expected_sig = compute_signature(config_data, key) if isinstance(config_data, dict) else None
+
+        if not sig or sig != expected_sig:
+            backup_path = config_path + ".bak"
+            try:
+                if os.path.exists(config_path):
+                    os.replace(config_path, backup_path)
+            except Exception:
+                pass
+            config_data = {
+                "categories": [
+                    {
+                        "name": "Projects",
+                        "commands": [
+                            {
+                                "name": "Git Checkout",
+                                "template": "git checkout {branch}",
+                                "parameters": {
+                                    "branch": {
+                                        "regex": r"^[a-zA-Z0-9_\-/\\.]+$",
+                                        "placeholder": "Enter branch name"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "Docker Logs",
+                                "template": "docker logs {container_id}",
+                                "parameters": {
+                                    "container_id": {
+                                        "placeholder": "Enter container ID"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+            save_config(config_data)
+            return config_data
     except (json.JSONDecodeError, OSError) as e:
         print(f"Error loading configuration: {e}", file=sys.stderr)
         return {"categories": []}
@@ -145,9 +226,14 @@ def load_config():
 
 def save_config(config_data):
     """
-    Saves the configuration to the file safely.
+    Saves the configuration to the file safely with a cryptographic signature.
     """
     config_path = get_config_path()
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    if isinstance(config_data, dict):
+        key_path = get_key_path(config_path)
+        key = get_or_create_signing_key(key_path)
+        config_data["signature"] = compute_signature(config_data, key)
     try:
         # Write to a temporary file first, then rename, to avoid corrupted configs
         tmp_path = config_path + ".tmp"

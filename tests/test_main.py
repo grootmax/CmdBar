@@ -103,8 +103,7 @@ def test_cli_companion_compatibility_translation():
             ]
         }
         
-        with open(config_file, "w") as f:
-            json.dump(cli_config, f, indent=2)
+        save_config(cli_config, config_file)
             
         # Load and normalize
         loaded = load_config(config_file)
