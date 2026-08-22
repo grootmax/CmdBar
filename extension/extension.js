@@ -186,28 +186,27 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
                     if (subprocess.get_successful()) {
                         let text = stdout ? stdout.trim() : '';
                         if (validateInput(text)) {
-                            let tokens = tokenizeCommand(this._commandTemplate);
                             let placeholders = getPlaceholders(this._commandTemplate);
                             let placeholderMap = {};
                             placeholders.forEach(ph => {
                                 placeholderMap[ph] = text;
                             });
-                            let argv = substituteTokens(tokens, placeholderMap);
 
-                            if (argv.length === 0) {
-                                console.warn(`CmdBar: Command template parsed to empty argument list: ${this._commandTemplate}`);
-                                Main.notify("Execution Error", "Command template parsed to empty argument list.");
-                                return;
+                            if (this._indicator && typeof this._indicator.executeCommand === 'function') {
+                                this._indicator.executeCommand(this._commandName, this._commandTemplate, placeholderMap);
+                            } else {
+                                let tokens = tokenizeCommand(this._commandTemplate);
+                                let argv = substituteTokens(tokens, placeholderMap);
+                                try {
+                                    Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
+                                } catch (err) {
+                                    console.error(`CmdBar: failed to spawn command: ${err.message}`);
+                                    Main.notify("Command Execution Failed", `Failed to start command: ${err.message}`);
+                                }
                             }
 
-                            try {
-                                let cmdProc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
-                                if (this._indicator && this._indicator.menu && typeof this._indicator.menu.close === 'function') {
-                                    this._indicator.menu.close();
-                                }
-                            } catch (err) {
-                                console.error(`CmdBar: failed to spawn command: ${err.message}`);
-                                Main.notify("Command Execution Failed", `Failed to start command: ${err.message}`);
+                            if (this._indicator && this._indicator.menu && typeof this._indicator.menu.close === 'function') {
+                                this._indicator.menu.close();
                             }
                         } else {
                             console.warn(`CmdBar: Empty input validation failed for command: ${commandName}`);
@@ -242,6 +241,7 @@ class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
             activate: true
         });
 
+        this._indicator = indicator;
         this._commandName = commandName;
         this._commandTemplate = commandTemplate;
 
@@ -260,7 +260,11 @@ class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
         this.add_child(this.box);
 
         this._activateId = this.connect('activate', () => {
-            runCommandAsync(this._commandName, this._commandTemplate);
+            if (this._indicator && typeof this._indicator.executeCommand === 'function') {
+                this._indicator.executeCommand(this._commandName, this._commandTemplate, {});
+            } else {
+                runCommandAsync(this._commandName, this._commandTemplate);
+            }
         });
     }
 
@@ -366,6 +370,9 @@ class CmdBarIndicator extends PanelMenu.Button {
         this._cachedConfig = null;
         this._timeoutId = 0;
 
+        // Initialize process tracking and background job state (Requirement 1)
+        this._initJobTracking();
+
         // Container box to support text and icon side-by-side
         this._box = new St.BoxLayout({
             style_class: 'panel-status-menu-box',
@@ -399,6 +406,41 @@ class CmdBarIndicator extends PanelMenu.Button {
         this._setupFileMonitor();
     }
 
+    _initJobTracking() {
+        this._nextJobId = 1;
+        this._activeJobs = new Map();
+        this._jobMenuItems = new Map();
+        this._jobsSection = new PopupMenu.PopupMenuSection();
+        this._jobsSectionSeparator = null;
+        this._jobsSectionHeader = null;
+    }
+
+    _restoreJobsUI() {
+        this._jobsSection = new PopupMenu.PopupMenuSection();
+        this.menu.addMenuItem(this._jobsSection);
+
+        this._jobMenuItems.clear();
+        this._jobsSectionSeparator = null;
+        this._jobsSectionHeader = null;
+
+        if (this._activeJobs && this._activeJobs.size > 0) {
+            this._jobsSectionSeparator = new PopupMenu.PopupSeparatorMenuItem();
+            this._jobsSection.addMenuItem(this._jobsSectionSeparator);
+
+            this._jobsSectionHeader = new PopupMenu.PopupMenuItem("Active Background Jobs", { reactive: false });
+            if (this._jobsSectionHeader.label) {
+                this._jobsSectionHeader.label.style = 'font-weight: bold; color: #888888; font-size: 0.9em;';
+            }
+            this._jobsSection.addMenuItem(this._jobsSectionHeader);
+
+            for (let [jobId, job] of this._activeJobs.entries()) {
+                let jobMenuItem = new JobMenuItem(jobId, job.name, (id) => this._cancelJob(id));
+                this._jobsSection.addMenuItem(jobMenuItem);
+                this._jobMenuItems.set(jobId, jobMenuItem);
+            }
+        }
+    }
+
     setButtonLabel(labelText) {
         if (labelText && labelText.trim().length > 0) {
             this._label.text = labelText.trim();
@@ -425,6 +467,7 @@ class CmdBarIndicator extends PanelMenu.Button {
             if (!config || !config.categories || config.categories.length === 0) {
                 let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
                 this.menu.addMenuItem(infoItem);
+                this._restoreJobsUI();
                 return;
             }
 
@@ -448,6 +491,8 @@ class CmdBarIndicator extends PanelMenu.Button {
                     });
                 }
             });
+
+            this._restoreJobsUI();
         } catch (e) {
             console.error(`CmdBar: error reloading menu: ${e.message}`);
         }
@@ -484,8 +529,12 @@ class CmdBarIndicator extends PanelMenu.Button {
     }
 
     executeCommand(commandName, commandTemplate, placeholderMap) {
+        if (!this._activeJobs) {
+            this._initJobTracking();
+        }
+
         let tokens = tokenizeCommand(commandTemplate);
-        let argv = substituteTokens(tokens, placeholderMap);
+        let argv = substituteTokens(tokens, placeholderMap || {});
 
         if (argv.length === 0) {
             this._showNotification("Execution Error", "Command template parsed to empty argument list.");
@@ -511,12 +560,18 @@ class CmdBarIndicator extends PanelMenu.Button {
 
             // Dynamically add to the jobs section without redrawing everything (Requirement 3 & 4)
             if (this._activeJobs.size === 1) {
-                this._jobsSectionSeparator = new PopupMenu.PopupSeparatorMenuItem();
-                this._jobsSection.addMenuItem(this._jobsSectionSeparator);
-                
-                this._jobsSectionHeader = new PopupMenu.PopupMenuItem("Active Background Jobs", { reactive: false });
-                this._jobsSectionHeader.label.style = 'font-weight: bold; color: #888888; font-size: 0.9em;';
-                this._jobsSection.addMenuItem(this._jobsSectionHeader);
+                if (!this._jobsSectionSeparator) {
+                    this._jobsSectionSeparator = new PopupMenu.PopupSeparatorMenuItem();
+                    this._jobsSection.addMenuItem(this._jobsSectionSeparator);
+                }
+
+                if (!this._jobsSectionHeader) {
+                    this._jobsSectionHeader = new PopupMenu.PopupMenuItem("Active Background Jobs", { reactive: false });
+                    if (this._jobsSectionHeader.label) {
+                        this._jobsSectionHeader.label.style = 'font-weight: bold; color: #888888; font-size: 0.9em;';
+                    }
+                    this._jobsSection.addMenuItem(this._jobsSectionHeader);
+                }
             }
 
             let jobMenuItem = new JobMenuItem(jobId, jobName, (id) => this._cancelJob(id));
@@ -541,13 +596,14 @@ class CmdBarIndicator extends PanelMenu.Button {
     }
 
     _onJobFinished(jobId, success, stdout, stderr) {
-        let job = this._activeJobs.get(jobId);
-        if (!job) {
+        if (!this._activeJobs || !this._activeJobs.has(jobId)) {
             return;
         }
 
+        let job = this._activeJobs.get(jobId);
+
         // Clean up UI and job tracking
-        let item = this._jobMenuItems.get(jobId);
+        let item = this._jobMenuItems ? this._jobMenuItems.get(jobId) : null;
         if (item) {
             item.destroy();
             this._jobMenuItems.delete(jobId);
@@ -588,21 +644,22 @@ class CmdBarIndicator extends PanelMenu.Button {
     }
 
     _cancelJob(jobId) {
-        let job = this._activeJobs.get(jobId);
-        if (!job) {
+        if (!this._activeJobs || !this._activeJobs.has(jobId)) {
             return;
         }
+
+        let job = this._activeJobs.get(jobId);
 
         job.cancelled = true;
 
         try {
             let proc = job.process;
-            let pid = proc.get_identifier();
+            let pid = proc ? (typeof proc.get_identifier === 'function' ? proc.get_identifier() : null) : null;
             
-            // Force exit the main process (Requirement 4 & Guardrail: No Residual Processes)
-            proc.force_exit();
+            if (proc && typeof proc.force_exit === 'function') {
+                proc.force_exit();
+            }
 
-            // Spawn pkill -P <pid> asynchronously to terminate child processes
             if (pid) {
                 let pkillProc = Gio.Subprocess.new(['pkill', '-P', String(pid)], Gio.SubprocessFlags.NONE);
                 pkillProc.communicate_utf8_async(null, null, null);
@@ -639,6 +696,14 @@ class CmdBarIndicator extends PanelMenu.Button {
             }
             this._monitor.cancel();
             this._monitor = null;
+        }
+        if (this._activeJobs) {
+            this._activeJobs.clear();
+            this._activeJobs = null;
+        }
+        if (this._jobMenuItems) {
+            this._jobMenuItems.clear();
+            this._jobMenuItems = null;
         }
         super.destroy();
     }
