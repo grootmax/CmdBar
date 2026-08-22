@@ -9,6 +9,31 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Gio, GLib
 
+
+def set_uniform_margin(widget, margin: int):
+    """
+    Applies uniform margins (top, bottom, start, end) in integer pixels to a UI container widget.
+    :visibility: public
+    """
+    if widget is None:
+        return
+    margin_val = int(margin)
+    if hasattr(widget, "set_margin_top"):
+        widget.set_margin_top(margin_val)
+    if hasattr(widget, "set_margin_bottom"):
+        widget.set_margin_bottom(margin_val)
+    if hasattr(widget, "set_margin_start"):
+        widget.set_margin_start(margin_val)
+    if hasattr(widget, "set_margin_end"):
+        widget.set_margin_end(margin_val)
+
+
+apply_uniform_margin = set_uniform_margin
+set_margin_all = set_uniform_margin
+
+if not hasattr(Gtk.Widget, "set_margin_all"):
+    Gtk.Widget.set_margin_all = set_uniform_margin
+
 from app.config_schema import (
     load_config,
     save_config,
@@ -16,32 +41,6 @@ from app.config_schema import (
     validate_parameter_value,
     get_config_path
 )
-
-def load_app_stylesheet():
-    """
-    Loads the central CSS stylesheet for the application.
-    """
-    try:
-        from gi.repository import Gdk
-        css_path = os.path.join(os.path.dirname(__file__), "style.css")
-        if os.path.exists(css_path):
-            css_provider = Gtk.CssProvider()
-            if hasattr(css_provider, 'load_from_path'):
-                css_provider.load_from_path(css_path)
-            elif hasattr(css_provider, 'load_from_data'):
-                with open(css_path, 'rb') as f:
-                    css_provider.load_from_data(f.read())
-            
-            display = Gdk.Display.get_default()
-            if display:
-                Gtk.StyleContext.add_provider_for_display(
-                    display,
-                    css_provider,
-                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-                )
-    except Exception as e:
-        print(f"Warning: Could not load CSS stylesheet: {e}", file=sys.stderr)
-
 
 class CmdBarApp(Adw.Application):
     def __init__(self):
@@ -62,7 +61,6 @@ class CmdBarApp(Adw.Application):
 class CmdBarWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
-        load_app_stylesheet()
         self.app = app
         self.set_title("CmdBar Companion")
         self.set_default_size(960, 640)
@@ -148,7 +146,9 @@ class CmdBarWindow(Adw.ApplicationWindow):
             cat_row = Gtk.ListBoxRow()
             cat_row.set_selectable(False)
             cat_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            cat_box.add_css_class("category-row-box")
+            cat_box.set_margin_top(10)
+            cat_box.set_margin_bottom(4)
+            cat_box.set_margin_start(8)
 
             cat_label = Gtk.Label()
             cat_label.set_markup(f"<b>{GLib.markup_escape_text(cat['name'])}</b>")
@@ -178,7 +178,9 @@ class CmdBarWindow(Adw.ApplicationWindow):
                 sc_row.s_idx = s_idx
 
                 sc_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-                sc_box.add_css_class("shortcut-row-box")
+                sc_box.set_margin_start(20)
+                sc_box.set_margin_top(6)
+                sc_box.set_margin_bottom(6)
 
                 sc_icon = Gtk.Image.new_from_icon_name("utilities-terminal-symbolic")
                 sc_box.append(sc_icon)
@@ -252,7 +254,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
         self.content_box.append(scrolled)
 
         fields_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        fields_box.add_css_class("editor-fields-container")
+        set_uniform_margin(fields_box, 24)
         scrolled.set_child(fields_box)
 
         # --- Name, Command, Mode ---
@@ -274,9 +276,20 @@ class CmdBarWindow(Adw.ApplicationWindow):
         cmd_row.connect("changed", self._on_command_changed)
         pref_group.add(cmd_row)
 
+        # Verified Switch
+        verified_row = Adw.SwitchRow()
+        verified_row.set_title("Verified Command")
+        verified_row.set_subtitle("Bypass modal confirmation dialog when executing this command")
+        verified_row.set_active(shortcut.get("verified", False))
+        verified_row.connect("notify::active", self._on_verified_toggled)
+        pref_group.add(verified_row)
+
         # Mode Selector
         mode_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        mode_box.add_css_class("mode-selection-box")
+        mode_box.set_margin_top(8)
+        mode_box.set_margin_bottom(8)
+        mode_box.set_margin_start(12)
+        mode_box.set_margin_end(12)
 
         mode_label = Gtk.Label(label="Execution Mode")
         mode_label.set_hexpand(True)
@@ -340,7 +353,10 @@ class CmdBarWindow(Adw.ApplicationWindow):
         for p_idx, param in enumerate(parameters):
             param_row = Adw.PreferencesRow()
             row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            row_box.add_css_class("param-row-box")
+            row_box.set_margin_start(12)
+            row_box.set_margin_end(12)
+            row_box.set_margin_top(8)
+            row_box.set_margin_bottom(8)
             param_row.set_child(row_box)
 
             # Name Input
@@ -409,7 +425,10 @@ class CmdBarWindow(Adw.ApplicationWindow):
         # Visual Preview Box
         preview_row = Adw.PreferencesRow()
         self.preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self.preview_box.add_css_class("preview-box")
+        self.preview_box.set_margin_start(16)
+        self.preview_box.set_margin_end(16)
+        self.preview_box.set_margin_top(12)
+        self.preview_box.set_margin_bottom(12)
         preview_row.set_child(self.preview_box)
 
         preview_header = Gtk.Label()
@@ -422,7 +441,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
         self.preview_label.set_selectable(True)
         # Styled with a dark background and monospace green text
         self.preview_label.add_css_class("card")
-        self.preview_label.add_css_class("preview-label")
+        self.preview_label.set_margin_top(4)
         self.preview_box.append(self.preview_label)
 
         self.preview_group.add(preview_row)
@@ -513,10 +532,15 @@ class CmdBarWindow(Adw.ApplicationWindow):
         self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"][p_idx]["error_message"] = entry.get_text().strip()
         self._update_live_preview()
 
+    def _on_verified_toggled(self, row, pspec):
+        c_idx = self.app.selected_category_idx
+        s_idx = self.app.selected_shortcut_idx
+        self.app.config["categories"][c_idx]["commands"][s_idx]["verified"] = row.get_active()
+
     def _on_param_secure_toggled(self, check, p_idx):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        self.app.config["categories"][c_idx]["shortcuts"][s_idx]["parameters"][p_idx]["secure"] = check.get_active()
+        self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"][p_idx]["secure"] = check.get_active()
         self._render_test_preview_section()
 
     # --- Button & Menu Click Handlers ---

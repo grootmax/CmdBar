@@ -266,14 +266,78 @@ def test_companion_substitute_and_quote_command_strips_whitespace():
     assert "'hello world'" in cmd or cmd.endswith("hello world")
 
 
-def test_companion_css_stylesheet_exists():
-    style_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "companion", "style.css")
-    assert os.path.exists(style_path)
-    with open(style_path, "r") as f:
-        content = f.read()
-    assert ".left-container" in content
-    assert ".right-container" in content
-    assert ".dialog-panel" in content
+def test_tokenize_and_substitute_direct_array():
+    from companion.companion_app import tokenize_and_substitute
+    template = "git checkout {branch}"
+    params = {"branch": "feature/safe-quoting"}
+    argv = tokenize_and_substitute(template, params)
+    assert argv == ["git", "checkout", "feature/safe-quoting"]
+
+
+def test_get_preview_tokens_redacts_sensitive_parameters():
+    from companion.companion_app import tokenize_and_substitute, get_preview_tokens
+    template = "login -u {user} -p {password}"
+    params = {"user": "jules", "password": "superSecretPassword123"}
+    schema = [{"name": "password", "secure": True}]
+    
+    tokens = tokenize_and_substitute(template)
+    preview = get_preview_tokens(tokens, params, schema)
+    
+    assert "superSecretPassword123" not in preview
+    assert preview == ["login", "-u", "jules", "-p", "[REDACTED]"]
+
+
+def test_unverified_modal_cancellation_halts_execution():
+    from unittest.mock import MagicMock, patch
+    from companion.companion_app import TestCommandDialog, Gio, Gtk
+
+    command = {
+        "name": "Unverified Test Command",
+        "template": "echo {msg}",
+        "verified": False,
+        "parameters": {
+            "msg": {
+                "placeholder": "Enter message"
+            }
+        }
+    }
+
+    mock_proc_new = MagicMock()
+    old_subproc_new = Gio.Subprocess.new
+    Gio.Subprocess.new = mock_proc_new
+
+    old_entry = Gtk.Entry
+    mock_entry = MagicMock()
+    mock_entry.get_text.return_value = "hello"
+    Gtk.Entry = MagicMock(return_value=mock_entry)
+
+    try:
+        dialog = TestCommandDialog(None, command, None)
+        
+        # Patch on_response to simulate user cancelling the dialog
+        def mock_cancel_response(dlg, response_id):
+            dlg.destroy()
+            # User clicks Cancel
+            buffer = dialog.output_view.get_buffer()
+            buffer.set_text("Execution cancelled by user confirmation dialog.\n")
+
+        with patch("companion.companion_app.Adw") as mock_adw:
+            mock_msg_dlg = MagicMock()
+            mock_adw.MessageDialog.return_value = mock_msg_dlg
+            
+            # Simulate cancel response callback
+            def fake_connect(event, cb):
+                if event == "response":
+                    cb(mock_msg_dlg, "cancel")
+            mock_msg_dlg.connect.side_effect = fake_connect
+
+            dialog.on_run_clicked(None)
+
+            # Gio.Subprocess.new should NOT be called because execution was cancelled!
+            mock_proc_new.assert_not_called()
+    finally:
+        Gio.Subprocess.new = old_subproc_new
+        Gtk.Entry = old_entry
 
 
 
