@@ -123,30 +123,38 @@ describe('Lock-File Synchronization and Recovery Unit Tests', () => {
         });
     });
 
-    describe('Automated Recovery from Corruption', () => {
-        test('should archive corrupted json structure and recreate clean default file', async () => {
+    describe('Non-Destructive Memory Fallback on Corruption (Requirement 1 & 2)', () => {
+        test('should preserve corrupted json structure on disk as-is and fall back to default in memory', async () => {
             fs.mkdirSync(path.dirname(configPath), { recursive: true });
             fs.writeFileSync(configPath, 'corrupted data { {');
 
             const loaded = await loadConfig(configPath);
             expect(loaded).toEqual(DEFAULT_CONFIG);
+            expect(loaded._isInvalid).toBe(true);
+
+            // Active file on disk must NOT be modified or backed up
+            expect(fs.existsSync(configPath)).toBe(true);
+            expect(fs.readFileSync(configPath, 'utf8')).toBe('corrupted data { {');
 
             const backupPath = configPath + '.bak';
-            expect(fs.existsSync(backupPath)).toBe(true);
-            expect(fs.readFileSync(backupPath, 'utf8')).toBe('corrupted data { {');
+            expect(fs.existsSync(backupPath)).toBe(false);
         });
 
-        test('should archive json structure that does not match schema and recreate clean default file', async () => {
+        test('should preserve json structure that fails schema validation on disk and fall back to default in memory', async () => {
             fs.mkdirSync(path.dirname(configPath), { recursive: true });
             const invalidSchemaObj = { categories: [{ name: 'invalid-cmd', commands: [{ name: 'foo' }] }] };
             fs.writeFileSync(configPath, JSON.stringify(invalidSchemaObj));
 
             const loaded = await loadConfig(configPath);
             expect(loaded).toEqual(DEFAULT_CONFIG);
+            expect(loaded._isInvalid).toBe(true);
+
+            // Active file on disk must NOT be modified or backed up
+            expect(fs.existsSync(configPath)).toBe(true);
+            expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual(invalidSchemaObj);
 
             const backupPath = configPath + '.bak';
-            expect(fs.existsSync(backupPath)).toBe(true);
-            expect(JSON.parse(fs.readFileSync(backupPath, 'utf8'))).toEqual(invalidSchemaObj);
+            expect(fs.existsSync(backupPath)).toBe(false);
         });
     });
 });

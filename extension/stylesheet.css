@@ -21,6 +21,8 @@
 
 .cmdbar-dialog-entry:focus {
     border: 2px solid #3584e4;
+}
+
 /* Styles for CmdBar extension */
 
 .cmdbar-category-header {

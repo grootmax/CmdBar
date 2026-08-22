@@ -73,10 +73,37 @@ export async function writeConfigAtomically(targetPath, data) {
     const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
 
     if (isNode) {
-        const fs = (await import('fs')).default;
+        const fs = (await import('fs')).default || (await import('fs'));
+        const path = (await import('path')).default || (await import('path'));
+        const targetDir = path.dirname(targetPath);
+        if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+        }
         const tempPath = targetPath + '.tmp';
-        fs.writeFileSync(tempPath, contentStr, 'utf8');
-        fs.renameSync(tempPath, targetPath);
+
+        let mode;
+        if (fs.existsSync(targetPath)) {
+            try {
+                mode = fs.statSync(targetPath).mode;
+            } catch (e) {}
+        }
+
+        try {
+            fs.writeFileSync(tempPath, contentStr, 'utf8');
+            if (mode !== undefined) {
+                try {
+                    fs.chmodSync(tempPath, mode);
+                } catch (e) {}
+            }
+            fs.renameSync(tempPath, targetPath);
+        } catch (error) {
+            try {
+                if (fs.existsSync(tempPath)) {
+                    fs.unlinkSync(tempPath);
+                }
+            } catch (cleanupError) {}
+            throw error;
+        }
     } else {
         // GJS (GNOME Shell) environment
         const { Gio, GLib } = await import('gi');
@@ -84,8 +111,17 @@ export async function writeConfigAtomically(targetPath, data) {
         const tmpPath = targetPath + '.tmp';
         const tmpFile = Gio.File.new_for_path(tmpPath);
         const bytes = new GLib.Bytes(contentStr);
-        tmpFile.replace_contents(bytes, null, false, Gio.FileCreateFlags.NONE, null);
-        tmpFile.move(file, Gio.FileCopyFlags.OVERWRITE, null, null);
+        try {
+            tmpFile.replace_contents(bytes, null, false, Gio.FileCreateFlags.NONE, null);
+            tmpFile.move(file, Gio.FileCopyFlags.OVERWRITE, null, null);
+        } catch (error) {
+            try {
+                if (tmpFile.query_exists(null)) {
+                    tmpFile.delete(null);
+                }
+            } catch (cleanupError) {}
+            throw error;
+        }
     }
 }
 
@@ -184,6 +220,76 @@ export function getPlaceholders(commandTemplate) {
     return matches;
 }
 
+export const DEFAULT_ALLOWED_PREFIXES = [
+    '/usr/bin/',
+    '/bin/',
+    '/usr/local/bin/',
+    '/usr/sbin/',
+    '/sbin/'
+];
+
+export const DEFAULT_ALLOWED_BINARIES = [
+    'make',
+    'echo',
+    'deploy',
+    'aws',
+    'ping',
+    'git',
+    'docker',
+    'zenity',
+    'python',
+    'python3',
+    'node',
+    'npm',
+    'notify-send',
+    'pkill',
+    'env',
+    'sh',
+    'bash'
+];
+
+/**
+ * Checks whether a given binary path or executable name is in the approved allowlist.
+ * @param {string} binaryPath
+ * @param {string[]} [customAllowlist]
+ * @returns {boolean}
+ */
+export function isBinaryAllowlisted(binaryPath, customAllowlist = []) {
+    if (!binaryPath || typeof binaryPath !== 'string') {
+        return false;
+    }
+    const cleanPath = binaryPath.trim();
+    if (!cleanPath) {
+        return false;
+    }
+
+    if (Array.isArray(customAllowlist) && customAllowlist.length > 0) {
+        if (customAllowlist.includes(cleanPath)) {
+            return true;
+        }
+        for (const item of customAllowlist) {
+            if (typeof item === 'string' && item.endsWith('/') && cleanPath.startsWith(item)) {
+                return true;
+            }
+        }
+    }
+
+    if (cleanPath.startsWith('/')) {
+        for (const prefix of DEFAULT_ALLOWED_PREFIXES) {
+            if (cleanPath.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (DEFAULT_ALLOWED_BINARIES.includes(cleanPath)) {
+        return true;
+    }
+
+    return false;
+}
+
 /**
  * Substitutes mapping values into a tokenized argument list.
  * @param {string[]} tokens
@@ -219,4 +325,56 @@ export function substituteTokens(tokens, placeholderMap) {
         return substituted;
     });
 }
+
+/**
+ * Returns preview token array with sensitive parameter values redacted.
+ * @param {string[]} argv
+ * @param {Object.<string, string>} [placeholderMap]
+ * @param {Array<Object>|Object} [parametersSchema]
+ * @returns {string[]}
+ */
+export function getPreviewTokens(argv, placeholderMap, parametersSchema) {
+    if (!argv || !Array.isArray(argv)) {
+        return [];
+    }
+    const secureKeys = new Set();
+    if (Array.isArray(parametersSchema)) {
+        for (const p of parametersSchema) {
+            if (p && p.secure) {
+                secureKeys.add(p.name);
+            }
+        }
+    } else if (parametersSchema && typeof parametersSchema === 'object') {
+        for (const [ph, p] of Object.entries(parametersSchema)) {
+            if (p && p.secure) {
+                secureKeys.add(ph);
+            }
+        }
+    }
+
+    return argv.map(arg => {
+        let previewArg = arg;
+        if (placeholderMap && typeof placeholderMap === 'object') {
+            for (const [key, val] of Object.entries(placeholderMap)) {
+                if (val !== undefined && val !== null) {
+                    const cleanVal = String(val);
+                    const cleanKey = key.replace(/<|>/g, '');
+                    const isSecure = secureKeys.has(cleanKey) ||
+                                     cleanKey.toLowerCase().includes('password') ||
+                                     cleanKey.toLowerCase().includes('secret') ||
+                                     cleanKey.toLowerCase().includes('token');
+
+                    if (isSecure) {
+                        if (cleanVal.length > 0) {
+                            const escapedVal = cleanVal.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                            previewArg = previewArg.replace(new RegExp(escapedVal, 'g'), '[REDACTED]');
+                        }
+                    }
+                }
+            }
+        }
+        return previewArg;
+    });
+}
+
 

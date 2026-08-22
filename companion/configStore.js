@@ -1,6 +1,48 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
+
+function canonicalJson(obj) {
+    if (obj === null || typeof obj !== 'object') {
+        return JSON.stringify(obj);
+    }
+    if (Array.isArray(obj)) {
+        return '[' + obj.map(canonicalJson).join(',') + ']';
+    }
+    const sortedKeys = Object.keys(obj).filter(k => k !== 'signature').sort();
+    const parts = sortedKeys.map(k => JSON.stringify(k) + ':' + canonicalJson(obj[k]));
+    return '{' + parts.join(',') + '}';
+}
+
+function getOrCreateSigningKeySync(keyPath) {
+    const dir = path.dirname(keyPath);
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+    if (fs.existsSync(keyPath)) {
+        return fs.readFileSync(keyPath, 'utf8').trim();
+    }
+    const key = crypto.randomBytes(32).toString('hex');
+    fs.writeFileSync(keyPath, key, { mode: 0o600 });
+    return key;
+}
+
+async function getOrCreateSigningKeyAsync(keyPath) {
+    const dir = path.dirname(keyPath);
+    await fs.promises.mkdir(dir, { recursive: true });
+    if (fs.existsSync(keyPath)) {
+        return (await fs.promises.readFile(keyPath, 'utf8')).trim();
+    }
+    const key = crypto.randomBytes(32).toString('hex');
+    await fs.promises.writeFile(keyPath, key, { mode: 0o600 });
+    return key;
+}
+
+function computeSignatureSync(config, key) {
+    const str = canonicalJson(config);
+    return crypto.createHmac('sha256', key).update(str).digest('hex');
+}
 
 /**
  * Gets the standard configuration directory for cmdbar.
@@ -20,6 +62,51 @@ export function getConfigPath() {
 }
 
 /**
+ * Acquires a cooperative lock file synchronously.
+ */
+export function acquireLockSync(lockPath, timeoutMs = 500) {
+    const start = Date.now();
+    while (true) {
+        try {
+            fs.writeFileSync(
+                lockPath,
+                JSON.stringify({ pid: process.pid, timestamp: Date.now() }),
+                { flag: 'wx' }
+            );
+            return true;
+        } catch (err) {
+            try {
+                const stats = fs.statSync(lockPath);
+                if (Date.now() - stats.mtimeMs > 1000) {
+                    fs.unlinkSync(lockPath);
+                }
+            } catch (statErr) {
+                // Ignore stat/unlink errors
+            }
+
+            if (Date.now() - start >= timeoutMs) {
+                throw new Error('Lock acquisition timeout');
+            }
+            const endSleep = Date.now() + 15;
+            while (Date.now() < endSleep) {}
+        }
+    }
+}
+
+/**
+ * Releases a cooperative lock file.
+ */
+export function releaseLockSync(lockPath) {
+    try {
+        if (fs.existsSync(lockPath)) {
+            fs.unlinkSync(lockPath);
+        }
+    } catch (err) {
+        // Ignore
+    }
+}
+
+/**
  * Writes the configuration data atomically (synchronously).
  * 1. Ensures the target directory exists.
  * 2. Writes the JSON content to a temporary file in the same directory.
@@ -36,6 +123,12 @@ export function saveConfigAtomically(configData, customPath) {
     // 1. Ensure target directory exists
     if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
+    }
+
+    if (configData && typeof configData === 'object' && (Array.isArray(configData.categories) || configData.commands || configData.signature !== undefined)) {
+        const keyPath = path.join(targetDir, '.key');
+        const key = getOrCreateSigningKeySync(keyPath);
+        configData.signature = computeSignatureSync(configData, key);
     }
 
     // 2. Generate temporary file path in the SAME directory
@@ -80,6 +173,12 @@ export async function saveConfigAtomicallyAsync(configData, customPath) {
     // 1. Ensure target directory exists
     await fs.promises.mkdir(targetDir, { recursive: true });
 
+    if (configData && typeof configData === 'object' && (Array.isArray(configData.categories) || configData.commands || configData.signature !== undefined)) {
+        const keyPath = path.join(targetDir, '.key');
+        const key = await getOrCreateSigningKeyAsync(keyPath);
+        configData.signature = computeSignatureSync(configData, key);
+    }
+
     // 2. Generate temporary file path in the SAME directory
     const tempPath = `${targetPath}.${Date.now()}.${Math.random().toString(36).substring(2, 8)}.tmp`;
 
@@ -94,7 +193,9 @@ export async function saveConfigAtomicallyAsync(configData, customPath) {
     } catch (error) {
         // Clean up the temporary file if it was created and write failed/errored
         try {
-            await fs.promises.unlink(tempPath);
+            if (fs.existsSync(tempPath)) {
+                await fs.promises.unlink(tempPath);
+            }
         } catch (cleanupError) {
             // Ignore cleanup errors
         }
