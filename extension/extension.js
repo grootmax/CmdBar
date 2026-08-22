@@ -576,6 +576,13 @@ class CmdBarIndicator extends PanelMenu.Button {
             let extensionPath = this._extension.path.get_path();
             let config = await loadConfig(configPath, extensionPath);
 
+            if (config && config._isInvalid) {
+                this._showNotification(
+                    "CmdBar Configuration Error",
+                    "Invalid configuration file detected. Using in-memory default settings without overwriting your file."
+                );
+            }
+
             // Clear all current items in menu
             this.menu.removeAll();
 
