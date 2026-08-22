@@ -184,6 +184,76 @@ export function getPlaceholders(commandTemplate) {
     return matches;
 }
 
+export const DEFAULT_ALLOWED_PREFIXES = [
+    '/usr/bin/',
+    '/bin/',
+    '/usr/local/bin/',
+    '/usr/sbin/',
+    '/sbin/'
+];
+
+export const DEFAULT_ALLOWED_BINARIES = [
+    'make',
+    'echo',
+    'deploy',
+    'aws',
+    'ping',
+    'git',
+    'docker',
+    'zenity',
+    'python',
+    'python3',
+    'node',
+    'npm',
+    'notify-send',
+    'pkill',
+    'env',
+    'sh',
+    'bash'
+];
+
+/**
+ * Checks whether a given binary path or executable name is in the approved allowlist.
+ * @param {string} binaryPath
+ * @param {string[]} [customAllowlist]
+ * @returns {boolean}
+ */
+export function isBinaryAllowlisted(binaryPath, customAllowlist = []) {
+    if (!binaryPath || typeof binaryPath !== 'string') {
+        return false;
+    }
+    const cleanPath = binaryPath.trim();
+    if (!cleanPath) {
+        return false;
+    }
+
+    if (Array.isArray(customAllowlist) && customAllowlist.length > 0) {
+        if (customAllowlist.includes(cleanPath)) {
+            return true;
+        }
+        for (const item of customAllowlist) {
+            if (typeof item === 'string' && item.endsWith('/') && cleanPath.startsWith(item)) {
+                return true;
+            }
+        }
+    }
+
+    if (cleanPath.startsWith('/')) {
+        for (const prefix of DEFAULT_ALLOWED_PREFIXES) {
+            if (cleanPath.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (DEFAULT_ALLOWED_BINARIES.includes(cleanPath)) {
+        return true;
+    }
+
+    return false;
+}
+
 /**
  * Substitutes mapping values into a tokenized argument list.
  * @param {string[]} tokens
