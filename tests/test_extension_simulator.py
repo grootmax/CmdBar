@@ -112,3 +112,106 @@ def test_gjs_subprocess_unpacking_behavior():
     assert stdout_corrected == "user-entered-parameter"
     assert stderr_corrected == ""
 
+
+class SimulatedCmdBarIndicator:
+    def __init__(self):
+        self._init_job_tracking()
+        self.menu_items = []
+
+    def _init_job_tracking(self):
+        self._next_job_id = 1
+        self._active_jobs = {}
+        self._job_menu_items = {}
+        self._jobs_section = []
+        self._jobs_section_separator = None
+        self._jobs_section_header = None
+
+    def execute_command(self, name, template, params=None):
+        job_id = str(self._next_job_id)
+        self._next_job_id += 1
+        job_name = f"{name} ({template})"
+        job = {"id": job_id, "name": job_name, "cancelled": False}
+        self._active_jobs[job_id] = job
+
+        if len(self._active_jobs) == 1:
+            self._jobs_section_separator = "Separator"
+            self._jobs_section_header = "Active Background Jobs"
+
+        job_item = f"JobItem-{job_id}: {job_name}"
+        self._jobs_section.append(job_item)
+        self._job_menu_items[job_id] = job_item
+        return job_id
+
+    def reload_menu(self):
+        self.menu_items = ["Category: Default", "Command: Echo"]
+        self._restore_jobs_ui()
+
+    def _restore_jobs_ui(self):
+        self._jobs_section = []
+        self._job_menu_items.clear()
+        self._jobs_section_separator = None
+        self._jobs_section_header = None
+
+        if self._active_jobs:
+            self._jobs_section_separator = "Separator"
+            self._jobs_section_header = "Active Background Jobs"
+            for job_id, job in self._active_jobs.items():
+                job_item = f"JobItem-{job_id}: {job['name']}"
+                self._jobs_section.append(job_item)
+                self._job_menu_items[job_id] = job_item
+
+    def on_job_finished(self, job_id):
+        if job_id not in self._active_jobs:
+            return
+        if job_id in self._job_menu_items:
+            item = self._job_menu_items[job_id]
+            if item in self._jobs_section:
+                self._jobs_section.remove(item)
+            del self._job_menu_items[job_id]
+        del self._active_jobs[job_id]
+
+        if not self._active_jobs:
+            self._jobs_section_separator = None
+            self._jobs_section_header = None
+
+
+def test_background_job_tracking_and_numeric_ids():
+    indicator = SimulatedCmdBarIndicator()
+    id1 = indicator.execute_command("Task 1", "sleep 10")
+    id2 = indicator.execute_command("Task 2", "sleep 20")
+    assert id1 == "1"
+    assert id2 == "2"
+    assert id1 != "NaN" and id2 != "NaN"
+    assert len(indicator._active_jobs) == 2
+    assert len(indicator._jobs_section) == 2
+
+
+def test_menu_reload_job_persistence():
+    indicator = SimulatedCmdBarIndicator()
+    id1 = indicator.execute_command("Long Task", "ping localhost")
+    assert len(indicator._active_jobs) == 1
+
+    # Reload menu
+    indicator.reload_menu()
+
+    # Verify active background job remains visible
+    assert len(indicator._active_jobs) == 1
+    assert id1 in indicator._job_menu_items
+    assert indicator._jobs_section_header == "Active Background Jobs"
+
+
+def test_job_completion_cleanup():
+    indicator = SimulatedCmdBarIndicator()
+    id1 = indicator.execute_command("Task 1", "echo 1")
+    id2 = indicator.execute_command("Task 2", "echo 2")
+
+    indicator.on_job_finished(id1)
+    assert id1 not in indicator._active_jobs
+    assert id2 in indicator._active_jobs
+    assert len(indicator._jobs_section) == 1
+
+    indicator.on_job_finished(id2)
+    assert len(indicator._active_jobs) == 0
+    assert indicator._jobs_section_header is None
+
+
