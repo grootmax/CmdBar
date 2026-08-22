@@ -2,6 +2,7 @@ import os
 import json
 import re
 import shlex
+from app.atomic_write import atomic_write_json
 
 DEFAULT_CONFIG = {
   "categories": [
@@ -117,9 +118,7 @@ def load_config(path=None):
 def save_config(config_data, path=None):
     if path is None:
         path = get_config_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(config_data, f, indent=2)
+    atomic_write_json(path, config_data, indent=2)
 
 def validate_parameter_value(value, parameter_schema):
     """

@@ -120,6 +120,42 @@ describe('Atomic Companion Persistence Tests', () => {
 
             writeSpy.mockRestore();
         });
+
+        test('should preserve existing file permissions after replacement', () => {
+            const initialData = { mode: 'test' };
+            saveConfigAtomically(initialData, testFile);
+
+            // Set file mode to 0o600
+            fs.chmodSync(testFile, 0o600);
+            const initialMode = fs.statSync(testFile).mode & 0o777;
+
+            const updatedData = { mode: 'updated' };
+            saveConfigAtomically(updatedData, testFile);
+
+            const newMode = fs.statSync(testFile).mode & 0o777;
+            expect(newMode).toBe(initialMode);
+            expect(JSON.parse(fs.readFileSync(testFile, 'utf8'))).toEqual(updatedData);
+        });
+
+        test('should leave existing file unchanged when atomic write fails', () => {
+            const initialData = { status: 'original' };
+            saveConfigAtomically(initialData, testFile);
+
+            const renameSpy = jest.spyOn(fs, 'renameSync').mockImplementation(() => {
+                throw new Error('Simulated rename error');
+            });
+
+            expect(() => saveConfigAtomically({ status: 'new' }, testFile)).toThrow('Simulated rename error');
+
+            // Original file remains unchanged
+            expect(JSON.parse(fs.readFileSync(testFile, 'utf8'))).toEqual(initialData);
+
+            // Temp file was cleaned up
+            const files = fs.readdirSync(testDir);
+            expect(files.filter(f => f.endsWith('.tmp')).length).toBe(0);
+
+            renameSpy.mockRestore();
+        });
     });
 
     describe('Atomic Writes (Asynchronous)', () => {

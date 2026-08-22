@@ -73,10 +73,37 @@ export async function writeConfigAtomically(targetPath, data) {
     const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
 
     if (isNode) {
-        const fs = (await import('fs')).default;
+        const fs = (await import('fs')).default || (await import('fs'));
+        const path = (await import('path')).default || (await import('path'));
+        const targetDir = path.dirname(targetPath);
+        if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+        }
         const tempPath = targetPath + '.tmp';
-        fs.writeFileSync(tempPath, contentStr, 'utf8');
-        fs.renameSync(tempPath, targetPath);
+
+        let mode;
+        if (fs.existsSync(targetPath)) {
+            try {
+                mode = fs.statSync(targetPath).mode;
+            } catch (e) {}
+        }
+
+        try {
+            fs.writeFileSync(tempPath, contentStr, 'utf8');
+            if (mode !== undefined) {
+                try {
+                    fs.chmodSync(tempPath, mode);
+                } catch (e) {}
+            }
+            fs.renameSync(tempPath, targetPath);
+        } catch (error) {
+            try {
+                if (fs.existsSync(tempPath)) {
+                    fs.unlinkSync(tempPath);
+                }
+            } catch (cleanupError) {}
+            throw error;
+        }
     } else {
         // GJS (GNOME Shell) environment
         const { Gio, GLib } = await import('gi');
@@ -84,8 +111,17 @@ export async function writeConfigAtomically(targetPath, data) {
         const tmpPath = targetPath + '.tmp';
         const tmpFile = Gio.File.new_for_path(tmpPath);
         const bytes = new GLib.Bytes(contentStr);
-        tmpFile.replace_contents(bytes, null, false, Gio.FileCreateFlags.NONE, null);
-        tmpFile.move(file, Gio.FileCopyFlags.OVERWRITE, null, null);
+        try {
+            tmpFile.replace_contents(bytes, null, false, Gio.FileCreateFlags.NONE, null);
+            tmpFile.move(file, Gio.FileCopyFlags.OVERWRITE, null, null);
+        } catch (error) {
+            try {
+                if (tmpFile.query_exists(null)) {
+                    tmpFile.delete(null);
+                }
+            } catch (cleanupError) {}
+            throw error;
+        }
     }
 }
 

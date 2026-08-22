@@ -7,6 +7,15 @@ import shlex
 import subprocess
 import argparse
 
+try:
+    from companion.atomic_write import atomic_write_json
+except ImportError:
+    try:
+        from app.atomic_write import atomic_write_json
+    except ImportError:
+        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+        from app.atomic_write import atomic_write_json
+
 # Check for GTK/Adwaita availability
 GUI_AVAILABLE = False
 try:
@@ -63,8 +72,7 @@ def init_config():
                 }
             ]
         }
-        with open(config_path, "w") as f:
-            json.dump(default_config, f, indent=4)
+        atomic_write_json(config_path, default_config, indent=4)
     return config_path
 
 
@@ -123,13 +131,9 @@ def save_config(config_data):
     """
     config_path = get_config_path()
     try:
-        # Write to a temporary file first, then rename, to avoid corrupted configs
-        tmp_path = config_path + ".tmp"
-        with open(tmp_path, "w") as f:
-            json.dump(config_data, f, indent=4)
-        os.replace(tmp_path, config_path)
+        atomic_write_json(config_path, config_data, indent=4)
         return True
-    except OSError as e:
+    except Exception as e:
         print(f"Error saving configuration: {e}", file=sys.stderr)
         return False
 
