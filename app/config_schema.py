@@ -2,7 +2,45 @@ import os
 import json
 import re
 import shlex
-from app.atomic_write import atomic_write_json
+import subprocess
+import hmac
+import hashlib
+import secrets
+
+def canonical_json(obj):
+    if isinstance(obj, dict):
+        clean = {k: v for k, v in obj.items() if k != "signature"}
+        return json.dumps(clean, sort_keys=True, separators=(',', ':'))
+    elif isinstance(obj, list):
+        return '[' + ','.join(canonical_json(x) for x in obj) + ']'
+    return json.dumps(obj, separators=(',', ':'))
+
+def get_key_path(config_path):
+    return os.path.join(os.path.dirname(config_path), ".key")
+
+def get_or_create_signing_key(key_path):
+    dir_path = os.path.dirname(key_path)
+    os.makedirs(dir_path, exist_ok=True)
+    if os.path.exists(key_path):
+        try:
+            with open(key_path, "r") as f:
+                content = f.read().strip()
+                if content:
+                    return content
+        except Exception:
+            pass
+    key = secrets.token_hex(32)
+    try:
+        with open(key_path, "w") as f:
+            f.write(key)
+        os.chmod(key_path, 0o600)
+    except Exception:
+        pass
+    return key
+
+def compute_signature(config_data, key):
+    str_val = canonical_json(config_data)
+    return hmac.new(key.encode("utf-8"), str_val.encode("utf-8"), hashlib.sha256).hexdigest()
 
 DEFAULT_CONFIG = {
   "categories": [
@@ -46,6 +84,9 @@ def load_config(path=None):
     if path is None:
         path = get_config_path()
     
+    key_path = get_key_path(path)
+    key = get_or_create_signing_key(key_path)
+
     if not os.path.exists(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         # Fallback & migrate legacy commands.json if it exists
@@ -72,13 +113,35 @@ def load_config(path=None):
                 pass
         
         # Otherwise, save & return DEFAULT_CONFIG
-        save_config(DEFAULT_CONFIG, path)
-        return DEFAULT_CONFIG
+        default_copy = json.loads(json.dumps(DEFAULT_CONFIG))
+        save_config(default_copy, path)
+        default_copy.pop("signature", None)
+        return default_copy
     
     try:
         with open(path, "r") as f:
             config_data = json.load(f)
         
+        # Verify cryptographic signature
+        sig = config_data.get("signature") if isinstance(config_data, dict) else None
+        expected_sig = compute_signature(config_data, key) if isinstance(config_data, dict) else None
+
+        if not sig or sig != expected_sig:
+            backup_path = path + ".bak"
+            try:
+                if os.path.exists(path):
+                    os.replace(path, backup_path)
+            except Exception:
+                pass
+            try:
+                subprocess.Popen(["notify-send", "Security Alert: Config Verification Failed", "Untrusted or tampered configuration file detected. Archived to .bak and restored safe defaults."])
+            except Exception:
+                pass
+            default_copy = json.loads(json.dumps(DEFAULT_CONFIG))
+            save_config(default_copy, path)
+            default_copy.pop("signature", None)
+            return default_copy
+
         # Normalize and migrate loaded configuration
         migrated = False
         for cat in config_data.get("categories", []):
@@ -110,15 +173,31 @@ def load_config(path=None):
         if migrated:
             save_config(config_data, path)
             
+        config_data.pop("signature", None)
         return config_data
     except Exception:
         # Fallback to default if corrupt
-        return DEFAULT_CONFIG
+        backup_path = path + ".bak"
+        try:
+            if os.path.exists(path):
+                os.replace(path, backup_path)
+        except Exception:
+            pass
+        default_copy = json.loads(json.dumps(DEFAULT_CONFIG))
+        save_config(default_copy, path)
+        default_copy.pop("signature", None)
+        return default_copy
 
 def save_config(config_data, path=None):
     if path is None:
         path = get_config_path()
-    atomic_write_json(path, config_data, indent=2)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if isinstance(config_data, dict):
+        key_path = get_key_path(path)
+        key = get_or_create_signing_key(key_path)
+        config_data["signature"] = compute_signature(config_data, key)
+    with open(path, "w") as f:
+        json.dump(config_data, f, indent=2)
 
 def validate_parameter_value(value, parameter_schema):
     """

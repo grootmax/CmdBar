@@ -405,6 +405,84 @@ async function gjs_acquireLock(lockPath, timeoutMs = 200) {
     }
 }
 
+export function getKeyPath(configPath) {
+    if (!configPath) return null;
+    const lastSlash = configPath.lastIndexOf('/');
+    if (lastSlash === -1) return '.key';
+    return configPath.slice(0, lastSlash) + '/.key';
+}
+
+export function canonicalJson(obj) {
+    if (obj === null || typeof obj !== 'object') {
+        return JSON.stringify(obj);
+    }
+    if (Array.isArray(obj)) {
+        return '[' + obj.map(canonicalJson).join(',') + ']';
+    }
+    const sortedKeys = Object.keys(obj).filter(k => k !== 'signature').sort();
+    const parts = sortedKeys.map(k => JSON.stringify(k) + ':' + canonicalJson(obj[k]));
+    return '{' + parts.join(',') + '}';
+}
+
+export async function getOrCreateSigningKey(keyPath) {
+    if (isNode) {
+        const fs = await import('fs');
+        const pathModule = await import('path');
+        const cryptoModule = await import('crypto');
+        if (fs.existsSync(keyPath)) {
+            return (await fs.promises.readFile(keyPath, 'utf8')).trim();
+        }
+        const key = cryptoModule.randomBytes(32).toString('hex');
+        const dir = pathModule.dirname(keyPath);
+        await fs.promises.mkdir(dir, { recursive: true });
+        await fs.promises.writeFile(keyPath, key, { mode: 0o600 });
+        return key;
+    } else {
+        if (await fileExists(keyPath)) {
+            const content = await gjs_readFile(keyPath);
+            return content.trim();
+        }
+        let key = '';
+        for (let i = 0; i < 64; i++) {
+            key += Math.floor(Math.random() * 16).toString(16);
+        }
+        await ensureConfigDir(keyPath);
+        await gjs_writeFileAtomic(keyPath, key);
+        try {
+            let file = Gio.File.new_for_path(keyPath);
+            let info = new Gio.FileInfo();
+            info.set_attribute_uint32('unix::mode', 0o600);
+            file.set_attributes_from_info(info, Gio.FileQueryInfoFlags.NONE, null);
+        } catch (e) {}
+        return key;
+    }
+}
+
+export async function computeSignature(config, key) {
+    const str = canonicalJson(config);
+    if (isNode) {
+        const cryptoModule = await import('crypto');
+        return cryptoModule.createHmac('sha256', key).update(str).digest('hex');
+    } else {
+        let encoder = new TextEncoder();
+        let keyBytes = encoder.encode(key);
+        return GLib.compute_hmac_for_string(GLib.ChecksumType.SHA256, keyBytes, str, -1);
+    }
+}
+
+export async function verifyConfigSignature(config, keyPath) {
+    if (!config || typeof config !== 'object' || !config.signature) {
+        return false;
+    }
+    try {
+        const key = await getOrCreateSigningKey(keyPath);
+        const expected = await computeSignature(config, key);
+        return config.signature === expected;
+    } catch (e) {
+        return false;
+    }
+}
+
 // Exported public API functions
 export async function getDefaultConfigPath() {
     if (isNode) {
@@ -461,6 +539,7 @@ export async function releaseLock(lockPath) {
  */
 export async function loadConfig(configPath, extensionPath) {
     await ensureConfigDir(configPath);
+    const keyPath = getKeyPath(configPath);
 
     const exists = await fileExists(configPath);
     if (!exists) {
@@ -487,6 +566,8 @@ export async function loadConfig(configPath, extensionPath) {
             }
             if (isLegacyValid) {
                 // Automatically migrate legacy file to config.json
+                const key = await getOrCreateSigningKey(keyPath);
+                legacyConfig.signature = await computeSignature(legacyConfig, key);
                 if (isNode) {
                     await node_writeFileAtomic(configPath, JSON.stringify(legacyConfig, null, 2));
                     await node_deleteFile(legacyPath);
@@ -494,6 +575,7 @@ export async function loadConfig(configPath, extensionPath) {
                     await gjs_writeFileAtomic(configPath, JSON.stringify(legacyConfig, null, 2));
                     await gjs_deleteFile(legacyPath);
                 }
+                delete legacyConfig.signature;
                 return legacyConfig;
             }
         }
@@ -531,20 +613,22 @@ export async function loadConfig(configPath, extensionPath) {
         try {
             configObj = JSON.parse(defaultContent);
             if (!validateConfigSchema(configObj)) {
-                configObj = DEFAULT_CONFIG;
-                defaultContent = JSON.stringify(DEFAULT_CONFIG, null, 2);
+                configObj = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
             }
         } catch (e) {
-            configObj = DEFAULT_CONFIG;
-            defaultContent = JSON.stringify(DEFAULT_CONFIG, null, 2);
+            configObj = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
         }
+
+        const key = await getOrCreateSigningKey(keyPath);
+        configObj.signature = await computeSignature(configObj, key);
 
         if (isNode) {
-            await node_writeFileAtomic(configPath, defaultContent);
+            await node_writeFileAtomic(configPath, JSON.stringify(configObj, null, 2));
         } else {
-            await gjs_writeFileAtomic(configPath, defaultContent);
+            await gjs_writeFileAtomic(configPath, JSON.stringify(configObj, null, 2));
         }
 
+        delete configObj.signature;
         return configObj;
     }
 
@@ -560,16 +644,21 @@ export async function loadConfig(configPath, extensionPath) {
     }
 
     let parsedConfig;
-    let isValid = false;
+    let isValidSchema = false;
+    let isValidSignature = false;
     try {
         parsedConfig = JSON.parse(content);
-        isValid = validateConfigSchema(parsedConfig);
+        isValidSchema = validateConfigSchema(parsedConfig);
+        if (isValidSchema) {
+            isValidSignature = await verifyConfigSignature(parsedConfig, keyPath);
+        }
     } catch (e) {
-        isValid = false;
+        isValidSchema = false;
+        isValidSignature = false;
     }
 
-    if (!isValid) {
-        // Requirement 7: Archive the broken configuration file and generate a fresh default file
+    if (!isValidSchema || !isValidSignature) {
+        // Archive corrupted or untrusted file to .bak and restore clean signed default config
         const backupPath = configPath + '.bak';
         try {
             if (isNode) {
@@ -578,59 +667,37 @@ export async function loadConfig(configPath, extensionPath) {
                 await gjs_backupFile(configPath, backupPath);
             }
         } catch (e) {
-            console.error(`CmdBar: Failed to archive corrupted config file: ${e.message}`);
+            console.error(`CmdBar: Failed to archive corrupted/untrusted config file: ${e.message}`);
         }
 
-        let defaultContent = '';
-        let defaultLoaded = false;
-        if (extensionPath) {
-            try {
-                let templatePath;
-                if (isNode) {
-                    const pathModule = await import('path');
-                    templatePath = pathModule.join(extensionPath, 'commands.json');
-                } else {
-                    templatePath = GLib.build_filenamev([extensionPath, 'commands.json']);
-                }
-                const templateExists = await fileExists(templatePath);
-                if (templateExists) {
-                    if (isNode) {
-                        defaultContent = await node_readFile(templatePath);
-                    } else {
-                        defaultContent = await gjs_readFile(templatePath);
-                    }
-                    defaultLoaded = true;
-                }
-            } catch (e) {
-                // Ignore
-            }
-        }
-
-        if (!defaultLoaded) {
-            defaultContent = JSON.stringify(DEFAULT_CONFIG, null, 2);
-        }
-
-        let configObj;
         try {
-            configObj = JSON.parse(defaultContent);
-            if (!validateConfigSchema(configObj)) {
-                configObj = DEFAULT_CONFIG;
-                defaultContent = JSON.stringify(DEFAULT_CONFIG, null, 2);
+            if (!isNode) {
+                if (typeof Main !== 'undefined' && Main && typeof Main.notify === 'function') {
+                    Main.notify("Security Alert: Config Verification Failed", "Untrusted or tampered configuration file detected. Archived to .bak and restored safe defaults.");
+                } else if (typeof Gio !== 'undefined' && Gio.Subprocess) {
+                    let proc = Gio.Subprocess.new(['notify-send', 'Security Alert: Config Verification Failed', 'Untrusted or tampered configuration file detected. Archived to .bak and restored safe defaults.'], Gio.SubprocessFlags.NONE);
+                    proc.communicate_utf8_async(null, null, null);
+                }
             }
         } catch (e) {
-            configObj = DEFAULT_CONFIG;
-            defaultContent = JSON.stringify(DEFAULT_CONFIG, null, 2);
+            // Ignore notification error
         }
+
+        let configObj = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+        const key = await getOrCreateSigningKey(keyPath);
+        configObj.signature = await computeSignature(configObj, key);
 
         if (isNode) {
-            await node_writeFileAtomic(configPath, defaultContent);
+            await node_writeFileAtomic(configPath, JSON.stringify(configObj, null, 2));
         } else {
-            await gjs_writeFileAtomic(configPath, defaultContent);
+            await gjs_writeFileAtomic(configPath, JSON.stringify(configObj, null, 2));
         }
 
+        delete configObj.signature;
         return configObj;
     }
 
+    delete parsedConfig.signature;
     return parsedConfig;
 }
 
@@ -645,6 +712,9 @@ export async function saveConfig(config, configPath) {
     }
 
     await ensureConfigDir(configPath);
+    const keyPath = getKeyPath(configPath);
+    const key = await getOrCreateSigningKey(keyPath);
+    config.signature = await computeSignature(config, key);
 
     const lockPath = configPath + '.lock';
     await acquireLock(lockPath, 180);

@@ -5,59 +5,192 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 import { St, Clutter, Gio, GLib, GObject } from 'gi';
 
-import { validateInput, substituteCommand, hasPlaceholder, tokenizeCommand, substituteTokens, getPlaceholders } from './commandProcessor.js';
+import { validateInput, substituteCommand, hasPlaceholder, tokenizeCommand, substituteTokens, getPlaceholders, getPreviewTokens } from './commandProcessor.js';
 import { loadConfig } from './configSync.js';
 
-/**
- * Run a command asynchronously and notify the user when done.
- * @param {string} commandName
- * @param {string} commandString
- */
-function runCommandAsync(commandName, commandString) {
-    try {
-        let proc = Gio.Subprocess.new(
-            ['/bin/sh', '-c', commandString],
-            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-        );
+// Native GNOME Shell Modal Dialog for command execution confirmation
+const ExecutionConfirmationDialog = GObject.registerClass(
+class ExecutionConfirmationDialog extends ModalDialog.ModalDialog {
+    _init(commandName, binaryPath, argsList, onConfirm, onCancel) {
+        super._init({ styleClass: 'cmdbar-confirmation-dialog' });
 
-        proc.communicate_utf8_async(null, null, (subprocess, result) => {
-            try {
-                let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
-                
-                let success = subprocess.get_successful();
-                let exitStatus = 'unknown';
-                if (subprocess.get_if_exited()) {
-                    exitStatus = String(subprocess.get_exit_status());
-                } else if (subprocess.get_if_signaled()) {
-                    exitStatus = `Killed by signal ${subprocess.get_term_sig()}`;
+        this._onConfirm = onConfirm;
+        this._onCancel = onCancel;
+        this._executed = false;
+
+        let mainBox = new St.BoxLayout({
+            orientation: Clutter.Orientation.VERTICAL,
+            styleClass: 'cmdbar-dialog-content',
+            style: 'padding: 16px; min-width: 320px;'
+        });
+
+        let titleLabel = new St.Label({
+            text: `Confirm Execution: ${commandName}`,
+            style: 'font-weight: bold; font-size: 1.1em; margin-bottom: 8px;'
+        });
+        mainBox.add_child(titleLabel);
+
+        let descLabel = new St.Label({
+            text: 'This command is unverified. Please review execution details:',
+            style: 'margin-bottom: 12px; color: #aaaaaa; font-size: 0.9em;'
+        });
+        mainBox.add_child(descLabel);
+
+        let binaryLabel = new St.Label({
+            text: `Binary Path: ${binaryPath}`,
+            style: 'font-family: monospace; font-weight: bold; margin-bottom: 6px;'
+        });
+        mainBox.add_child(binaryLabel);
+
+        let argsText = argsList && argsList.length > 0 ? argsList.join(' ') : '(None)';
+        let argsLabel = new St.Label({
+            text: `Arguments: ${argsText}`,
+            style: 'font-family: monospace; margin-bottom: 16px;'
+        });
+        mainBox.add_child(argsLabel);
+
+        this.contentLayout.add_child(mainBox);
+
+        this.addButton({
+            label: 'Cancel',
+            action: () => {
+                this.close();
+                if (!this._executed && this._onCancel) {
+                    this._onCancel();
                 }
+            },
+            key: Clutter.KEY_Escape
+        });
 
-                if (success) {
-                    let title = `Command Succeeded: ${commandName}`;
-                    let body = `Exit status: ${exitStatus}`;
-                    if (stdout && stdout.trim()) {
-                        body += `\n\nOutput:\n${stdout.trim()}`;
-                    }
-                    Main.notify(title, body);
+        this.addButton({
+            label: 'Execute',
+            action: () => {
+                this._executed = true;
+                this.close();
+                if (this._onConfirm) {
+                    this._onConfirm();
+                }
+            },
+            default: true
+        });
+    }
+}
+);
+
+function requestCommandConfirmation(commandName, argv, previewArgv, cmdObj, onConfirm, onCancel) {
+    if (cmdObj && cmdObj.verified === true) {
+        onConfirm();
+        return;
+    }
+
+    let binaryPath = argv[0] || '';
+    let argsList = previewArgv ? previewArgv.slice(1) : argv.slice(1);
+
+    try {
+        if (Main && Main.uiGroup) {
+            let dialog = new ExecutionConfirmationDialog(commandName, binaryPath, argsList, onConfirm, onCancel);
+            dialog.open();
+            return;
+        }
+    } catch (e) {
+        console.warn(`CmdBar: ModalDialog unavailable, falling back to Zenity confirmation: ${e.message}`);
+    }
+
+    try {
+        let text = `Unverified Command Invocation:\n\nBinary Path: ${binaryPath}\nArguments: ${argsList.join(' ')}\n\nDo you want to execute this command?`;
+        let proc = Gio.Subprocess.new(
+            ['zenity', '--question', '--title', `Confirm Execution: ${commandName}`, '--text', text],
+            Gio.SubprocessFlags.NONE
+        );
+        proc.wait_async(null, (subprocess, res) => {
+            try {
+                subprocess.wait_finish(res);
+                if (subprocess.get_successful()) {
+                    onConfirm();
                 } else {
-                    let title = `Command Failed: ${commandName}`;
-                    let body = `Exit status: ${exitStatus}`;
-                    if (stderr && stderr.trim()) {
-                        body += `\n\nError:\n${stderr.trim()}`;
-                    } else if (stdout && stdout.trim()) {
-                        body += `\n\nOutput:\n${stdout.trim()}`;
-                    }
-                    Main.notify(title, body);
+                    if (onCancel) onCancel();
                 }
             } catch (err) {
-                console.error(`CmdBar: error finishing command: ${err.message}`);
-                Main.notify(`Command Error: ${commandName}`, `Failed to execute: ${err.message}`);
+                if (onCancel) onCancel();
             }
         });
     } catch (e) {
-        console.error(`CmdBar: failed to spawn command: ${e.message}`);
-        Main.notify(`Command Launch Failed: ${commandName}`, `Could not start command: ${e.message}`);
+        console.error(`CmdBar: Failed to show confirmation modal: ${e.message}`);
+        if (onCancel) onCancel();
     }
+}
+
+/**
+ * Run a command asynchronously as a direct tokenized array and notify the user when done.
+ * @param {string} commandName
+ * @param {string|string[]} commandString
+ * @param {object} [cmdObj]
+ * @param {object} [placeholderMap]
+ */
+function runCommandAsync(commandName, commandString, cmdObj, placeholderMap) {
+    let tokens = Array.isArray(commandString) ? commandString : tokenizeCommand(commandString);
+    let argv = substituteTokens(tokens, placeholderMap);
+    if (argv.length === 0) {
+        Main.notify("Command Execution Failed", "Command parsed to empty argument list.");
+        return;
+    }
+
+    let previewArgv = getPreviewTokens(argv, placeholderMap, cmdObj ? cmdObj.parameters : []);
+
+    requestCommandConfirmation(
+        commandName,
+        argv,
+        previewArgv,
+        cmdObj,
+        () => {
+            try {
+                let proc = Gio.Subprocess.new(
+                    argv,
+                    Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                );
+
+                proc.communicate_utf8_async(null, null, (subprocess, result) => {
+                    try {
+                        let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                        let success = subprocess.get_successful();
+                        let exitStatus = 'unknown';
+                        if (subprocess.get_if_exited()) {
+                            exitStatus = String(subprocess.get_exit_status());
+                        } else if (subprocess.get_if_signaled()) {
+                            exitStatus = `Killed by signal ${subprocess.get_term_sig()}`;
+                        }
+
+                        if (success) {
+                            let title = `Command Succeeded: ${commandName}`;
+                            let body = `Exit status: ${exitStatus}`;
+                            if (stdout && stdout.trim()) {
+                                body += `\n\nOutput:\n${stdout.trim()}`;
+                            }
+                            Main.notify(title, body);
+                        } else {
+                            let title = `Command Failed: ${commandName}`;
+                            let body = `Exit status: ${exitStatus}`;
+                            if (stderr && stderr.trim()) {
+                                body += `\n\nError:\n${stderr.trim()}`;
+                            } else if (stdout && stdout.trim()) {
+                                body += `\n\nOutput:\n${stdout.trim()}`;
+                            }
+                            Main.notify(title, body);
+                        }
+                    } catch (err) {
+                        console.error(`CmdBar: error finishing command: ${err.message}`);
+                        Main.notify(`Command Error: ${commandName}`, `Failed to execute: ${err.message}`);
+                    }
+                });
+            } catch (e) {
+                console.error(`CmdBar: failed to spawn command: ${e.message}`);
+                Main.notify(`Command Launch Failed: ${commandName}`, `Could not start command: ${e.message}`);
+            }
+        },
+        () => {
+            console.log(`CmdBar: Command execution cancelled by user: ${commandName}`);
+        }
+    );
 }
 
 /**
@@ -70,43 +203,52 @@ function harvestEnvironment() {
 /**
  * Asynchronously executes a shell command and notifies the user on failure.
  * 
- * @param {string} commandLineString The command string to execute.
+ * @param {string|string[]} commandLineString The command string to execute.
+ * @param {object} [cmdObj]
  */
-function _executeCommandAsync(commandLineString) {
+function _executeCommandAsync(commandLineString, cmdObj) {
     try {
-        // Parse the command line into argv
-        let [ok, argv] = GLib.shell_parse_argv(commandLineString);
-        if (!ok || !argv || argv.length === 0) {
+        let argv = Array.isArray(commandLineString) ? commandLineString : tokenizeCommand(commandLineString);
+        if (!argv || argv.length === 0) {
             Main.notify("Command Execution Failed", `Could not parse command: "${commandLineString}"`);
             return;
         }
 
-        // Spawn using Gio.Subprocess to capture stderr
-        let proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDERR_PIPE);
+        let previewArgv = getPreviewTokens(argv, {}, cmdObj ? cmdObj.parameters : []);
 
-        // Async read & status check
-        proc.communicate_utf8_async(null, null, (subprocess, result) => {
-            try {
-                let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+        requestCommandConfirmation(
+            "Command",
+            argv,
+            previewArgv,
+            cmdObj,
+            () => {
+                let proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDERR_PIPE);
+                proc.communicate_utf8_async(null, null, (subprocess, result) => {
+                    try {
+                        let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
 
-                if (!subprocess.get_successful()) {
-                    let exitStatus = subprocess.get_exit_status();
-                    let rawError = stderr ? stderr.trim() : "";
-                    let detailedError = rawError || `Process exited with code ${exitStatus}`;
+                        if (!subprocess.get_successful()) {
+                            let exitStatus = subprocess.get_exit_status();
+                            let rawError = stderr ? stderr.trim() : "";
+                            let detailedError = rawError || `Process exited with code ${exitStatus}`;
 
-                    // Graceful truncation
-                    const MAX_ERR_LENGTH = 200;
-                    if (detailedError.length > MAX_ERR_LENGTH) {
-                        detailedError = detailedError.substring(0, MAX_ERR_LENGTH) + "...";
+                            const MAX_ERR_LENGTH = 200;
+                            if (detailedError.length > MAX_ERR_LENGTH) {
+                                detailedError = detailedError.substring(0, MAX_ERR_LENGTH) + "...";
+                            }
+
+                            Main.notify("Command Execution Failed", detailedError);
+                        }
+                    } catch (e) {
+                        console.error(`CmdBar error reading stderr: ${e.message}`);
+                        Main.notify("Command Execution Failed", e.message);
                     }
-
-                    Main.notify("Command Execution Failed", detailedError);
-                }
-            } catch (e) {
-                console.error(`CmdBar error reading stderr: ${e.message}`);
-                Main.notify("Command Execution Failed", e.message);
+                });
+            },
+            () => {
+                console.log("CmdBar: Command execution cancelled by user.");
             }
-        });
+        );
     } catch (e) {
         console.error(`CmdBar parsing/spawn error: ${e.message}`);
         Main.notify("Command Execution Failed", `Failed to start command: ${e.message}`);
@@ -143,7 +285,7 @@ function harvestEnvironment() {
 // Custom menu item with an inline text entry for commands that have placeholders
 const CommandInputMenuItem = GObject.registerClass(
 class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
-    _init(indicator, commandName, commandTemplate, placeholderText) {
+    _init(indicator, commandName, commandTemplate, placeholderText, cmdObj) {
         super._init({
             reactive: true,
             activate: false
@@ -153,6 +295,7 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
         this._commandName = commandName;
         this._commandTemplate = commandTemplate;
         this._placeholderText = placeholderText || "Enter parameter...";
+        this._cmdObj = cmdObj || {};
 
         this.box = new St.BoxLayout({
             orientation: Clutter.Orientation.HORIZONTAL,
@@ -186,7 +329,7 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
                     if (subprocess.get_successful()) {
                         let text = stdout ? stdout.trim() : '';
                         if (validateInput(text)) {
-                            let tokens = tokenizeCommand(this._commandTemplate);
+                            let tokens = Array.isArray(this._commandTemplate) ? this._commandTemplate : tokenizeCommand(this._commandTemplate);
                             let placeholders = getPlaceholders(this._commandTemplate);
                             let placeholderMap = {};
                             placeholders.forEach(ph => {
@@ -200,15 +343,28 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
                                 return;
                             }
 
-                            try {
-                                let cmdProc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
-                                if (this._indicator && this._indicator.menu && typeof this._indicator.menu.close === 'function') {
-                                    this._indicator.menu.close();
+                            let previewArgv = getPreviewTokens(argv, placeholderMap, this._cmdObj.parameters);
+
+                            requestCommandConfirmation(
+                                commandName,
+                                argv,
+                                previewArgv,
+                                this._cmdObj,
+                                () => {
+                                    try {
+                                        let cmdProc = Gio.Subprocess.new(argv, Gio.FileFlags ? Gio.FileFlags.NONE : 0);
+                                        if (this._indicator && this._indicator.menu && typeof this._indicator.menu.close === 'function') {
+                                            this._indicator.menu.close();
+                                        }
+                                    } catch (err) {
+                                        console.error(`CmdBar: failed to spawn command: ${err.message}`);
+                                        Main.notify("Command Execution Failed", `Failed to start command: ${err.message}`);
+                                    }
+                                },
+                                () => {
+                                    console.log(`CmdBar: Command execution cancelled by user: ${commandName}`);
                                 }
-                            } catch (err) {
-                                console.error(`CmdBar: failed to spawn command: ${err.message}`);
-                                Main.notify("Command Execution Failed", `Failed to start command: ${err.message}`);
-                            }
+                            );
                         } else {
                             console.warn(`CmdBar: Empty input validation failed for command: ${commandName}`);
                             Main.notify("Command Validation Failed", `Parameter input cannot be empty.`);
@@ -236,7 +392,7 @@ class CommandInputMenuItem extends PopupMenu.PopupBaseMenuItem {
 // Standard menu item for parameterless or parameter-prompting commands
 const CommandMenuItem = GObject.registerClass(
 class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
-    _init(indicator, commandName, commandTemplate) {
+    _init(indicator, commandName, commandTemplate, cmdObj) {
         super._init({
             reactive: true,
             activate: true
@@ -244,6 +400,7 @@ class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
 
         this._commandName = commandName;
         this._commandTemplate = commandTemplate;
+        this._cmdObj = cmdObj || {};
 
         this.box = new St.BoxLayout({
             orientation: Clutter.Orientation.HORIZONTAL,
@@ -260,7 +417,7 @@ class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
         this.add_child(this.box);
 
         this._activateId = this.connect('activate', () => {
-            runCommandAsync(this._commandName, this._commandTemplate);
+            runCommandAsync(this._commandName, this._commandTemplate, this._cmdObj);
         });
     }
 
@@ -419,6 +576,13 @@ class CmdBarIndicator extends PanelMenu.Button {
             let extensionPath = this._extension.path.get_path();
             let config = await loadConfig(configPath, extensionPath);
 
+            if (config && config._isInvalid) {
+                this._showNotification(
+                    "CmdBar Configuration Error",
+                    "Invalid configuration file detected. Using in-memory default settings without overwriting your file."
+                );
+            }
+
             // Clear all current items in menu
             this.menu.removeAll();
 
@@ -440,10 +604,10 @@ class CmdBarIndicator extends PanelMenu.Button {
                     category.commands.forEach(cmd => {
                         if (hasPlaceholder(cmd.command)) {
                             // Commands requiring text inputs (Requirement 1 & 2)
-                            this.menu.addMenuItem(new CommandInputMenuItem(this, cmd.name, cmd.command, cmd.placeholder));
+                            this.menu.addMenuItem(new CommandInputMenuItem(this, cmd.name, cmd.command, cmd.placeholder, cmd));
                         } else {
                             // Ordinary parameterless commands
-                            this.menu.addMenuItem(new CommandMenuItem(this, cmd.name, cmd.command));
+                            this.menu.addMenuItem(new CommandMenuItem(this, cmd.name, cmd.command, cmd));
                         }
                     });
                 }
@@ -483,8 +647,8 @@ class CmdBarIndicator extends PanelMenu.Button {
         }
     }
 
-    executeCommand(commandName, commandTemplate, placeholderMap) {
-        let tokens = tokenizeCommand(commandTemplate);
+    executeCommand(commandName, commandTemplate, placeholderMap, cmdObj) {
+        let tokens = Array.isArray(commandTemplate) ? commandTemplate : tokenizeCommand(commandTemplate);
         let argv = substituteTokens(tokens, placeholderMap);
 
         if (argv.length === 0) {
@@ -492,52 +656,65 @@ class CmdBarIndicator extends PanelMenu.Button {
             return;
         }
 
-        let jobId = String(this._nextJobId++);
-        let jobName = `${commandName} (${argv.join(' ')})`;
+        let previewArgv = getPreviewTokens(argv, placeholderMap, cmdObj ? cmdObj.parameters : []);
 
-        try {
-            let proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+        requestCommandConfirmation(
+            commandName,
+            argv,
+            previewArgv,
+            cmdObj,
+            () => {
+                let jobId = String(this._nextJobId++);
+                let jobName = `${commandName} (${argv.join(' ')})`;
 
-            let job = {
-                id: jobId,
-                name: jobName,
-                process: proc,
-                commandName: commandName,
-                cancelled: false,
-                startTime: Date.now()
-            };
-
-            this._activeJobs.set(jobId, job);
-
-            // Dynamically add to the jobs section without redrawing everything (Requirement 3 & 4)
-            if (this._activeJobs.size === 1) {
-                this._jobsSectionSeparator = new PopupMenu.PopupSeparatorMenuItem();
-                this._jobsSection.addMenuItem(this._jobsSectionSeparator);
-                
-                this._jobsSectionHeader = new PopupMenu.PopupMenuItem("Active Background Jobs", { reactive: false });
-                this._jobsSectionHeader.label.style = 'font-weight: bold; color: #888888; font-size: 0.9em;';
-                this._jobsSection.addMenuItem(this._jobsSectionHeader);
-            }
-
-            let jobMenuItem = new JobMenuItem(jobId, jobName, (id) => this._cancelJob(id));
-            this._jobsSection.addMenuItem(jobMenuItem);
-            this._jobMenuItems.set(jobId, jobMenuItem);
-
-            // Execute asynchronously and non-blocking (Requirement 2 & 5)
-            proc.communicate_utf8_async(null, null, (p, res) => {
                 try {
-                    let [stdout, stderr] = p.communicate_utf8_finish(res);
-                    let success = p.get_successful();
-                    this._onJobFinished(jobId, success, stdout, stderr);
-                } catch (e) {
-                    this._onJobFinished(jobId, false, '', e.message);
-                }
-            });
+                    let proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
 
-        } catch (e) {
-            console.error(`CmdBar: failed to execute command: ${e.message}`);
-            this._showNotification(`Execution Failed: ${commandName}`, e.message);
-        }
+                    let job = {
+                        id: jobId,
+                        name: jobName,
+                        process: proc,
+                        commandName: commandName,
+                        cancelled: false,
+                        startTime: Date.now()
+                    };
+
+                    this._activeJobs.set(jobId, job);
+
+                    // Dynamically add to the jobs section without redrawing everything (Requirement 3 & 4)
+                    if (this._activeJobs.size === 1) {
+                        this._jobsSectionSeparator = new PopupMenu.PopupSeparatorMenuItem();
+                        this._jobsSection.addMenuItem(this._jobsSectionSeparator);
+                        
+                        this._jobsSectionHeader = new PopupMenu.PopupMenuItem("Active Background Jobs", { reactive: false });
+                        this._jobsSectionHeader.label.style = 'font-weight: bold; color: #888888; font-size: 0.9em;';
+                        this._jobsSection.addMenuItem(this._jobsSectionHeader);
+                    }
+
+                    let jobMenuItem = new JobMenuItem(jobId, jobName, (id) => this._cancelJob(id));
+                    this._jobsSection.addMenuItem(jobMenuItem);
+                    this._jobMenuItems.set(jobId, jobMenuItem);
+
+                    // Execute asynchronously and non-blocking (Requirement 2 & 5)
+                    proc.communicate_utf8_async(null, null, (p, res) => {
+                        try {
+                            let [stdout, stderr] = p.communicate_utf8_finish(res);
+                            let success = p.get_successful();
+                            this._onJobFinished(jobId, success, stdout, stderr);
+                        } catch (e) {
+                            this._onJobFinished(jobId, false, '', e.message);
+                        }
+                    });
+
+                } catch (e) {
+                    console.error(`CmdBar: failed to execute command: ${e.message}`);
+                    this._showNotification(`Execution Failed: ${commandName}`, e.message);
+                }
+            },
+            () => {
+                console.log(`CmdBar: Execution of '${commandName}' canceled.`);
+            }
+        );
     }
 
     _onJobFinished(jobId, success, stdout, stderr) {

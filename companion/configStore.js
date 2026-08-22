@@ -1,6 +1,48 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
+
+function canonicalJson(obj) {
+    if (obj === null || typeof obj !== 'object') {
+        return JSON.stringify(obj);
+    }
+    if (Array.isArray(obj)) {
+        return '[' + obj.map(canonicalJson).join(',') + ']';
+    }
+    const sortedKeys = Object.keys(obj).filter(k => k !== 'signature').sort();
+    const parts = sortedKeys.map(k => JSON.stringify(k) + ':' + canonicalJson(obj[k]));
+    return '{' + parts.join(',') + '}';
+}
+
+function getOrCreateSigningKeySync(keyPath) {
+    const dir = path.dirname(keyPath);
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+    if (fs.existsSync(keyPath)) {
+        return fs.readFileSync(keyPath, 'utf8').trim();
+    }
+    const key = crypto.randomBytes(32).toString('hex');
+    fs.writeFileSync(keyPath, key, { mode: 0o600 });
+    return key;
+}
+
+async function getOrCreateSigningKeyAsync(keyPath) {
+    const dir = path.dirname(keyPath);
+    await fs.promises.mkdir(dir, { recursive: true });
+    if (fs.existsSync(keyPath)) {
+        return (await fs.promises.readFile(keyPath, 'utf8')).trim();
+    }
+    const key = crypto.randomBytes(32).toString('hex');
+    await fs.promises.writeFile(keyPath, key, { mode: 0o600 });
+    return key;
+}
+
+function computeSignatureSync(config, key) {
+    const str = canonicalJson(config);
+    return crypto.createHmac('sha256', key).update(str).digest('hex');
+}
 
 /**
  * Gets the standard configuration directory for cmdbar.
@@ -17,6 +59,51 @@ export function getConfigDir() {
  */
 export function getConfigPath() {
     return path.join(getConfigDir(), 'config.json');
+}
+
+/**
+ * Acquires a cooperative lock file synchronously.
+ */
+export function acquireLockSync(lockPath, timeoutMs = 500) {
+    const start = Date.now();
+    while (true) {
+        try {
+            fs.writeFileSync(
+                lockPath,
+                JSON.stringify({ pid: process.pid, timestamp: Date.now() }),
+                { flag: 'wx' }
+            );
+            return true;
+        } catch (err) {
+            try {
+                const stats = fs.statSync(lockPath);
+                if (Date.now() - stats.mtimeMs > 1000) {
+                    fs.unlinkSync(lockPath);
+                }
+            } catch (statErr) {
+                // Ignore stat/unlink errors
+            }
+
+            if (Date.now() - start >= timeoutMs) {
+                throw new Error('Lock acquisition timeout');
+            }
+            const endSleep = Date.now() + 15;
+            while (Date.now() < endSleep) {}
+        }
+    }
+}
+
+/**
+ * Releases a cooperative lock file.
+ */
+export function releaseLockSync(lockPath) {
+    try {
+        if (fs.existsSync(lockPath)) {
+            fs.unlinkSync(lockPath);
+        }
+    } catch (err) {
+        // Ignore
+    }
 }
 
 /**
@@ -38,28 +125,22 @@ export function saveConfigAtomically(configData, customPath) {
         fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    // 2. Generate temporary file path in the SAME directory using standardized .tmp naming
-    const tempPath = targetPath + '.tmp';
-
-    // Preserve permissions if destination exists
-    let mode;
-    if (fs.existsSync(targetPath)) {
-        try {
-            mode = fs.statSync(targetPath).mode;
-        } catch (e) {}
+    if (configData && typeof configData === 'object' && (Array.isArray(configData.categories) || configData.commands || configData.signature !== undefined)) {
+        const keyPath = path.join(targetDir, '.key');
+        const key = getOrCreateSigningKeySync(keyPath);
+        configData.signature = computeSignatureSync(configData, key);
     }
 
+    // 2. Generate temporary file path in the SAME directory
+    // Same directory is critical to guarantee the temp file resides on the same filesystem/mount point,
+    // enabling an atomic `rename` operation.
+    const tempPath = `${targetPath}.${Date.now()}.${Math.random().toString(36).substring(2, 8)}.tmp`;
+
     try {
-        const jsonString = typeof configData === 'string' ? configData : JSON.stringify(configData, null, 2);
+        const jsonString = JSON.stringify(configData, null, 2);
 
         // 3. Write JSON content to temporary file
         fs.writeFileSync(tempPath, jsonString, 'utf8');
-
-        if (mode !== undefined) {
-            try {
-                fs.chmodSync(tempPath, mode);
-            } catch (e) {}
-        }
 
         // 4. Atomic rename/swap operation
         fs.renameSync(tempPath, targetPath);
@@ -92,28 +173,20 @@ export async function saveConfigAtomicallyAsync(configData, customPath) {
     // 1. Ensure target directory exists
     await fs.promises.mkdir(targetDir, { recursive: true });
 
-    // 2. Generate temporary file path in the SAME directory using standardized .tmp naming
-    const tempPath = targetPath + '.tmp';
-
-    let mode;
-    if (fs.existsSync(targetPath)) {
-        try {
-            const stats = await fs.promises.stat(targetPath);
-            mode = stats.mode;
-        } catch (e) {}
+    if (configData && typeof configData === 'object' && (Array.isArray(configData.categories) || configData.commands || configData.signature !== undefined)) {
+        const keyPath = path.join(targetDir, '.key');
+        const key = await getOrCreateSigningKeyAsync(keyPath);
+        configData.signature = computeSignatureSync(configData, key);
     }
 
+    // 2. Generate temporary file path in the SAME directory
+    const tempPath = `${targetPath}.${Date.now()}.${Math.random().toString(36).substring(2, 8)}.tmp`;
+
     try {
-        const jsonString = typeof configData === 'string' ? configData : JSON.stringify(configData, null, 2);
+        const jsonString = JSON.stringify(configData, null, 2);
 
         // 3. Write JSON content to temporary file
         await fs.promises.writeFile(tempPath, jsonString, 'utf8');
-
-        if (mode !== undefined) {
-            try {
-                await fs.promises.chmod(tempPath, mode);
-            } catch (e) {}
-        }
 
         // 4. Atomic rename/swap operation
         await fs.promises.rename(tempPath, targetPath);

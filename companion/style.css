@@ -1,0 +1,21 @@
+/* Central Style Sheet for Companion Application */
+
+.dialog-panel,
+.cmdbar-dialog-content {
+    margin: 15px;
+}
+
+.left-container,
+.left-pane {
+    margin: 10px;
+}
+
+.right-container,
+.right-pane {
+    margin: 15px;
+}
+
+.command-row,
+.list-row-box {
+    margin: 5px;
+}
