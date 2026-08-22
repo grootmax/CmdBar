@@ -9,6 +9,31 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Gio, GLib
 
+
+def set_uniform_margin(widget, margin: int):
+    """
+    Applies uniform margins (top, bottom, start, end) in integer pixels to a UI container widget.
+    :visibility: public
+    """
+    if widget is None:
+        return
+    margin_val = int(margin)
+    if hasattr(widget, "set_margin_top"):
+        widget.set_margin_top(margin_val)
+    if hasattr(widget, "set_margin_bottom"):
+        widget.set_margin_bottom(margin_val)
+    if hasattr(widget, "set_margin_start"):
+        widget.set_margin_start(margin_val)
+    if hasattr(widget, "set_margin_end"):
+        widget.set_margin_end(margin_val)
+
+
+apply_uniform_margin = set_uniform_margin
+set_margin_all = set_uniform_margin
+
+if not hasattr(Gtk.Widget, "set_margin_all"):
+    Gtk.Widget.set_margin_all = set_uniform_margin
+
 from app.config_schema import (
     load_config,
     save_config,
@@ -229,10 +254,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
         self.content_box.append(scrolled)
 
         fields_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        fields_box.set_margin_start(24)
-        fields_box.set_margin_end(24)
-        fields_box.set_margin_top(24)
-        fields_box.set_margin_bottom(24)
+        set_uniform_margin(fields_box, 24)
         scrolled.set_child(fields_box)
 
         # --- Name, Command, Mode ---
@@ -253,6 +275,14 @@ class CmdBarWindow(Adw.ApplicationWindow):
         cmd_row.set_text(shortcut["command"])
         cmd_row.connect("changed", self._on_command_changed)
         pref_group.add(cmd_row)
+
+        # Verified Switch
+        verified_row = Adw.SwitchRow()
+        verified_row.set_title("Verified Command")
+        verified_row.set_subtitle("Bypass modal confirmation dialog when executing this command")
+        verified_row.set_active(shortcut.get("verified", False))
+        verified_row.connect("notify::active", self._on_verified_toggled)
+        pref_group.add(verified_row)
 
         # Mode Selector
         mode_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -502,10 +532,15 @@ class CmdBarWindow(Adw.ApplicationWindow):
         self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"][p_idx]["error_message"] = entry.get_text().strip()
         self._update_live_preview()
 
+    def _on_verified_toggled(self, row, pspec):
+        c_idx = self.app.selected_category_idx
+        s_idx = self.app.selected_shortcut_idx
+        self.app.config["categories"][c_idx]["commands"][s_idx]["verified"] = row.get_active()
+
     def _on_param_secure_toggled(self, check, p_idx):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        self.app.config["categories"][c_idx]["shortcuts"][s_idx]["parameters"][p_idx]["secure"] = check.get_active()
+        self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"][p_idx]["secure"] = check.get_active()
         self._render_test_preview_section()
 
     # --- Button & Menu Click Handlers ---

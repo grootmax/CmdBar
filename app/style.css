@@ -1,0 +1,42 @@
+/* Central Style Sheet for CmdBar Application */
+
+.category-row-box {
+    margin-top: 10px;
+    margin-bottom: 4px;
+    margin-start: 8px;
+}
+
+.shortcut-row-box {
+    margin-start: 20px;
+    margin-top: 6px;
+    margin-bottom: 6px;
+}
+
+.editor-fields-container {
+    margin: 24px;
+}
+
+.mode-selection-box {
+    margin-top: 8px;
+    margin-bottom: 8px;
+    margin-start: 12px;
+    margin-end: 12px;
+}
+
+.param-row-box {
+    margin-top: 8px;
+    margin-bottom: 8px;
+    margin-start: 12px;
+    margin-end: 12px;
+}
+
+.preview-box {
+    margin-top: 12px;
+    margin-bottom: 12px;
+    margin-start: 16px;
+    margin-end: 16px;
+}
+
+.preview-label {
+    margin-top: 4px;
+}

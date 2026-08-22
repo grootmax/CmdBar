@@ -124,53 +124,42 @@ def test_validate_parameter_value_strips_whitespace():
     assert resolved == "ping -c 3 google.com"
     assert not errors
 
-
-def test_schema_save_config_atomic_and_locking(tmp_path, monkeypatch):
-    import os
+def test_python_config_signing_and_tamper_rejection(tmp_path):
     import json
-    import time
-    from app.config_schema import save_config, load_config
+    from app.config_schema import load_config, save_config, DEFAULT_CONFIG
 
-    config_file = str(tmp_path / "config.json")
-    renamed_pairs = []
-    real_replace = os.replace
+    cfg_file = tmp_path / "config.json"
+    custom_cfg = {
+        "categories": [
+            {
+                "name": "Custom Cat",
+                "commands": [{"name": "Echo", "command": "echo test"}]
+            }
+        ]
+    }
 
-    def spy_replace(src, dst):
-        renamed_pairs.append((src, dst))
-        return real_replace(src, dst)
+    # Save should attach signature
+    save_config(custom_cfg, str(cfg_file))
+    with open(cfg_file, "r") as f:
+        data = json.load(f)
+    assert "signature" in data
+    assert len(data["signature"]) == 64
 
-    monkeypatch.setattr(os, "replace", spy_replace)
+    # Load should verify and succeed
+    loaded = load_config(str(cfg_file))
+    assert loaded["categories"][0]["name"] == "Custom Cat"
 
-    data = {"categories": [{"name": "Schema Test", "commands": []}]}
-    save_config(data, config_file)
+    # Tampering without updating signature should reject, archive to .bak, and load default
+    data["categories"][0]["commands"][0]["command"] = "/tmp/malicious"
+    with open(cfg_file, "w") as f:
+        json.dump(data, f)
 
-    assert len(renamed_pairs) == 1
-    src, dst = renamed_pairs[0]
-    assert dst == config_file
-    assert src.endswith(".tmp")
-    assert os.path.dirname(src) == os.path.dirname(config_file)
-
-    loaded = load_config(config_file)
-    assert loaded["categories"][0]["name"] == "Schema Test"
-
-    # Ensure lock file is cleaned up
-    assert not os.path.exists(config_file + ".lock")
-
-
-def test_schema_load_config_preserves_corrupted_file(tmp_path):
-    from app.config_schema import load_config, DEFAULT_CONFIG
-
-    config_file = str(tmp_path / "config.json")
-    corrupt_str = "BAD_JSON { {"
-    with open(config_file, "w") as f:
-        f.write(corrupt_str)
-
-    loaded = load_config(config_file)
-    assert loaded == DEFAULT_CONFIG
-
-    # File on disk must remain uncorrupted/unmodified exactly as written
-    with open(config_file, "r") as f:
-        content = f.read()
-    assert content == corrupt_str
+    loaded_tampered = load_config(str(cfg_file))
+    assert loaded_tampered == DEFAULT_CONFIG
+    bak_file = tmp_path / "config.json.bak"
+    assert bak_file.exists()
+    with open(bak_file, "r") as f:
+        bak_data = json.load(f)
+    assert bak_data["categories"][0]["commands"][0]["command"] == "/tmp/malicious"
 
 

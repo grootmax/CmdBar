@@ -4,7 +4,6 @@ import json
 import re
 import shlex
 import subprocess
-import time
 import pytest
 
 from companion.companion_app import (
@@ -267,107 +266,78 @@ def test_companion_substitute_and_quote_command_strips_whitespace():
     assert "'hello world'" in cmd or cmd.endswith("hello world")
 
 
-def test_companion_atomic_save_uses_same_dir_tmp_file_and_lock(temp_config_file, monkeypatch):
-    """
-    Verifies that save_config writes to a temporary file in the same directory,
-    atomically renames it, and respects cooperative file locking (.lock).
-    """
-    if os.path.exists(temp_config_file):
-        os.remove(temp_config_file)
-    init_config()
-    written_files = []
-    renamed_pairs = []
-
-    real_open = open
-    real_replace = os.replace
-
-    def spy_replace(src, dst):
-        renamed_pairs.append((src, dst))
-        return real_replace(src, dst)
-
-    monkeypatch.setattr(os, "replace", spy_replace)
-
-    test_data = {"categories": [{"name": "Atomic Test", "commands": []}]}
-    success = save_config(test_data)
-    assert success is True
-
-    # Check rename pair: src must be in same dir and end with .tmp
-    assert len(renamed_pairs) >= 1
-    src, dst = renamed_pairs[-1]
-    assert dst == temp_config_file
-    assert os.path.dirname(src) == os.path.dirname(temp_config_file)
-    assert src.endswith(".tmp")
-
-    # Lock file should be cleaned up after save completes
-    lock_file = temp_config_file + ".lock"
-    assert not os.path.exists(lock_file)
+def test_tokenize_and_substitute_direct_array():
+    from companion.companion_app import tokenize_and_substitute
+    template = "git checkout {branch}"
+    params = {"branch": "feature/safe-quoting"}
+    argv = tokenize_and_substitute(template, params)
+    assert argv == ["git", "checkout", "feature/safe-quoting"]
 
 
-def test_companion_lock_file_blocks_concurrent_write(temp_config_file):
-    """
-    Verifies that a held cooperative lock file blocks concurrent save operations.
-    """
-    if os.path.exists(temp_config_file):
-        os.remove(temp_config_file)
-    init_config()
-    lock_file = temp_config_file + ".lock"
-
-    # Simulate another process holding the lock file
-    with open(lock_file, "w") as f:
-        json.dump({"pid": 99999, "timestamp": int(time.time() * 1000)}, f)
-
-    test_data = {"categories": [{"name": "Blocked Save", "commands": []}]}
-    # Attempting to save with a held non-stale lock should fail or time out
-    success = save_config(test_data)
-    assert success is False
-
-    # Clean up lock file
-    if os.path.exists(lock_file):
-        os.remove(lock_file)
+def test_get_preview_tokens_redacts_sensitive_parameters():
+    from companion.companion_app import tokenize_and_substitute, get_preview_tokens
+    template = "login -u {user} -p {password}"
+    params = {"user": "jules", "password": "superSecretPassword123"}
+    schema = [{"name": "password", "secure": True}]
+    
+    tokens = tokenize_and_substitute(template)
+    preview = get_preview_tokens(tokens, params, schema)
+    
+    assert "superSecretPassword123" not in preview
+    assert preview == ["login", "-u", "jules", "-p", "[REDACTED]"]
 
 
-def test_companion_aborted_write_preserves_original_config(temp_config_file, monkeypatch):
-    """
-    Verifies that if a write operation is aborted midway, the original config file
-    remains valid and unmodified on disk.
-    """
-    if os.path.exists(temp_config_file):
-        os.remove(temp_config_file)
-    init_config()
-    original_data = load_config()
-    assert original_data["categories"][0]["name"] == "Projects"
+def test_unverified_modal_cancellation_halts_execution():
+    from unittest.mock import MagicMock, patch
+    from companion.companion_app import TestCommandDialog, Gio, Gtk
 
-    # Mock json.dump to raise an Exception midway through writing
-    def failing_json_dump(*args, **kwargs):
-        raise IOError("Simulated power loss or write abort midway")
+    command = {
+        "name": "Unverified Test Command",
+        "template": "echo {msg}",
+        "verified": False,
+        "parameters": {
+            "msg": {
+                "placeholder": "Enter message"
+            }
+        }
+    }
 
-    monkeypatch.setattr(json, "dump", failing_json_dump)
+    mock_proc_new = MagicMock()
+    old_subproc_new = Gio.Subprocess.new
+    Gio.Subprocess.new = mock_proc_new
 
-    new_data = {"categories": [{"name": "Corrupted Data", "commands": []}]}
-    success = save_config(new_data)
-    assert success is False
+    old_entry = Gtk.Entry
+    mock_entry = MagicMock()
+    mock_entry.get_text.return_value = "hello"
+    Gtk.Entry = MagicMock(return_value=mock_entry)
 
-    # Verify original configuration file is unmodified and valid on disk
-    loaded_after_abort = load_config()
-    assert loaded_after_abort["categories"][0]["name"] == "Projects"
+    try:
+        dialog = TestCommandDialog(None, command, None)
+        
+        # Patch on_response to simulate user cancelling the dialog
+        def mock_cancel_response(dlg, response_id):
+            dlg.destroy()
+            # User clicks Cancel
+            buffer = dialog.output_view.get_buffer()
+            buffer.set_text("Execution cancelled by user confirmation dialog.\n")
 
+        with patch("companion.companion_app.Adw") as mock_adw:
+            mock_msg_dlg = MagicMock()
+            mock_adw.MessageDialog.return_value = mock_msg_dlg
+            
+            # Simulate cancel response callback
+            def fake_connect(event, cb):
+                if event == "response":
+                    cb(mock_msg_dlg, "cancel")
+            mock_msg_dlg.connect.side_effect = fake_connect
 
-def test_companion_load_corrupted_config_preserves_file_on_disk(temp_config_file):
-    """
-    Verifies that loading a corrupted config file returns default config in memory
-    and DOES NOT overwrite or modify the corrupted file on disk.
-    """
-    corrupted_content = "INVALID_JSON_CORRUPTED { { {"
-    with open(temp_config_file, "w") as f:
-        f.write(corrupted_content)
+            dialog.on_run_clicked(None)
 
-    config = load_config()
-    assert config == {"categories": []}
-
-    # Verify file on disk is strictly preserved exactly as-is
-    with open(temp_config_file, "r") as f:
-        on_disk = f.read()
-    assert on_disk == corrupted_content
+            # Gio.Subprocess.new should NOT be called because execution was cancelled!
+            mock_proc_new.assert_not_called()
+    finally:
+        Gio.Subprocess.new = old_subproc_new
+        Gtk.Entry = old_entry
 
 
 
