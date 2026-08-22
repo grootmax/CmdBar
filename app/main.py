@@ -9,6 +9,31 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Gio, GLib
 
+
+def set_uniform_margin(widget, margin: int):
+    """
+    Applies uniform margins (top, bottom, start, end) in integer pixels to a UI container widget.
+    :visibility: public
+    """
+    if widget is None:
+        return
+    margin_val = int(margin)
+    if hasattr(widget, "set_margin_top"):
+        widget.set_margin_top(margin_val)
+    if hasattr(widget, "set_margin_bottom"):
+        widget.set_margin_bottom(margin_val)
+    if hasattr(widget, "set_margin_start"):
+        widget.set_margin_start(margin_val)
+    if hasattr(widget, "set_margin_end"):
+        widget.set_margin_end(margin_val)
+
+
+apply_uniform_margin = set_uniform_margin
+set_margin_all = set_uniform_margin
+
+if not hasattr(Gtk.Widget, "set_margin_all"):
+    Gtk.Widget.set_margin_all = set_uniform_margin
+
 from app.config_schema import (
     load_config,
     save_config,
@@ -229,10 +254,7 @@ class CmdBarWindow(Adw.ApplicationWindow):
         self.content_box.append(scrolled)
 
         fields_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        fields_box.set_margin_start(24)
-        fields_box.set_margin_end(24)
-        fields_box.set_margin_top(24)
-        fields_box.set_margin_bottom(24)
+        set_uniform_margin(fields_box, 24)
         scrolled.set_child(fields_box)
 
         # --- Name, Command, Mode ---
