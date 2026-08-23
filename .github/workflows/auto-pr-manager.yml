@@ -132,6 +132,8 @@ jobs:
           # We process them strictly in this order.
           # ==================================================
 
+          jq -c '.[]' /tmp/jules-prs.json > /tmp/jules-prs.lines
+
           while read -r PR; do
 
             PR_NUMBER=$(echo "$PR" | jq -r '.number')
@@ -482,9 +484,9 @@ jobs:
               CHECK_RUNS=$(gh api "repos/${GH_REPO}/commits/${HEAD_SHA}/check-runs" 2>/dev/null || echo "{}")
               STATUSES=$(gh api "repos/${GH_REPO}/commits/${HEAD_SHA}/status" 2>/dev/null || echo "{}")
 
-              CHECK_OUTPUT=$(jq -n --argjson cr "$CHECK_RUNS" --argjson st "$STATUSES" '
+              CHECK_OUTPUT=$(jq -n --arg cr "$CHECK_RUNS" --arg st "$STATUSES" '
                 [
-                  ( ($cr.check_runs // [])[]? | {
+                  ( (($cr | try fromjson catch {}).check_runs // [])[]? | {
                       name: .name,
                       state: .status,
                       workflow: (.app.name // ""),
@@ -496,7 +498,7 @@ jobs:
                         end
                       )
                   }),
-                  ( ($st.statuses // [])[]? | {
+                  ( (($st | try fromjson catch {}).statuses // [])[]? | {
                       name: .context,
                       state: .state,
                       workflow: "status",
@@ -713,7 +715,7 @@ jobs:
 
             break
 
-          done < <(jq -c '.[]' /tmp/jules-prs.json)
+          done < /tmp/jules-prs.lines
 
           echo ""
           echo "=========================================="
