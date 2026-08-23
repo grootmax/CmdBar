@@ -119,6 +119,30 @@ export const DEFAULT_CONFIG = {
       footer_text: "",
     },
   },
+  profiles: [
+    {
+      name: "Production",
+      env: {
+        ENV: "production",
+        LOG_LEVEL: "warn",
+      },
+    },
+    {
+      name: "Staging",
+      env: {
+        ENV: "staging",
+        LOG_LEVEL: "info",
+      },
+    },
+    {
+      name: "Development",
+      env: {
+        ENV: "development",
+        LOG_LEVEL: "debug",
+      },
+    },
+  ],
+  active_profile: "Development",
   categories: [
     {
       name: "AI Assistant",
@@ -336,6 +360,23 @@ export function validateConfigSchema(config) {
     return false;
   }
   if (config.white_label !== undefined && !validateBrandingConfig(config.white_label)) {
+    return false;
+  }
+  if (config.profiles !== undefined) {
+    if (!Array.isArray(config.profiles) && typeof config.profiles !== "object") {
+      return false;
+    }
+  }
+  if (
+    config.active_profile !== undefined &&
+    typeof config.active_profile !== "string"
+  ) {
+    return false;
+  }
+  if (
+    config.activeProfile !== undefined &&
+    typeof config.activeProfile !== "string"
+  ) {
     return false;
   }
   for (const category of config.categories) {

@@ -60,6 +60,10 @@
       <default>''</default>
       <summary>Enterprise Domain Alias</summary>
       <description>Custom domain alias endpoint for enterprise server communications.</description>
+    <key name="active-profile" type="s">
+      <default>'Development'</default>
+      <summary>Active Environment Profile</summary>
+      <description>Name of the active environment variable profile.</description>
     </key>
     <key name="audit-logging-enabled" type="b">
       <default>true</default>
