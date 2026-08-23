@@ -197,6 +197,10 @@ def load_config():
 
     # Normalize config_data for CLI companion compatibility
     migrated = False
+    if "cron_jobs" not in config_data:
+        config_data["cron_jobs"] = []
+        migrated = True
+
     for cat in config_data.get("categories", []):
         # Convert legacy "shortcuts" to "commands"
         if "shortcuts" in cat:
@@ -387,9 +391,10 @@ def run_cli_mode():
         print("6. Test-Run Command Template")
         print("7. Import from Template Library")
         print("8. Export Custom Commands as Template")
-        print("9. Exit")
+        print("9. Manage Cron Schedules")
+        print("10. Exit")
         
-        choice = input("\nEnter choice [1-9]: ").strip()
+        choice = input("\nEnter choice [1-10]: ").strip()
         if choice == "1":
             list_categories_and_commands(config_data)
         elif choice == "2":
@@ -407,10 +412,167 @@ def run_cli_mode():
         elif choice == "8":
             export_templates_cli_flow(config_data)
         elif choice == "9":
+            manage_cron_schedules(config_data)
+        elif choice == "10":
             print("Goodbye!")
             break
         else:
             print("Invalid choice, please try again.")
+
+
+def manage_cron_schedules(config_data):
+    from companion.cron_scheduler import CronScheduler, CronJob, parse_cron_expression
+    import time
+
+    scheduler = CronScheduler()
+    scheduler.load_from_config(config_data)
+
+    print("\n===============================================")
+    print("         Cron Schedules Management             ")
+    print("===============================================")
+    print("1. List Cron Jobs")
+    print("2. Add Cron Job")
+    print("3. Edit Cron Job")
+    print("4. Delete Cron Job")
+    print("5. Run Due Cron Jobs")
+    print("6. Run Cron Job Manually")
+    print("7. Return to Main Menu")
+
+    choice = input("\nEnter choice [1-7]: ").strip()
+    if choice == "1":
+        jobs = scheduler.get_jobs()
+        if not jobs:
+            print("\nNo cron jobs configured.")
+            return
+        for i, j in enumerate(jobs, 1):
+            email_info = f"Recipient: {j.email_reports.get('recipient')}" if j.email_reports.get("enabled") else "Disabled"
+            print(f"\n[{i}] {j.name} (ID: {j.job_id})")
+            print(f"    Command: {j.command}")
+            print(f"    Schedule: {j.cron_expression} (Timezone: {j.timezone})")
+            print(f"    Overlap Prevention: {j.overlap_prevention} | Enabled: {j.enabled}")
+            print(f"    Email Reports: {email_info}")
+            print(f"    Last Run: {j.last_run or 'Never'} | Status: {j.last_status}")
+
+    elif choice == "2":
+        name = input("Enter job name: ").strip()
+        if not name:
+            print("Job name cannot be empty.")
+            return
+        cmd = input("Enter command to schedule: ").strip()
+        if not cmd:
+            print("Command cannot be empty.")
+            return
+        cron_expr = input("Enter cron expression (e.g. '*/5 * * * *', '@daily'): ").strip()
+        try:
+            parse_cron_expression(cron_expr)
+        except Exception as e:
+            print(f"Invalid cron expression: {e}")
+            return
+        tz_str = input("Enter timezone [UTC]: ").strip() or "UTC"
+        overlap_prev = input("Enable overlap prevention? [Y/n]: ").strip().lower() != 'n'
+
+        email_enabled = input("Enable email reports? [y/N]: ").strip().lower() == 'y'
+        email_cfg = {"enabled": email_enabled, "recipient": "", "on_success": False, "on_failure": True}
+        if email_enabled:
+            email_cfg["recipient"] = input("Enter recipient email: ").strip()
+            email_cfg["on_failure"] = input("Notify on failure? [Y/n]: ").strip().lower() != 'n'
+            email_cfg["on_success"] = input("Notify on success? [y/N]: ").strip().lower() == 'y'
+
+        job_id = f"job-{int(time.time())}"
+        new_job = CronJob(
+            job_id=job_id,
+            name=name,
+            command=cmd,
+            cron_expression=cron_expr,
+            timezone=tz_str,
+            overlap_prevention=overlap_prev,
+            email_reports=email_cfg
+        )
+        scheduler.add_job(new_job)
+        scheduler.save_to_config(config_data)
+        save_config(config_data)
+        print(f"Cron job '{name}' added successfully!")
+
+    elif choice == "3":
+        jobs = scheduler.get_jobs()
+        if not jobs:
+            print("No cron jobs to edit.")
+            return
+        for i, j in enumerate(jobs, 1):
+            print(f"{i}. {j.name} ({j.cron_expression})")
+        try:
+            sel = int(input("Select job number to edit: ")) - 1
+            if 0 <= sel < len(jobs):
+                job = jobs[sel]
+                new_name = input(f"New name [{job.name}]: ").strip()
+                if new_name:
+                    job.name = new_name
+                new_cmd = input(f"New command [{job.command}]: ").strip()
+                if new_cmd:
+                    job.command = new_cmd
+                new_cron = input(f"New cron expression [{job.cron_expression}]: ").strip()
+                if new_cron:
+                    try:
+                        parse_cron_expression(new_cron)
+                        job.cron_expression = new_cron
+                    except Exception as e:
+                        print(f"Invalid expression, keeping original. Error: {e}")
+                new_tz = input(f"New timezone [{job.timezone}]: ").strip()
+                if new_tz:
+                    job.timezone = new_tz
+                scheduler.save_to_config(config_data)
+                save_config(config_data)
+                print("Job updated successfully!")
+        except ValueError:
+            print("Invalid input.")
+
+    elif choice == "4":
+        jobs = scheduler.get_jobs()
+        if not jobs:
+            print("No cron jobs to delete.")
+            return
+        for i, j in enumerate(jobs, 1):
+            print(f"{i}. {j.name} (ID: {j.job_id})")
+        try:
+            sel = int(input("Select job number to delete: ")) - 1
+            if 0 <= sel < len(jobs):
+                job = jobs[sel]
+                scheduler.remove_job(job.job_id)
+                scheduler.save_to_config(config_data)
+                save_config(config_data)
+                print(f"Deleted cron job '{job.name}'.")
+        except ValueError:
+            print("Invalid input.")
+
+    elif choice == "5":
+        results = scheduler.check_and_run_due_jobs()
+        scheduler.save_to_config(config_data)
+        save_config(config_data)
+        print(f"Executed {len(results)} due job(s).")
+        for r in results:
+            print(f" - [{r['name']}] Status: {r['status']}, Exit code: {r['exit_code']}")
+
+    elif choice == "6":
+        jobs = scheduler.get_jobs()
+        if not jobs:
+            print("No cron jobs available.")
+            return
+        for i, j in enumerate(jobs, 1):
+            print(f"{i}. {j.name}")
+        try:
+            sel = int(input("Select job number to run manually: ")) - 1
+            if 0 <= sel < len(jobs):
+                job = jobs[sel]
+                res = scheduler.run_job(job, force=True)
+                scheduler.save_to_config(config_data)
+                save_config(config_data)
+                print(f"Job execution completed with status '{res['status']}' (Exit code: {res['exit_code']}).")
+                if res['stdout']:
+                    print(f"Stdout:\n{res['stdout']}")
+                if res['stderr']:
+                    print(f"Stderr:\n{res['stderr']}")
+        except ValueError:
+            print("Invalid input.")
 
 
 def import_templates_cli_flow(config_data):
@@ -494,7 +656,6 @@ def export_templates_cli_flow(config_data):
     
     export_templates_to_file([tmpl], out_path, author=author or None)
     print(f"Successfully exported template '{tmpl['name']}' to {out_path}!")
-
 
 
 def list_categories_and_commands(config_data):

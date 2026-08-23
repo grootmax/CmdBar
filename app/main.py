@@ -117,6 +117,12 @@ class CmdBarWindow(Adw.ApplicationWindow):
         add_sc_btn.connect("clicked", self._on_add_shortcut_clicked)
         header_bar.pack_start(add_sc_btn)
 
+        # Cron Scheduler Button
+        cron_btn = Gtk.Button(icon_name="alarm-symbolic")
+        cron_btn.set_tooltip_text("Cron Scheduler Visual Editor")
+        cron_btn.connect("clicked", self._on_cron_scheduler_clicked)
+        header_bar.pack_start(cron_btn)
+
         # Import Template Button
         import_tmpl_btn = Gtk.Button(icon_name="document-open-symbolic")
         import_tmpl_btn.set_tooltip_text("Import from Template Library")
@@ -759,6 +765,288 @@ class CmdBarWindow(Adw.ApplicationWindow):
             self._show_toast("Configuration Saved! GNOME Status Menu reloaded automatically.")
         except Exception as e:
             self._show_toast(f"Error saving: {e}")
+
+    def _on_cron_scheduler_clicked(self, btn):
+        self._load_cron_scheduler_view()
+
+    def _load_cron_scheduler_view(self):
+        from app.cron_scheduler import CronScheduler, get_timezone_object
+
+        # Clear content page
+        child = self.content_box.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.content_box.remove(child)
+            child = next_child
+
+        # Content header
+        header = Gtk.HeaderBar()
+        header.set_show_title_buttons(False)
+
+        title = Gtk.Label(label="Cron Schedule Editor")
+        title.add_css_class("title")
+        title.add_css_class("bold")
+        header.set_title_widget(title)
+
+        add_btn = Gtk.Button(label="Add Scheduled Job")
+        add_btn.add_css_class("suggested-action")
+        add_btn.connect("clicked", lambda b: self._open_cron_job_dialog())
+        header.pack_start(add_btn)
+
+        run_due_btn = Gtk.Button(label="Run Due Jobs Now")
+        run_due_btn.connect("clicked", self._on_run_due_jobs_clicked)
+        header.pack_end(run_due_btn)
+
+        self.content_box.append(header)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_vexpand(True)
+        self.content_box.append(scrolled)
+
+        fields_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        set_uniform_margin(fields_box, 24)
+        scrolled.set_child(fields_box)
+
+        pref_group = Adw.PreferencesGroup()
+        pref_group.set_title("Configured Cron Jobs")
+        pref_group.set_description("Schedule commands like cron with overlap prevention, error handling, email reports, and timezone support.")
+        fields_box.append(pref_group)
+
+        cron_jobs = self.app.config.get("cron_jobs", [])
+        if not cron_jobs:
+            empty_lbl = Gtk.Label(label="No scheduled jobs configured. Click 'Add Scheduled Job' to create one.")
+            empty_lbl.set_margin_top(20)
+            empty_lbl.set_margin_bottom(20)
+            empty_lbl.add_css_class("dim-label")
+            pref_group.add(empty_lbl)
+            return
+
+        for idx, job_data in enumerate(cron_jobs):
+            row = Adw.ActionRow()
+            row.set_title(job_data.get("name", "Unnamed Job"))
+
+            cmd_str = job_data.get("command", "")
+            cron_expr = job_data.get("cron_expression") or job_data.get("schedule", "* * * * *")
+            tz_str = job_data.get("timezone", "UTC")
+            overlap_prev = "Overlap Prev: ON" if job_data.get("overlap_prevention", True) else "Overlap Prev: OFF"
+            email_cfg = job_data.get("email_reports") or {}
+            email_str = f"Email: {email_cfg.get('recipient')}" if email_cfg.get("enabled") else "Email: Off"
+            last_status = job_data.get("last_status", "never").upper()
+            last_run = job_data.get("last_run", "Never")
+
+            row.set_subtitle(f"Command: {cmd_str}\nSchedule: {cron_expr} ({tz_str}) | {overlap_prev} | {email_str}\nLast Run: {last_run} | Status: {last_status}")
+
+            # Enabled Switch
+            sw = Gtk.Switch()
+            sw.set_valign(Gtk.Align.CENTER)
+            sw.set_active(job_data.get("enabled", True))
+            sw.connect("notify::active", self._on_cron_job_enabled_toggled, idx)
+            row.add_suffix(sw)
+
+            # Run Now Button
+            run_btn = Gtk.Button(icon_name="media-playback-start-symbolic")
+            run_btn.set_valign(Gtk.Align.CENTER)
+            run_btn.set_tooltip_text("Run Job Now")
+            run_btn.connect("clicked", self._on_run_cron_job_now, idx)
+            row.add_suffix(run_btn)
+
+            # Edit Button
+            edit_btn = Gtk.Button(icon_name="document-edit-symbolic")
+            edit_btn.set_valign(Gtk.Align.CENTER)
+            edit_btn.set_tooltip_text("Edit Job")
+            edit_btn.connect("clicked", lambda b, j_idx=idx: self._open_cron_job_dialog(self.app.config["cron_jobs"][j_idx], j_idx))
+            row.add_suffix(edit_btn)
+
+            # Delete Button
+            del_btn = Gtk.Button(icon_name="user-trash-symbolic")
+            del_btn.set_valign(Gtk.Align.CENTER)
+            del_btn.add_css_class("destructive-action")
+            del_btn.set_tooltip_text("Delete Job")
+            del_btn.connect("clicked", self._on_delete_cron_job_clicked, idx)
+            row.add_suffix(del_btn)
+
+            pref_group.add(row)
+
+    def _on_cron_job_enabled_toggled(self, sw, pspec, job_idx):
+        if 0 <= job_idx < len(self.app.config.get("cron_jobs", [])):
+            self.app.config["cron_jobs"][job_idx]["enabled"] = sw.get_active()
+
+    def _on_run_cron_job_now(self, btn, job_idx):
+        from app.cron_scheduler import CronScheduler, CronJob
+        if 0 <= job_idx < len(self.app.config.get("cron_jobs", [])):
+            job_data = self.app.config["cron_jobs"][job_idx]
+            job = CronJob.from_dict(job_data)
+            scheduler = CronScheduler()
+            res = scheduler.run_job(job, force=True)
+            self.app.config["cron_jobs"][job_idx] = job.to_dict()
+            save_config(self.app.config)
+            self._load_cron_scheduler_view()
+            self._show_toast(f"Executed '{job.name}': Status={res['status']}, ExitCode={res['exit_code']}")
+
+    def _on_run_due_jobs_clicked(self, btn):
+        from app.cron_scheduler import CronScheduler
+        scheduler = CronScheduler()
+        scheduler.load_from_config(self.app.config)
+        results = scheduler.check_and_run_due_jobs()
+        self.app.config = scheduler.save_to_config(self.app.config)
+        save_config(self.app.config)
+        self._load_cron_scheduler_view()
+        self._show_toast(f"Evaluated cron jobs: {len(results)} job(s) executed.")
+
+    def _on_delete_cron_job_clicked(self, btn, job_idx):
+        if 0 <= job_idx < len(self.app.config.get("cron_jobs", [])):
+            removed = self.app.config["cron_jobs"].pop(job_idx)
+            save_config(self.app.config)
+            self._load_cron_scheduler_view()
+            self._show_toast(f"Deleted cron job '{removed.get('name', '')}'")
+
+    def _open_cron_job_dialog(self, job=None, job_idx=None):
+        from app.cron_scheduler import parse_cron_expression, get_next_runs, CronJob
+        import time
+
+        dialog = Adw.MessageDialog(
+            transient_for=self,
+            heading="Edit Cron Job" if job else "Add Scheduled Cron Job"
+        )
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        set_uniform_margin(box, 12)
+
+        # Name Entry
+        name_lbl = Gtk.Label(label="Job Name:", xalign=0)
+        box.append(name_lbl)
+        name_entry = Gtk.Entry(placeholder_text="e.g., Nightly Database Backup")
+        name_entry.set_text(job.get("name", "") if job else "")
+        box.append(name_entry)
+
+        # Command Entry
+        cmd_lbl = Gtk.Label(label="Command to Execute:", xalign=0)
+        box.append(cmd_lbl)
+        cmd_entry = Gtk.Entry(placeholder_text="e.g., pg_dump mydb > /backup.sql")
+        cmd_entry.set_text(job.get("command", "") if job else "")
+        box.append(cmd_entry)
+
+        # Presets Dropdown
+        preset_lbl = Gtk.Label(label="Schedule Presets:", xalign=0)
+        box.append(preset_lbl)
+        preset_list = Gtk.StringList.new([
+            "Custom Cron Expression",
+            "Every Minute (* * * * *)",
+            "Every 5 Minutes (*/5 * * * *)",
+            "Every 15 Minutes (*/15 * * * *)",
+            "Every Hour (@hourly)",
+            "Daily at Midnight (@daily)",
+            "Weekly on Sunday (@weekly)"
+        ])
+        preset_dropdown = Gtk.DropDown(model=preset_list)
+        box.append(preset_dropdown)
+
+        # Cron Expression Entry
+        cron_lbl = Gtk.Label(label="Cron Expression (5 fields):", xalign=0)
+        box.append(cron_lbl)
+        cron_entry = Gtk.Entry(placeholder_text="e.g. */5 * * * * or @daily")
+        cron_entry.set_text(job.get("cron_expression", "*/5 * * * *") if job else "*/5 * * * *")
+        box.append(cron_entry)
+
+        # Preview / Next Runs Label
+        preview_lbl = Gtk.Label(xalign=0)
+        preview_lbl.set_markup("<span size='small' foreground='#888'>Schedule preview...</span>")
+        box.append(preview_lbl)
+
+        # Timezone Entry
+        tz_lbl = Gtk.Label(label="Timezone (e.g., UTC, Local, America/New_York):", xalign=0)
+        box.append(tz_lbl)
+        tz_entry = Gtk.Entry(placeholder_text="UTC")
+        tz_entry.set_text(job.get("timezone", "UTC") if job else "UTC")
+        box.append(tz_entry)
+
+        # Overlap Prevention Checkbox
+        overlap_check = Gtk.CheckButton(label="Enable Overlap Prevention (prevent concurrent execution)")
+        overlap_check.set_active(job.get("overlap_prevention", True) if job else True)
+        box.append(overlap_check)
+
+        # Email Reports Expander / Section
+        email_cfg = (job.get("email_reports") if job else {}) or {}
+        email_check = Gtk.CheckButton(label="Enable Email Execution Reports")
+        email_check.set_active(email_cfg.get("enabled", False))
+        box.append(email_check)
+
+        recipient_entry = Gtk.Entry(placeholder_text="Recipient Email (e.g. devops@example.com)")
+        recipient_entry.set_text(email_cfg.get("recipient", ""))
+        box.append(recipient_entry)
+
+        on_fail_check = Gtk.CheckButton(label="Send report on failure")
+        on_fail_check.set_active(email_cfg.get("on_failure", True))
+        box.append(on_fail_check)
+
+        on_succ_check = Gtk.CheckButton(label="Send report on success")
+        on_succ_check.set_active(email_cfg.get("on_success", False))
+        box.append(on_succ_check)
+
+        def update_cron_preview(*args):
+            expr = cron_entry.get_text().strip()
+            tz_str = tz_entry.get_text().strip() or "UTC"
+            try:
+                parse_cron_expression(expr)
+                next_runs = get_next_runs(expr, tz_str=tz_str, count=3)
+                runs_str = ", ".join(r.strftime("%Y-%m-%d %H:%M %Z") for r in next_runs) if next_runs else "None"
+                preview_lbl.set_markup(f"<span size='small' foreground='#8ff0a4'><b>Valid Cron Schedule!</b> Next runs: {GLib.markup_escape_text(runs_str)}</span>")
+            except Exception as e:
+                preview_lbl.set_markup(f"<span size='small' foreground='#ff5b5b'><b>Invalid Expression:</b> {GLib.markup_escape_text(str(e))}</span>")
+
+        cron_entry.connect("changed", update_cron_preview)
+        tz_entry.connect("changed", update_cron_preview)
+
+        def on_preset_changed(dropdown, pspec):
+            sel = dropdown.get_selected()
+            presets = ["", "* * * * *", "*/5 * * * *", "*/15 * * * *", "@hourly", "@daily", "@weekly"]
+            if 0 < sel < len(presets):
+                cron_entry.set_text(presets[sel])
+
+        preset_dropdown.connect("notify::selected", on_preset_changed)
+        update_cron_preview()
+
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("save", "Save Job")
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+
+        def on_response(dlg, response_id):
+            if response_id == "save":
+                new_job_data = {
+                    "id": job.get("id") if job else f"job-{int(time.time()*1000)}",
+                    "name": name_entry.get_text().strip() or "Unnamed Job",
+                    "command": cmd_entry.get_text().strip(),
+                    "cron_expression": cron_entry.get_text().strip() or "* * * * *",
+                    "timezone": tz_entry.get_text().strip() or "UTC",
+                    "overlap_prevention": overlap_check.get_active(),
+                    "email_reports": {
+                        "enabled": email_check.get_active(),
+                        "recipient": recipient_entry.get_text().strip(),
+                        "on_failure": on_fail_check.get_active(),
+                        "on_success": on_succ_check.get_active()
+                    },
+                    "enabled": job.get("enabled", True) if job else True,
+                    "last_run": job.get("last_run") if job else None,
+                    "last_status": job.get("last_status", "never") if job else "never",
+                    "last_output": job.get("last_output") if job else None,
+                    "history": job.get("history", []) if job else []
+                }
+
+                cron_jobs_list = self.app.config.setdefault("cron_jobs", [])
+                if job_idx is not None and 0 <= job_idx < len(cron_jobs_list):
+                    cron_jobs_list[job_idx] = new_job_data
+                else:
+                    cron_jobs_list.append(new_job_data)
+
+                save_config(self.app.config)
+                self._load_cron_scheduler_view()
+                self._show_toast("Cron job saved successfully!")
+
+            dlg.destroy()
+
+        dialog.connect("response", on_response)
+        dialog.present()
 
     def _on_import_template_clicked(self, btn):
         wizard = TemplateImportWizardWindow(self)

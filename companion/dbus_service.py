@@ -131,3 +131,63 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def get_cron_jobs(self) -> list:
+        from companion.cron_scheduler import CronScheduler
+        config = load_config()
+        scheduler = CronScheduler()
+        scheduler.load_from_config(config)
+        return [job.to_dict() for job in scheduler.get_jobs()]
+
+    def get_cron_jobs_json(self) -> str:
+        return json.dumps(self.get_cron_jobs())
+
+    def add_cron_job(self, job_json: str) -> bool:
+        from companion.cron_scheduler import CronScheduler, CronJob
+        try:
+            data = json.loads(job_json) if isinstance(job_json, str) else job_json
+            job = CronJob.from_dict(data)
+            config = load_config()
+            scheduler = CronScheduler()
+            scheduler.load_from_config(config)
+            scheduler.add_job(job)
+            config = scheduler.save_to_config(config)
+            return save_config(config)
+        except Exception:
+            return False
+
+    def remove_cron_job(self, job_id: str) -> bool:
+        from companion.cron_scheduler import CronScheduler
+        if not job_id:
+            return False
+        config = load_config()
+        scheduler = CronScheduler()
+        scheduler.load_from_config(config)
+        removed = scheduler.remove_job(str(job_id))
+        if removed:
+            config = scheduler.save_to_config(config)
+            save_config(config)
+        return removed
+
+    def run_cron_job(self, job_id: str) -> bool:
+        from companion.cron_scheduler import CronScheduler
+        config = load_config()
+        scheduler = CronScheduler()
+        scheduler.load_from_config(config)
+        job = scheduler.get_job(str(job_id))
+        if not job:
+            return False
+        res = scheduler.run_job(job, force=True)
+        config = scheduler.save_to_config(config)
+        save_config(config)
+        return res.get("status") in ("success", "failed", "skipped_overlap")
+
+    def check_and_run_due_cron_jobs(self) -> str:
+        from companion.cron_scheduler import CronScheduler
+        config = load_config()
+        scheduler = CronScheduler()
+        scheduler.load_from_config(config)
+        results = scheduler.check_and_run_due_jobs()
+        config = scheduler.save_to_config(config)
+        save_config(config)
+        return json.dumps(results)
