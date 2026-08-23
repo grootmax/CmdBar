@@ -570,7 +570,14 @@ jobs:
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      (.bucket == "fail" or .bucket == "cancel")
+                      and (
+                        ((.name // "") | ascii_downcase | contains("process jules prs") | not)
+                        and ((.name // "") | ascii_downcase | contains("auto jules pr manager") | not)
+                        and (((.workflow // "") | ascii_downcase) | contains("auto jules pr manager") | not)
+                      )
+                    )
                 ]
                 | length
               ')
@@ -578,7 +585,14 @@ jobs:
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "pending")
+                  | select(
+                      .bucket == "pending"
+                      and (
+                        ((.name // "") | ascii_downcase | contains("process jules prs") | not)
+                        and ((.name // "") | ascii_downcase | contains("auto jules pr manager") | not)
+                        and (((.workflow // "") | ascii_downcase) | contains("auto jules pr manager") | not)
+                      )
+                    )
                 ]
                 | length
               ')
