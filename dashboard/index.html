@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CmdBar Web Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#3182ce">
+</head>
+<body>
+    <!-- Navbar -->
+    <header class="navbar">
+        <div class="brand">
+            <div class="brand-icon"></div>
+            <h1 class="brand-title">CmdBar Web Dashboard</h1>
+        </div>
+        <div class="nav-controls">
+            <span id="status-badge" class="badge badge-online">Online</span>
+            <span id="role-badge" class="badge badge-role">Role: Admin</span>
+            <button id="btn-team" class="btn btn-secondary btn-sm" title="Team Collaboration">👥 Team</button>
+            <button id="btn-export" class="btn btn-secondary btn-sm" title="Export Config">📥 Export</button>
+            <button id="btn-import" class="btn btn-secondary btn-sm" title="Import Config">📤 Import</button>
+            <button id="btn-theme" class="btn btn-secondary btn-sm" title="Toggle Theme">🌙 Theme</button>
+            <button id="btn-save" class="btn btn-primary btn-sm">💾 Save Changes</button>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <span class="sidebar-title">Categories</span>
+                <button id="btn-add-category" class="btn btn-secondary btn-sm">+ Category</button>
+            </div>
+            <ul id="category-list" class="category-list">
+                <!-- Populated via JS -->
+            </ul>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Toolbar -->
+            <div class="dashboard-toolbar">
+                <div class="search-box">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="search-input" class="search-input" placeholder="Search commands or filter by name...">
+                </div>
+                <div class="toolbar-actions">
+                    <button id="btn-add-command" class="btn btn-primary">+ Add Command</button>
+                    <button id="btn-ai-settings" class="btn btn-secondary">🤖 AI Settings</button>
+                    <button id="btn-presets" class="btn btn-secondary">📦 Team Presets</button>
+                </div>
+            </div>
+
+            <!-- Commands Drag & Drop Grid -->
+            <section class="commands-section">
+                <h2 id="active-category-title" style="font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem;">Category Commands</h2>
+                <div id="commands-grid" class="grid-container">
+                    <!-- Populated via JS -->
+                </div>
+            </section>
+
+            <!-- Real-Time Command Preview Panel -->
+            <section class="preview-panel">
+                <h3 style="font-size: 1.1rem; font-weight: 600;">⚡ Live Command Preview</h3>
+                <div id="preview-parameters-container" class="preview-inputs-grid" style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                    <!-- Dynamic Parameter Inputs for active preview -->
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Resolved Execution Dry-Run Output:</label>
+                    <div id="preview-output" class="preview-output">Select a command to test live preview...</div>
+                    <div id="preview-errors" class="preview-error"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Hidden File Input for Import -->
+    <input type="file" id="file-import-input" accept=".json" class="hidden">
+
+    <!-- Modal: Command Editor -->
+    <div id="modal-command-editor" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="command-editor-title">Edit Command</h3>
+                <button class="btn btn-secondary btn-sm btn-close-modal">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-command-editor">
+                    <div class="form-group">
+                        <label class="form-label">Command Name</label>
+                        <input type="text" id="edit-cmd-name" class="form-control" required placeholder="e.g. Deploy Service">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Execution Mode</label>
+                        <select id="edit-cmd-mode" class="form-control">
+                            <option value="shell-quoted">shell-quoted (Shell string execution with escaping)</option>
+                            <option value="direct-array">direct-array (Direct process spawning without shell)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Command Template</label>
+                        <input type="text" id="edit-cmd-template" class="form-control" required placeholder="e.g. deploy.sh --service <service> --version <version>">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Parameters & Validation Rules</label>
+                        <div id="parameters-editor-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            <!-- Parameters dynamic list -->
+                        </div>
+                        <button type="button" id="btn-add-parameter" class="btn btn-secondary btn-sm" style="margin-top: 0.5rem;">+ Add Parameter Rule</button>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary btn-close-modal">Cancel</button>
+                <button id="btn-save-command" class="btn btn-primary">Save Command</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: AI Settings -->
+    <div id="modal-ai-settings" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>🤖 AI Translator Configuration</h3>
+                <button class="btn btn-secondary btn-sm btn-close-modal">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-ai-settings">
+                    <div class="form-group">
+                        <label class="form-label">Primary AI Provider</label>
+                        <select id="ai-provider" class="form-control">
+                            <option value="openai">OpenAI (GPT-4o)</option>
+                            <option value="anthropic">Anthropic (Claude-3.5)</option>
+                            <option value="ollama">Ollama (Local LLM)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Primary Model Name</label>
+                        <input type="text" id="ai-model" class="form-control" value="gpt-4o">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Fallback AI Provider</label>
+                        <select id="ai-fallback-provider" class="form-control">
+                            <option value="ollama">Ollama (Local LLM)</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Fallback Model Name</label>
+                        <input type="text" id="ai-fallback-model" class="form-control" value="llama3">
+                    </div>
+                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem;">
+                        <input type="checkbox" id="ai-require-confirmation" checked style="width: 20px; height: 20px;">
+                        <label for="ai-require-confirmation" class="form-label" style="margin-bottom: 0;">Require User Confirmation Before Executing AI Commands</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary btn-close-modal">Cancel</button>
+                <button id="btn-save-ai" class="btn btn-primary">Save AI Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Team Collaboration & Roles -->
+    <div id="modal-team" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>👥 Team Collaboration & Roles</h3>
+                <button class="btn btn-secondary btn-sm btn-close-modal">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Current User Role</label>
+                    <select id="team-role-select" class="form-control">
+                        <option value="Admin">Admin (Full Edit, Delete, Import/Export & Preset Rights)</option>
+                        <option value="Editor">Editor (Add & Edit Commands/Categories)</option>
+                        <option value="Viewer">Viewer (Read-only, Live Preview & Dry-Run test only)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Team Preset Configuration</label>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button id="preset-devops" class="btn btn-secondary btn-sm">DevOps Preset</button>
+                        <button id="preset-frontend" class="btn btn-secondary btn-sm">Frontend Preset</button>
+                        <button id="preset-sre" class="btn btn-secondary btn-sm">SRE Preset</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Team Share & Merge Code</label>
+                    <textarea id="team-share-data" class="form-control" rows="4" placeholder="Paste exported JSON or team share snippet here..."></textarea>
+                    <button id="btn-merge-team-data" class="btn btn-secondary btn-sm" style="margin-top: 0.5rem;">Merge Team Config</button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary btn-close-modal">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard App Logic -->
+    <script src="dashboard.js"></script>
+</body>
+</html>

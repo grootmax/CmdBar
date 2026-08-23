@@ -1,0 +1,16 @@
+{
+  "name": "CmdBar Web Dashboard",
+  "short_name": "CmdBar Web",
+  "description": "Web UI for CmdBar configuration, drag-drop editor, live preview, and team collaboration",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#2d3748",
+  "theme_color": "#3182ce",
+  "icons": [
+    {
+      "src": "favicon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}
