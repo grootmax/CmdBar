@@ -22,6 +22,13 @@ from app.workspace_config import (
     PROJECT_TEMPLATES,
 )
 from companion.stream_deck import get_stream_deck_manager
+from companion.environment_snapshot import (
+    export_snapshot,
+    import_snapshot,
+    create_backup,
+    restore_backup,
+    list_backups
+)
 
 
 class CmdBarDBusService:
@@ -29,8 +36,8 @@ class CmdBarDBusService:
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
-    CommandOutput, and EventTriggered.
+    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, ExportSnapshot, ImportSnapshot, CreateBackup, RestoreBackup, ListBackups,
+    and manages signals for CommandExecuted, CommandOutput, SSOSessionStateChanged, and EventTriggered.
     :visibility: public
     """
 
@@ -119,6 +126,46 @@ class CmdBarDBusService:
 
     is_yubi_key_required = is_yubikey_required
     authenticate_yubi_key = authenticate_yubikey
+
+    def export_snapshot(self, options_json: str = '{}') -> str:
+        try:
+            options = json.loads(options_json or '{}') if isinstance(options_json, str) else (options_json or {})
+        except Exception:
+            options = {}
+        res = export_snapshot(**options)
+        return json.dumps(res)
+
+    def import_snapshot(self, snapshot_json: str, options_json: str = '{}') -> bool:
+        try:
+            options = json.loads(options_json or '{}') if isinstance(options_json, str) else (options_json or {})
+        except Exception:
+            options = {}
+        try:
+            res = import_snapshot(snapshot_json, **options)
+            return bool(res and res.get("success"))
+        except Exception:
+            return False
+
+    def create_backup(self, description: str = 'D-Bus backup') -> str:
+        try:
+            res = create_backup(description=description)
+            return res.get("backup_path", "")
+        except Exception:
+            return ""
+
+    def restore_backup(self, backup_path_or_id: str) -> bool:
+        try:
+            res = restore_backup(backup_path_or_id)
+            return bool(res and res.get("success"))
+        except Exception:
+            return False
+
+    def list_backups(self) -> str:
+        try:
+            res = list_backups()
+            return json.dumps(res)
+        except Exception:
+            return json.dumps([])
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
@@ -428,7 +475,6 @@ class CmdBarDBusService:
         :visibility: public
         """
         return self.trigger_engine.remove_trigger(trigger_id)
-
     def detect_workspace(self, cwd: str) -> tuple:
         path = find_workspace_config_path(cwd)
         has_ws = path is not None
@@ -459,6 +505,24 @@ class CmdBarDBusService:
 
     def get_workspace_templates(self) -> dict:
         return PROJECT_TEMPLATES
+
+    def start_terminal_sharing(self, session_id: str, title: str = "CmdBar Shared Terminal") -> str:
+        from companion.terminal_sharing import TerminalSharingSession
+        session = TerminalSharingSession(session_id=session_id, title=title)
+        session.start()
+        self.active_terminal_sessions[session.session_id] = session
+        return json.dumps(session.get_metrics())
+
+    def stop_terminal_sharing(self, session_id: str) -> bool:
+        if session_id in self.active_terminal_sessions:
+            session = self.active_terminal_sessions.pop(session_id)
+            session.end_session()
+            return True
+        return False
+
+    def get_terminal_sharing_sessions(self) -> str:
+        sessions_info = [s.get_metrics() for s in self.active_terminal_sessions.values()]
+        return json.dumps(sessions_info)
 
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
