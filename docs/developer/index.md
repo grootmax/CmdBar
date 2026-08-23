@@ -22,3 +22,12 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Enterprise Custom Branding & White Label
+
+CmdBar provides a full enterprise white labeling option allowing organizations to rebrand the extension and companion application:
+- **Brand Application Name & Identity**: Replaces default "CmdBar" branding with organization application name (`app_name`), custom logo/icon (`logo_path`), and enterprise identity (`organization_name`, `support_url`, `footer_text`).
+- **Brand Theme Colors**: Dynamic custom color overrides for primary (`brand_colors.primary`), accent, background, and text colors applied dynamically to GNOME Shell status area UI widgets and popup menus.
+- **Domain Alias & Network Routing**: Resolves custom server endpoints (`domain_alias`) for enterprise sync, command feeds, and remote management endpoints (`getEffectiveDomainUrl`).
+- **Custom SSL Security**: Supports custom enterprise SSL certificates (`cert_path`), private keys (`key_path`), and CA certificate bundles (`ca_path`) with configurable SSL verification options (`get_ssl_context`).
+- **D-Bus Management API**: Exposes `GetBranding`, `SetBranding`, and `GetEffectiveAppName` over D-Bus (`org.gnome.CmdBar`) for automated corporate software deployment tools.

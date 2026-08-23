@@ -12,6 +12,30 @@ export const DEFAULT_CONFIG = {
     fallback_provider: "ollama",
     fallback_model: "llama3",
   },
+  branding: {
+    enabled: false,
+    app_name: "CmdBar",
+    logo_path: "",
+    brand_colors: {
+      primary: "#3584e4",
+      accent: "#1c71d8",
+      background: "#2d2d2d",
+      text: "#ffffff",
+    },
+    domain_alias: "",
+    custom_ssl: {
+      cert_path: "",
+      key_path: "",
+      ca_path: "",
+      verify_ssl: true,
+    },
+    enterprise_identity: {
+      organization_name: "",
+      support_url: "",
+      support_email: "",
+      footer_text: "",
+    },
+  },
   categories: [
     {
       name: "AI Assistant",
@@ -97,6 +121,124 @@ function sleep(ms) {
 }
 
 /**
+ * Validates white label branding configuration section.
+ * @param {object} branding
+ * @returns {boolean}
+ */
+export function validateBrandingConfig(branding) {
+  if (branding === undefined || branding === null) return true;
+  if (typeof branding !== "object") return false;
+
+  if (branding.enabled !== undefined && typeof branding.enabled !== "boolean") {
+    return false;
+  }
+  if (branding.app_name !== undefined && typeof branding.app_name !== "string") {
+    return false;
+  }
+  if (branding.logo_path !== undefined && typeof branding.logo_path !== "string") {
+    return false;
+  }
+  if (branding.brand_colors !== undefined && branding.brand_colors !== null) {
+    if (typeof branding.brand_colors !== "object") return false;
+    const hexRegex = /^#(?:[0-9a-fA-F]{3,4}){1,2}$/;
+    for (const key of ["primary", "accent", "background", "text"]) {
+      const val = branding.brand_colors[key];
+      if (val !== undefined && val !== null && val !== "") {
+        if (typeof val !== "string") return false;
+        if (!hexRegex.test(val) && !/^(rgb|hsl)a?\(/.test(val) && !/^[a-zA-Z]+$/.test(val)) {
+          return false;
+        }
+      }
+    }
+  }
+  if (branding.domain_alias !== undefined && typeof branding.domain_alias !== "string") {
+    return false;
+  }
+  if (branding.domain_alias && typeof branding.domain_alias === "string" && branding.domain_alias.trim() !== "") {
+    const domainStr = branding.domain_alias.trim();
+    const domainRegex = /^(https?:\/\/)?([a-zA-Z0-9.-]+|\[[a-fA-F0-9:]+\])(:[0-9]+)?(\/.*)?$/;
+    if (!domainRegex.test(domainStr)) {
+      return false;
+    }
+  }
+  if (branding.custom_ssl !== undefined && branding.custom_ssl !== null) {
+    if (typeof branding.custom_ssl !== "object") return false;
+    if (branding.custom_ssl.cert_path !== undefined && typeof branding.custom_ssl.cert_path !== "string") {
+      return false;
+    }
+    if (branding.custom_ssl.key_path !== undefined && typeof branding.custom_ssl.key_path !== "string") {
+      return false;
+    }
+    if (branding.custom_ssl.ca_path !== undefined && typeof branding.custom_ssl.ca_path !== "string") {
+      return false;
+    }
+    if (branding.custom_ssl.verify_ssl !== undefined && typeof branding.custom_ssl.verify_ssl !== "boolean") {
+      return false;
+    }
+  }
+  if (branding.enterprise_identity !== undefined && branding.enterprise_identity !== null) {
+    if (typeof branding.enterprise_identity !== "object") return false;
+    for (const k of ["organization_name", "support_url", "support_email", "footer_text"]) {
+      const val = branding.enterprise_identity[k];
+      if (val !== undefined && typeof val !== "string") return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Returns merged effective branding configuration with default fallback options.
+ * @param {object} config
+ * @returns {object}
+ */
+export function getEffectiveBranding(config) {
+  const defaultBranding = DEFAULT_CONFIG.branding;
+  const rawBranding = (config && (config.branding || config.white_label)) || {};
+  return {
+    enabled: Boolean(rawBranding.enabled ?? defaultBranding.enabled),
+    app_name: (rawBranding.app_name && typeof rawBranding.app_name === "string" && rawBranding.app_name.trim()) || defaultBranding.app_name,
+    logo_path: rawBranding.logo_path || defaultBranding.logo_path,
+    brand_colors: {
+      primary: (rawBranding.brand_colors && rawBranding.brand_colors.primary) || defaultBranding.brand_colors.primary,
+      accent: (rawBranding.brand_colors && rawBranding.brand_colors.accent) || defaultBranding.brand_colors.accent,
+      background: (rawBranding.brand_colors && rawBranding.brand_colors.background) || defaultBranding.brand_colors.background,
+      text: (rawBranding.brand_colors && rawBranding.brand_colors.text) || defaultBranding.brand_colors.text,
+    },
+    domain_alias: rawBranding.domain_alias || defaultBranding.domain_alias,
+    custom_ssl: {
+      cert_path: (rawBranding.custom_ssl && rawBranding.custom_ssl.cert_path) || defaultBranding.custom_ssl.cert_path,
+      key_path: (rawBranding.custom_ssl && rawBranding.custom_ssl.key_path) || defaultBranding.custom_ssl.key_path,
+      ca_path: (rawBranding.custom_ssl && rawBranding.custom_ssl.ca_path) || defaultBranding.custom_ssl.ca_path,
+      verify_ssl: rawBranding.custom_ssl && typeof rawBranding.custom_ssl.verify_ssl === "boolean" ? rawBranding.custom_ssl.verify_ssl : defaultBranding.custom_ssl.verify_ssl,
+    },
+    enterprise_identity: {
+      organization_name: (rawBranding.enterprise_identity && rawBranding.enterprise_identity.organization_name) || defaultBranding.enterprise_identity.organization_name,
+      support_url: (rawBranding.enterprise_identity && rawBranding.enterprise_identity.support_url) || defaultBranding.enterprise_identity.support_url,
+      support_email: (rawBranding.enterprise_identity && rawBranding.enterprise_identity.support_email) || defaultBranding.enterprise_identity.support_email,
+      footer_text: (rawBranding.enterprise_identity && rawBranding.enterprise_identity.footer_text) || defaultBranding.enterprise_identity.footer_text,
+    },
+  };
+}
+
+/**
+ * Resolves a domain alias endpoint URL.
+ * @param {object} brandingConfig
+ * @param {string} endpointPath
+ * @returns {string}
+ */
+export function getEffectiveDomainUrl(brandingConfig, endpointPath = "") {
+  let domain = (brandingConfig && brandingConfig.domain_alias) || "";
+  domain = domain.trim();
+  if (!domain) return endpointPath;
+  if (!domain.startsWith("http://") && !domain.startsWith("https://")) {
+    domain = "https://" + domain;
+  }
+  domain = domain.replace(/\/+$/, "");
+  let path = endpointPath.startsWith("/") ? endpointPath : "/" + endpointPath;
+  return domain + path;
+}
+
+/**
  * Validates a configuration layout against schema and parsing requirements.
  * @param {object} config
  * @returns {boolean}
@@ -104,6 +246,12 @@ function sleep(ms) {
 export function validateConfigSchema(config) {
   if (!config || typeof config !== "object") return false;
   if (!Array.isArray(config.categories)) return false;
+  if (config.branding !== undefined && !validateBrandingConfig(config.branding)) {
+    return false;
+  }
+  if (config.white_label !== undefined && !validateBrandingConfig(config.white_label)) {
+    return false;
+  }
   for (const category of config.categories) {
     if (!category || typeof category !== "object") return false;
     if (typeof category.name !== "string" || category.name.trim() === "")
