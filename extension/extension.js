@@ -22,6 +22,12 @@ import { wrapCommandInSandbox, isSandboxEnabled } from "./sandboxWrapper.js";
 import { loadConfig, saveConfig, getEffectiveBranding, getEffectiveDomainUrl } from "./configSync.js";
 import { logCommand } from "./auditLogger.js";
 import {
+  isCalculatorQuery,
+  cleanCalculatorQuery,
+  evaluateCalculatorQuery,
+  calculate,
+} from "./calculator.js";
+import {
   translateNaturalLanguageToCommand,
   isAICommand,
   cleanAIPrompt,
@@ -575,7 +581,29 @@ export function runCommandAsync(
     ? commandString.join(" ")
     : String(commandString || "");
 
-  if (isAICommand(rawCmdStr) || isAICommand(commandName)) {
+    if (isCalculatorQuery(rawCmdStr) || isCalculatorQuery(commandName)) {
+    let targetQuery = isCalculatorQuery(rawCmdStr) ? rawCmdStr : commandName;
+    let calcRes = evaluateCalculatorQuery(targetQuery);
+    if (calcRes.success) {
+      copyToClipboard(calcRes.result);
+      if (Main && typeof Main.notify === "function") {
+        Main.notify(
+          "Quick Calculator",
+          `${calcRes.expression} = ${calcRes.result} (Copied to clipboard)`,
+        );
+      }
+    } else {
+      if (Main && typeof Main.notify === "function") {
+        Main.notify(
+          "Quick Calculator Error",
+          calcRes.error || "Invalid calculation expression",
+        );
+      }
+    }
+    return;
+  }
+
+if (isAICommand(rawCmdStr) || isAICommand(commandName)) {
     handleAICommandExecution(rawCmdStr, config || {}, () => {});
     return;
   }
@@ -1506,6 +1534,171 @@ const CategoryHeaderMenuItem = GObject.registerClass(
   },
 );
 
+// Menu item for live search input and calculator query entry
+const SearchEntryMenuItem = GObject.registerClass(
+  class SearchEntryMenuItem extends PopupMenu.PopupBaseMenuItem {
+    _init(indicator, onQueryChanged) {
+      super._init({
+        reactive: false,
+        activate: false,
+      });
+
+      this._indicator = indicator;
+
+      this.box = new St.BoxLayout({
+        vertical: false,
+        x_expand: true,
+        style: "padding: 4px 6px;",
+      });
+
+      this.entry = new St.Entry({
+        hint_text: "Search or '> 2+2' to calculate...",
+        track_hover: true,
+        can_focus: true,
+        x_expand: true,
+        style_class: "cmdbar-search-entry",
+      });
+
+      this.box.add_child(this.entry);
+      this.add_child(this.box);
+
+      if (this.entry.clutter_text) {
+        this._changeId = this.entry.clutter_text.connect("text-changed", () => {
+          let text = this.entry.get_text();
+          if (typeof onQueryChanged === "function") {
+            onQueryChanged(text);
+          }
+        });
+      }
+    }
+
+    destroy() {
+      if (this._changeId && this.entry && this.entry.clutter_text) {
+        this.entry.clutter_text.disconnect(this._changeId);
+        this._changeId = 0;
+      }
+      super.destroy();
+    }
+  },
+);
+
+// Menu item for Quick Calculator and Eval Mode results with right-click copy support
+const CalculatorResultMenuItem = GObject.registerClass(
+  class CalculatorResultMenuItem extends PopupMenu.PopupBaseMenuItem {
+    _init(indicator, calcResult) {
+      super._init({
+        reactive: true,
+        activate: false,
+      });
+
+      this._indicator = indicator;
+      this._calcResult = calcResult || {};
+      this._resultText = (calcResult && calcResult.result) || "";
+
+      this.box = new St.BoxLayout({
+        vertical: false,
+        x_expand: true,
+        style: "padding: 4px 6px;",
+      });
+
+      this.icon = new St.Icon({
+        icon_name: "accessories-calculator-symbolic",
+        style_class: "popup-menu-icon",
+        style: "margin-right: 8px; color: #3584e4;",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      this.box.add_child(this.icon);
+
+      let textVBox = new St.BoxLayout({
+        vertical: true,
+        x_expand: true,
+      });
+
+      this.resultLabel = new St.Label({
+        text: (calcResult && calcResult.formatted) || `= ${this._resultText}`,
+        style: "font-weight: bold; font-size: 1.1em;",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      textVBox.add_child(this.resultLabel);
+
+      if (calcResult && calcResult.expression) {
+        this.exprLabel = new St.Label({
+          text: `Expression: ${calcResult.expression}`,
+          style: "font-size: 0.85em; color: #888888;",
+          y_align: Clutter.ActorAlign.CENTER,
+        });
+        textVBox.add_child(this.exprLabel);
+      }
+
+      this.box.add_child(textVBox);
+
+      // Copy Button
+      this.copyButton = new St.Button({
+        child: new St.Icon({
+          icon_name: "edit-copy-symbolic",
+          style_class: "popup-menu-icon",
+        }),
+        style: "padding: 4px 6px; border-radius: 4px;",
+        track_hover: true,
+        can_focus: true,
+      });
+
+      this.copyButton.connect("clicked", () => {
+        this._copyResult();
+      });
+      this.box.add_child(this.copyButton);
+
+      this.add_child(this.box);
+
+      // Primary click / activation
+      this._activateId = this.connect("activate", () => {
+        this._copyResult();
+      });
+
+      // Secondary (right-click) button press for instant copy
+      this.connect("button-press-event", (actor, event) => {
+        let button = typeof event.get_button === "function" ? event.get_button() : 0;
+        if (button === 3) {
+          this._copyResult();
+          return typeof Clutter !== "undefined" && Clutter.EVENT_STOP
+            ? Clutter.EVENT_STOP
+            : true;
+        }
+        return typeof Clutter !== "undefined" && Clutter.EVENT_PROPAGATE
+          ? Clutter.EVENT_PROPAGATE
+          : false;
+      });
+    }
+
+    _copyResult() {
+      if (this._resultText) {
+        copyToClipboard(this._resultText);
+        if (Main && typeof Main.notify === "function") {
+          Main.notify(
+            "Quick Calculator",
+            `Copied result "${this._resultText}" to clipboard`,
+          );
+        }
+      }
+      if (
+        this._indicator &&
+        this._indicator.menu &&
+        typeof this._indicator.menu.close === "function"
+      ) {
+        this._indicator.menu.close();
+      }
+    }
+
+    destroy() {
+      if (this._activateId) {
+        this.disconnect(this._activateId);
+        this._activateId = 0;
+      }
+      super.destroy();
+    }
+  },
+);
+
 // The top bar status area panel indicator
 const CmdBarIndicator = GObject.registerClass(
   class CmdBarIndicator extends PanelMenu.Button {
@@ -1683,8 +1876,9 @@ const CmdBarIndicator = GObject.registerClass(
     async _reloadMenu() {
       try {
         let configPath = this._getConfigPath();
-        let extensionPath = this._extension && this._extension.dir ? this._extension.dir.get_path() : null;
+        let extensionPath = this._extension.dir.get_path();
         let config = await loadConfig(configPath, extensionPath);
+        this._cachedConfig = config;
 
         let branding = getEffectiveBranding(config);
         this._applyBranding(branding);
@@ -1696,92 +1890,17 @@ const CmdBarIndicator = GObject.registerClass(
           );
         }
 
-        this._cachedConfig = config;
-
         // Clear all current items in menu
         this.menu.removeAll();
 
-        if (!config || !config.categories || config.categories.length === 0) {
-          let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
-          this.menu.addMenuItem(infoItem);
-          return;
-        }
-
-        // 1. Gather all favorite commands across all categories
-        let favoriteCommands = [];
-        if (config && config.categories && Array.isArray(config.categories)) {
-          config.categories.forEach((category) => {
-            if (category.commands && Array.isArray(category.commands)) {
-              category.commands.forEach((cmd) => {
-                if (cmd && (cmd.favorite || cmd.pinned)) {
-                  favoriteCommands.push(cmd);
-                }
-              });
-            }
-          });
-        }
-
-        // 2. Add "Favorites" category section at top if any favorites exist
-        if (favoriteCommands.length > 0) {
-          this.menu.addMenuItem(
-            new CategoryHeaderMenuItem("Favorites", "starred-symbolic"),
-          );
-
-          favoriteCommands.forEach((cmd) => {
-            if (hasPlaceholder(cmd.command)) {
-              this.menu.addMenuItem(
-                new CommandInputMenuItem(
-                  this,
-                  cmd.name,
-                  cmd.command,
-                  cmd.placeholder,
-                  cmd,
-                ),
-              );
-            } else {
-              this.menu.addMenuItem(
-                new CommandMenuItem(this, cmd.name, cmd.command, cmd),
-              );
-            }
-          });
-
-          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        }
-
-        // 3. Render categories with favorites sorted first within each category
-        config.categories.forEach((category, catIndex) => {
-          if (catIndex > 0 || favoriteCommands.length > 0) {
-            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-          }
-          this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
-
-          if (category.commands && Array.isArray(category.commands)) {
-            let sortedCmds = [...category.commands].sort((a, b) => {
-              let aFav = Boolean(a && (a.favorite || a.pinned));
-              let bFav = Boolean(b && (b.favorite || b.pinned));
-              if (aFav === bFav) return 0;
-              return bFav ? -1 : 1;
-            });
-
-            sortedCmds.forEach((cmd) => {
-              if (hasPlaceholder(cmd.command)) {
-                this.menu.addMenuItem(
-                  new CommandInputMenuItem(
-                    this,
-                    cmd.name,
-                    cmd.command,
-                    cmd.placeholder,
-                    cmd,
-                  ),
-                );
-              } else {
-                this.menu.addMenuItem(
-                  new CommandMenuItem(this, cmd.name, cmd.command, cmd),
-                );
-              }
-            });
-          }
+        // Add Search Entry at the top of the menu
+        this._searchMenuItem = new SearchEntryMenuItem(this, (q) => {
+          this._onSearchQueryChanged(q, config);
         });
+        this.menu.addMenuItem(this._searchMenuItem);
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        this._renderMenuItems(config);
 
         // System Resource Monitor Section
         if (this._resourceMonitor) {
@@ -1851,6 +1970,125 @@ const CmdBarIndicator = GObject.registerClass(
       } catch (e) {
         console.error(`CmdBar: error reloading menu: ${e.message}`);
       }
+    }
+
+    _clearMenuContent() {
+      let items = this.menu._getMenuItems();
+      // Keep search entry (item 0) and separator (item 1)
+      while (items.length > 2) {
+        let item = items[items.length - 1];
+        item.destroy();
+        items = this.menu._getMenuItems();
+      }
+    }
+
+    _onSearchQueryChanged(query, config) {
+      const q = query ? query.trim() : "";
+      if (!q) {
+        this._clearMenuContent();
+        this._renderMenuItems(config);
+        return;
+      }
+
+      if (isCalculatorQuery(q)) {
+        this._clearMenuContent();
+        const calcRes = evaluateCalculatorQuery(q);
+        if (calcRes.success) {
+          this.menu.addMenuItem(new CalculatorResultMenuItem(this, calcRes));
+        } else {
+          let errItem = new PopupMenu.PopupMenuItem(
+            `Calculator: ${calcRes.error || "Invalid expression"}`,
+            { reactive: false },
+          );
+          this.menu.addMenuItem(errItem);
+        }
+        return;
+      }
+
+      this._clearMenuContent();
+      this._renderMenuItems(config);
+    }
+
+    _renderMenuItems(config) {
+      if (!config || !config.categories || config.categories.length === 0) {
+        let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
+        this.menu.addMenuItem(infoItem);
+        return;
+      }
+
+      // 1. Gather all favorite commands across all categories
+      let favoriteCommands = [];
+      config.categories.forEach((category) => {
+        if (category.commands && Array.isArray(category.commands)) {
+          category.commands.forEach((cmd) => {
+            if (cmd && (cmd.favorite || cmd.pinned)) {
+              favoriteCommands.push(cmd);
+            }
+          });
+        }
+      });
+
+      // 2. Add "Favorites" category section at top if any favorites exist
+      if (favoriteCommands.length > 0) {
+        this.menu.addMenuItem(
+          new CategoryHeaderMenuItem("Favorites", "starred-symbolic"),
+        );
+
+        favoriteCommands.forEach((cmd) => {
+          if (hasPlaceholder(cmd.command)) {
+            this.menu.addMenuItem(
+              new CommandInputMenuItem(
+                this,
+                cmd.name,
+                cmd.command,
+                cmd.placeholder,
+                cmd,
+              ),
+            );
+          } else {
+            this.menu.addMenuItem(
+              new CommandMenuItem(this, cmd.name, cmd.command, cmd),
+            );
+          }
+        });
+
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+      }
+
+      // 3. Render categories with favorites sorted first within each category
+      config.categories.forEach((category, catIndex) => {
+        if (catIndex > 0 || favoriteCommands.length > 0) {
+          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        }
+        this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
+
+        if (category.commands && Array.isArray(category.commands)) {
+          let sortedCmds = [...category.commands].sort((a, b) => {
+            let aFav = Boolean(a && (a.favorite || a.pinned));
+            let bFav = Boolean(b && (b.favorite || b.pinned));
+            if (aFav === bFav) return 0;
+            return bFav ? -1 : 1;
+          });
+
+          sortedCmds.forEach((cmd) => {
+            if (hasPlaceholder(cmd.command)) {
+              this.menu.addMenuItem(
+                new CommandInputMenuItem(
+                  this,
+                  cmd.name,
+                  cmd.command,
+                  cmd.placeholder,
+                  cmd,
+                ),
+              );
+            } else {
+              this.menu.addMenuItem(
+                new CommandMenuItem(this, cmd.name, cmd.command, cmd),
+              );
+            }
+          });
+        }
+      });
     }
 
     _setupFileMonitor() {

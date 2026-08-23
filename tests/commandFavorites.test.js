@@ -36,6 +36,12 @@ jest.unstable_mockModule('gi', () => ({
         Object.assign(this, props);
       }
     },
+    Entry: class {
+      constructor(props) {
+        Object.assign(this, props);
+        this.clutter_text = { connect: jest.fn() };
+      }
+    },
     Button: class {
       constructor(props) {
         Object.assign(this, props);
@@ -61,8 +67,21 @@ jest.unstable_mockModule('gi', () => ({
     EVENT_PROPAGATE: false,
   },
   Gio: {
-    Subprocess: { new: mockSubprocessNew },
+    Subprocess: {
+      new: () => ({
+        communicate_utf8_async: jest.fn(),
+      }),
+    },
     SubprocessFlags: { STDIN_PIPE: 1, STDERR_PIPE: 2, STDOUT_PIPE: 4, NONE: 0 },
+    File: {
+      new_for_path: () => ({
+        monitor_file: () => ({
+          connect: jest.fn(),
+          cancel: jest.fn(),
+        }),
+      }),
+    },
+    FileMonitorFlags: { NONE: 0 },
   },
   GLib: {
     getenv: mockGetenv,
@@ -73,7 +92,16 @@ jest.unstable_mockModule('gi', () => ({
     PRIORITY_DEFAULT: 0,
   },
   GObject: {
-    registerClass: (cls) => cls,
+    registerClass: (cls) => {
+      return class extends cls {
+        constructor(...args) {
+          super(...args);
+          if (typeof this._init === 'function') {
+            this._init(...args);
+          }
+        }
+      };
+    },
   },
   Meta: { KeyBindingFlags: { NONE: 0 } },
   Shell: { ActionMode: { ALL: 1 } },
@@ -81,6 +109,9 @@ jest.unstable_mockModule('gi', () => ({
 
 jest.unstable_mockModule('resource:///org/gnome/shell/extensions/extension.js', () => ({
   Extension: class {
+    constructor() {
+      this.dir = { get_path: () => '' };
+    }
     getSettings() {
       return {
         get_boolean: () => true,
@@ -112,6 +143,8 @@ jest.unstable_mockModule('resource:///org/gnome/shell/ui/panelMenu.js', () => ({
         },
       };
     }
+    _init() {}
+    add_child() {}
     destroy() {}
   },
 }), { virtual: true });
@@ -243,10 +276,12 @@ describe('Command Favorites and Pinning Unit Tests', () => {
     const items = ext._indicator.menu.items;
     // Top section: "Favorites" category header, then favorited Command B, then separator
     expect(items.length).toBeGreaterThan(3);
-    const firstHeader = items[0];
+    const firstHeader = items.find(i => i.label && i.label.text === 'Favorites');
+    expect(firstHeader).toBeDefined();
     expect(firstHeader.label.text).toBe('Favorites');
 
-    const favCmdItem = items[1];
+    const favCmdItem = items.find(i => i._commandName === 'Command B');
+    expect(favCmdItem).toBeDefined();
     expect(favCmdItem._commandName).toBe('Command B');
 
     ext.disable();
