@@ -29,6 +29,14 @@
       <arg name="json_commands" type="s" direction="out"/>
     </method>
     
+    <method name="CaptureScreenshot">
+      <annotation name="org.freedesktop.DBus.Description" value="Capture screenshot (fullscreen, window, region) with optional annotations and sharing"/>
+      <arg name="mode" type="s" direction="in"/>
+      <arg name="saveTo" type="s" direction="in"/>
+      <arg name="optionsJson" type="s" direction="in"/>
+      <arg name="resultJson" type="s" direction="out"/>
+    </method>
+    
     <signal name="CommandExecuted">
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a command finishes execution"/>
       <arg name="name" type="s"/>
@@ -41,6 +49,13 @@
       <arg name="name" type="s"/>
       <arg name="stdout" type="s"/>
       <arg name="stderr" type="s"/>
+    </signal>
+    
+    <signal name="ScreenshotCaptured">
+      <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when screenshot capture completes"/>
+      <arg name="filePath" type="s"/>
+      <arg name="shareUrl" type="s"/>
+      <arg name="success" type="b"/>
     </signal>
   </interface>
 </node>

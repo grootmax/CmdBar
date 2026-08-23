@@ -12,6 +12,16 @@ export const DEFAULT_CONFIG = {
     fallback_provider: "ollama",
     fallback_model: "llama3",
   },
+  screenshot: {
+    directory: "",
+    save_to: "both",
+    remove_metadata: true,
+    shortcuts: {
+      fullscreen: "<Super><Shift>3",
+      window: "<Super><Shift>4",
+      region: "<Super><Shift>5",
+    },
+  },
   categories: [
     {
       name: "AI Assistant",
@@ -20,6 +30,26 @@ export const DEFAULT_CONFIG = {
           name: "AI Command Assistant",
           command: "/ai {prompt}",
           placeholder: "e.g. deploy latest build to staging",
+        },
+      ],
+    },
+    {
+      name: "Screenshot & Screen Capture",
+      commands: [
+        {
+          name: "Capture Fullscreen",
+          command: "/screenshot fullscreen",
+          shortcut: "<Super><Shift>3",
+        },
+        {
+          name: "Capture Window",
+          command: "/screenshot window",
+          shortcut: "<Super><Shift>4",
+        },
+        {
+          name: "Capture Region",
+          command: "/screenshot region",
+          shortcut: "<Super><Shift>5",
         },
       ],
     },

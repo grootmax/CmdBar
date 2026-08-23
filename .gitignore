@@ -3,5 +3,8 @@ __pycache__/
 .pytest_cache/
 *.tmp
 build/
+coverage/
 node_modules/
 reports/
+vendor/cache/npm/
+

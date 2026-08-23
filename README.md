@@ -12,6 +12,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 ## Features
 
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
+- **Screenshot & Screen Capture** – Quick screen capture for full screen, window, or region with configurable hotkeys (`Super+Shift+3`, `Super+Shift+4`, `Super+Shift+5`), file/clipboard saving, image annotations (text, shapes, blur, crop), metadata stripping, and instant URL sharing
 - **Output Formatters** – Automatically parse and nicely format command outputs: JSON pretty-printing with Pango markup & ANSI syntax highlighting, ASCII table rendering for CSV/TSV data, and monospaced boxed code blocks
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
 - **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences.

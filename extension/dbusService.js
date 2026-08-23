@@ -1,5 +1,6 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import { captureScreenshot } from "./screenshotManager.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -21,6 +22,12 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
     </method>
+    <method name="CaptureScreenshot">
+      <arg name="mode" type="s" direction="in"/>
+      <arg name="saveTo" type="s" direction="in"/>
+      <arg name="optionsJson" type="s" direction="in"/>
+      <arg name="resultJson" type="s" direction="out"/>
+    </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
       <arg name="exit_code" type="i"/>
@@ -30,6 +37,11 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="name" type="s"/>
       <arg name="stdout" type="s"/>
       <arg name="stderr" type="s"/>
+    </signal>
+    <signal name="ScreenshotCaptured">
+      <arg name="filePath" type="s"/>
+      <arg name="shareUrl" type="s"/>
+      <arg name="success" type="b"/>
     </signal>
   </interface>
 </node>`;
@@ -228,6 +240,46 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
+    }
+  }
+
+  /**
+   * D-Bus method to trigger screenshot capture.
+   * @param {string} mode
+   * @param {string} saveTo
+   * @param {string} optionsJson
+   * @returns {Promise<string>}
+   * @public
+   */
+  async CaptureScreenshot(mode, saveTo, optionsJson) {
+    try {
+      let opts = {};
+      if (optionsJson && typeof optionsJson === "string" && optionsJson.trim()) {
+        try {
+          opts = JSON.parse(optionsJson);
+        } catch (e) {}
+      }
+      opts.mode = mode || opts.mode || "fullscreen";
+      opts.saveTo = saveTo || opts.saveTo || "both";
+
+      const result = await captureScreenshot(opts);
+
+      if (this._dbusImpl && GLib) {
+        try {
+          this._dbusImpl.emit_signal(
+            "ScreenshotCaptured",
+            new GLib.Variant("(ssb)", [
+              result.filePath || "",
+              result.shareUrl || "",
+              Boolean(result.success),
+            ])
+          );
+        } catch (sigErr) {}
+      }
+
+      return JSON.stringify(result);
+    } catch (err) {
+      return JSON.stringify({ success: false, error: err.message });
     }
   }
 

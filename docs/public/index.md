@@ -12,6 +12,7 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 ## Core Features
 
 - **Dynamic Menu**: Fully driven by JSON config files.
+- **Screenshot & Screen Capture**: Quick screenshot captures for full screen, window, or region with `/screenshot` command or global shortcuts (`Super+Shift+3`, `Super+Shift+4`, `Super+Shift+5`). Features saving to file or clipboard, image annotations (text, arrows, boxes, blur, crop), metadata removal for privacy, and instant URL sharing.
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
 - **Local Live Reload**: Configuration changes sync instantly.
