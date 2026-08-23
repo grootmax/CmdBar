@@ -11,6 +11,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
+- **Web Dashboard** – Modern web interface featuring drag-and-drop category & command reordering, real-time command preview dry-run engine with parameter validation, team collaboration presets & role access controls, mobile responsiveness, and PWA offline capability with Service Worker caching.
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Output Formatters** – Automatically parse and nicely format command outputs: JSON pretty-printing with Pango markup & ANSI syntax highlighting, ASCII table rendering for CSV/TSV data, and monospaced boxed code blocks
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
@@ -130,6 +131,16 @@ A lightweight companion utility is also provided for backward compatibility and 
 python3 companion/companion_app.py
 ```
 This utility manages configuration storage seamlessly and will also fallback gracefully to terminal-based output if the desktop environment / GTK is unavailable.
+
+#### Web Dashboard Server
+Launch the Web Dashboard UI and server for configuration editing, drag-drop reordering, live preview, and team collaboration:
+```bash
+python3 companion/companion_app.py --dashboard --port 8080
+```
+Or launch the web dashboard server directly:
+```bash
+python3 -m companion.web_dashboard --port 8080 --open
+```
 
 ---
 
