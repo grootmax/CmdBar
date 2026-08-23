@@ -21,6 +21,16 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
     </method>
+    <method name="ExportEnvironmentSnapshot">
+      <arg name="file_path" type="s" direction="in"/>
+      <arg name="description" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="ImportEnvironmentSnapshot">
+      <arg name="file_path" type="s" direction="in"/>
+      <arg name="merge" type="b" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
       <arg name="exit_code" type="i"/>
@@ -228,6 +238,31 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
+    }
+  }
+
+  async ExportEnvironmentSnapshot(filePath, description) {
+    try {
+      const { exportSnapshotToFile } = await import("./environmentSnapshot.js");
+      await exportSnapshotToFile(filePath, { description: description || "Exported via D-Bus" });
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ExportEnvironmentSnapshot error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async ImportEnvironmentSnapshot(filePath, merge) {
+    try {
+      const { importSnapshotFromFile } = await import("./environmentSnapshot.js");
+      await importSnapshotFromFile(filePath, { mode: merge ? "merge" : "overwrite" });
+      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        this._indicator._reloadMenu();
+      }
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ImportEnvironmentSnapshot error: ${e.message}`);
+      return false;
     }
   }
 
