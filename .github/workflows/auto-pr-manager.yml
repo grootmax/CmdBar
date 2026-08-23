@@ -199,7 +199,7 @@ jobs:
               MERGEABLE=$(gh pr view "$PR_NUMBER" \
                 --repo "$GH_REPO" \
                 --json mergeable \
-                --jq '.mergeable')
+                --jq '.mergeable' 2>/dev/null || echo "UNKNOWN")
 
               echo "Attempt $ATTEMPT: mergeable=$MERGEABLE"
 
@@ -362,19 +362,17 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
-                git diff \
-                  --name-only \
-                  --diff-filter=U |
-                while IFS= read -r FILE; do
+                mapfile -t CONFLICT_FILES < <(git diff --name-only --diff-filter=U)
 
-                  echo "Resolving conflict:"
-                  echo "  $FILE"
+                if [ "${#CONFLICT_FILES[@]}" -gt 0 ]; then
+                  for FILE in "${CONFLICT_FILES[@]}"; do
+                    echo "Resolving conflict:"
+                    echo "  $FILE"
+                  done
 
-                  git checkout --theirs -- "$FILE"
-
-                  git add -- "$FILE"
-
-                done
+                  git checkout --theirs -- "${CONFLICT_FILES[@]}"
+                  git add -- "${CONFLICT_FILES[@]}"
+                fi
 
                 # ==================================================
                 # VERIFY NO CONFLICTS REMAIN
@@ -416,7 +414,7 @@ jobs:
                 echo "Committing conflict resolution..."
 
                 git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                  -m "chore: auto-resolve merge conflicts" || true
 
               fi
 
@@ -427,7 +425,13 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo "ERROR: Failed to push $HEAD_BRANCH."
+                cd /
+                rm -rf "$WORKDIR"
+                echo "Stopping processing."
+                break
+              fi
 
               cd /
 
