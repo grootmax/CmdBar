@@ -326,15 +326,13 @@ async function runAudit() {
     console.log('       CmdBar Accessibility Audit        ');
     console.log('==========================================\n');
 
-    // Ensure build output exists
-    if (!fs.existsSync(buildDir)) {
-        console.log('Build directory not found. Compiling documentation targets...');
-        try {
-            execSync('python3 scripts/compile_docs.py', { cwd: rootDir, stdio: 'inherit' });
-        } catch (err) {
-            console.error('Failed to compile documentation targets before audit:', err.message);
-            process.exit(1);
-        }
+    // Ensure build output is compiled fresh before audit
+    console.log('Compiling documentation targets for accessibility audit...');
+    try {
+        execSync('python3 scripts/compile_docs.py', { cwd: rootDir, stdio: 'inherit' });
+    } catch (err) {
+        console.error('Failed to compile documentation targets before audit:', err.message);
+        process.exit(1);
     }
 
     const htmlFiles = findHtmlFiles(buildDir);

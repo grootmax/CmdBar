@@ -55,7 +55,7 @@ sudo apt install -y \
   npm
 ```
 
-- **GNOME Shell (46+)**: The extension leverages modern GNOME APIs compatible with GNOME 46 and 47.
+- **GNOME Shell (46+)**: The extension leverages modern GNOME Shell 46 and 47 native APIs, including symbolic icon instantiation, standard widget layout properties, and native file handle path resolution.
 - **PyGObject (`gi`) & Gtk4 / Libadwaita**: Power the beautiful Libadwaita management application (`app/main.py`).
 - **Node.js & npm**: Required to run Jest unit tests (`npm run test`) and code-quality tools (ESLint, Prettier).
 - **Zenity**: Used by the GNOME extension to prompt for user parameter inputs in pop-up dialogs.
@@ -155,25 +155,23 @@ Used by `app/main.py` and `companion/companion_app.py`. This schema supports dee
           "name": "Ping Host",
           "command": "ping -c 3 <host>",
           "mode": "shell-quoted",
-          "parameters": [
-            {
-              "name": "host",
+          "parameters": {
+            "host": {
               "regex": "^[a-zA-Z0-9.-]+$",
               "error_message": "Invalid host format! Must contain only alphanumeric, dots, and dashes."
             }
-          ]
+          }
         },
         {
           "name": "Direct Exec",
           "command": "/usr/bin/echo \"Hello\" <arg>",
           "mode": "direct-array",
-          "parameters": [
-            {
-              "name": "arg",
+          "parameters": {
+            "arg": {
               "regex": "^[a-zA-Z0-9_]+$",
               "error_message": "Invalid argument format! Must be alphanumeric or underscore."
             }
-          ]
+          }
         }
       ]
     }

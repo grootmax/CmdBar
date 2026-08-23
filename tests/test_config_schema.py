@@ -124,6 +124,69 @@ def test_validate_parameter_value_strips_whitespace():
     assert resolved == "ping -c 3 google.com"
     assert not errors
 
+def test_resolve_command_preview_dict_map_schema():
+    template = "ping -c 3 <host>"
+    schema = {
+        "host": {
+            "regex": "^[a-zA-Z0-9.-]+$",
+            "error_message": "Invalid host!"
+        }
+    }
+    
+    resolved, errors = resolve_command_preview(template, "shell-quoted", {"host": "google.com"}, schema)
+    assert resolved == "ping -c 3 google.com"
+    assert not errors
+
+def test_legacy_parameter_list_migration(tmp_path):
+    import json
+    from app.config_schema import load_config, save_config, DEFAULT_CONFIG
+
+    cfg_file = tmp_path / "config.json"
+    legacy_list_cfg = {
+        "categories": [
+            {
+                "name": "Legacy Parameters",
+                "commands": [
+                    {
+                        "name": "Ping",
+                        "command": "ping <host>",
+                        "mode": "shell-quoted",
+                        "parameters": [
+                            {
+                                "name": "host",
+                                "regex": "^[a-zA-Z0-9.-]+$",
+                                "error_message": "Invalid host!"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+
+    # Save initial signed config with legacy list parameters
+    save_config(legacy_list_cfg, str(cfg_file))
+
+    # Load should auto-migrate list parameters to dict map
+    loaded = load_config(str(cfg_file))
+    cmd_params = loaded["categories"][0]["commands"][0]["parameters"]
+    assert isinstance(cmd_params, dict)
+    assert "host" in cmd_params
+    assert cmd_params["host"]["regex"] == "^[a-zA-Z0-9.-]+$"
+    assert "name" not in cmd_params["host"]
+
+    # Post-migration config on disk must be updated and pass verification without reset
+    with open(cfg_file, "r") as f:
+        disk_data = json.load(f)
+    assert isinstance(disk_data["categories"][0]["commands"][0]["parameters"], dict)
+    assert "signature" in disk_data
+
+    # Loading again should succeed without resetting
+    reloaded = load_config(str(cfg_file))
+    assert reloaded["categories"][0]["name"] == "Legacy Parameters"
+    assert not (tmp_path / "config.json.bak").exists()
+
+
 def test_python_config_signing_and_tamper_rejection(tmp_path):
     import json
     from app.config_schema import load_config, save_config, DEFAULT_CONFIG

@@ -341,16 +341,28 @@ class CmdBarWindow(Adw.ApplicationWindow):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
         shortcut = self.app.config["categories"][c_idx]["commands"][s_idx]
-        parameters = shortcut.get("parameters", [])
+        parameters = shortcut.get("parameters", {})
 
-        if len(parameters) == 0:
+        param_items = []
+        if isinstance(parameters, dict):
+            for p_name, p_cfg in parameters.items():
+                item = dict(p_cfg) if isinstance(p_cfg, dict) else {}
+                item["name"] = p_name
+                param_items.append((p_name, item))
+        elif isinstance(parameters, list):
+            for idx, p in enumerate(parameters):
+                if isinstance(p, dict):
+                    p_name = p.get("name", f"param{idx}")
+                    param_items.append((p_name, p))
+
+        if len(param_items) == 0:
             empty_row = Adw.ActionRow()
             empty_row.set_title("No parameters defined.")
             empty_row.set_subtitle("Use placeholders like <host> in command template to parameterize.")
             self.params_group.add(empty_row)
             return
 
-        for p_idx, param in enumerate(parameters):
+        for p_key, param in param_items:
             param_row = Adw.PreferencesRow()
             row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             row_box.set_margin_start(12)
@@ -362,34 +374,34 @@ class CmdBarWindow(Adw.ApplicationWindow):
             # Name Input
             name_entry = Gtk.Entry()
             name_entry.set_placeholder_text("Param Name")
-            name_entry.set_text(param["name"])
-            name_entry.connect("changed", self._on_param_name_changed, p_idx)
+            name_entry.set_text(param.get("name", p_key))
+            name_entry.connect("changed", self._on_param_name_changed, p_key)
             row_box.append(name_entry)
 
             # Regex Input
             regex_entry = Gtk.Entry()
             regex_entry.set_placeholder_text("Validation Regex (optional)")
             regex_entry.set_text(param.get("regex", ""))
-            regex_entry.connect("changed", self._on_param_regex_changed, p_idx)
+            regex_entry.connect("changed", self._on_param_regex_changed, p_key)
             row_box.append(regex_entry)
 
             # Error Message Input
             err_entry = Gtk.Entry()
             err_entry.set_placeholder_text("Custom Error Message")
             err_entry.set_text(param.get("error_message", ""))
-            err_entry.connect("changed", self._on_param_err_msg_changed, p_idx)
+            err_entry.connect("changed", self._on_param_err_msg_changed, p_key)
             row_box.append(err_entry)
 
             # Secure Checkbox
             secure_check = Gtk.CheckButton(label="Secure")
             secure_check.set_active(param.get("secure", False))
-            secure_check.connect("toggled", self._on_param_secure_toggled, p_idx)
+            secure_check.connect("toggled", self._on_param_secure_toggled, p_key)
             row_box.append(secure_check)
 
             # Delete Button
             del_btn = Gtk.Button(icon_name="edit-delete-symbolic")
             del_btn.add_css_class("destructive-action")
-            del_btn.connect("clicked", self._on_delete_parameter_clicked, p_idx)
+            del_btn.connect("clicked", self._on_delete_parameter_clicked, p_key)
             row_box.append(del_btn)
 
             self.params_group.add(param_row)
@@ -405,12 +417,21 @@ class CmdBarWindow(Adw.ApplicationWindow):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
         shortcut = self.app.config["categories"][c_idx]["commands"][s_idx]
-        parameters = shortcut.get("parameters", [])
+        parameters = shortcut.get("parameters", {})
 
         # Inputs list
         self.app.sample_inputs = {}
-        for param in parameters:
-            p_name = param["name"]
+        param_items = []
+        if isinstance(parameters, dict):
+            for p_name, p_cfg in parameters.items():
+                item = dict(p_cfg) if isinstance(p_cfg, dict) else {}
+                item["name"] = p_name
+                param_items.append(item)
+        elif isinstance(parameters, list):
+            param_items = parameters
+
+        for param in param_items:
+            p_name = param.get("name")
             if not p_name:
                 continue
             
@@ -470,9 +491,18 @@ class CmdBarWindow(Adw.ApplicationWindow):
         )
 
         # Highlight input error borders if any
-        for param in parameters_schema:
-            p_name = param["name"]
-            if p_name in self.app.sample_inputs:
+        param_items = []
+        if isinstance(parameters_schema, dict):
+            for p_name, p_cfg in parameters_schema.items():
+                item = dict(p_cfg) if isinstance(p_cfg, dict) else {}
+                item["name"] = p_name
+                param_items.append(item)
+        elif isinstance(parameters_schema, list):
+            param_items = parameters_schema
+
+        for param in param_items:
+            p_name = param.get("name")
+            if p_name and p_name in self.app.sample_inputs:
                 row = self.app.sample_inputs[p_name]
                 if p_name in errors:
                     row.add_css_class("error")
@@ -514,22 +544,39 @@ class CmdBarWindow(Adw.ApplicationWindow):
     def _on_sample_input_changed(self, row, param_name):
         self._update_live_preview()
 
-    def _on_param_name_changed(self, entry, p_idx):
+    def _on_param_name_changed(self, entry, p_key):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"][p_idx]["name"] = entry.get_text().strip()
+        params = self.app.config["categories"][c_idx]["commands"][s_idx].get("parameters")
+        new_name = entry.get_text().strip()
+        if isinstance(params, dict):
+            if p_key in params and new_name and p_key != new_name:
+                p_cfg = params.pop(p_key)
+                params[new_name] = p_cfg
+        elif isinstance(params, list) and isinstance(p_key, int) and 0 <= p_key < len(params):
+            params[p_key]["name"] = new_name
         self._render_test_preview_section()
 
-    def _on_param_regex_changed(self, entry, p_idx):
+    def _on_param_regex_changed(self, entry, p_key):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"][p_idx]["regex"] = entry.get_text().strip()
+        params = self.app.config["categories"][c_idx]["commands"][s_idx].get("parameters")
+        val = entry.get_text().strip()
+        if isinstance(params, dict) and p_key in params:
+            params[p_key]["regex"] = val
+        elif isinstance(params, list) and isinstance(p_key, int) and 0 <= p_key < len(params):
+            params[p_key]["regex"] = val
         self._update_live_preview()
 
-    def _on_param_err_msg_changed(self, entry, p_idx):
+    def _on_param_err_msg_changed(self, entry, p_key):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"][p_idx]["error_message"] = entry.get_text().strip()
+        params = self.app.config["categories"][c_idx]["commands"][s_idx].get("parameters")
+        val = entry.get_text().strip()
+        if isinstance(params, dict) and p_key in params:
+            params[p_key]["error_message"] = val
+        elif isinstance(params, list) and isinstance(p_key, int) and 0 <= p_key < len(params):
+            params[p_key]["error_message"] = val
         self._update_live_preview()
 
     def _on_verified_toggled(self, row, pspec):
@@ -537,10 +584,15 @@ class CmdBarWindow(Adw.ApplicationWindow):
         s_idx = self.app.selected_shortcut_idx
         self.app.config["categories"][c_idx]["commands"][s_idx]["verified"] = row.get_active()
 
-    def _on_param_secure_toggled(self, check, p_idx):
+    def _on_param_secure_toggled(self, check, p_key):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
-        self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"][p_idx]["secure"] = check.get_active()
+        params = self.app.config["categories"][c_idx]["commands"][s_idx].get("parameters")
+        is_active = check.get_active()
+        if isinstance(params, dict) and p_key in params:
+            params[p_key]["secure"] = is_active
+        elif isinstance(params, list) and isinstance(p_key, int) and 0 <= p_key < len(params):
+            params[p_key]["secure"] = is_active
         self._render_test_preview_section()
 
     # --- Button & Menu Click Handlers ---
@@ -622,13 +674,12 @@ class CmdBarWindow(Adw.ApplicationWindow):
             "name": f"New Shortcut {len(cat.get('commands', [])) + 1}",
             "command": "echo \"Hello\" <arg>",
             "mode": "shell-quoted",
-            "parameters": [
-                {
-                    "name": "arg",
+            "parameters": {
+                "arg": {
                     "regex": "^[a-zA-Z0-9_]+$",
                     "error_message": "Alphanumeric only!"
                 }
-            ]
+            }
         }
         cat.get("commands", []).append(new_sc)
         self.app.selected_category_idx = c_idx
@@ -656,22 +707,30 @@ class CmdBarWindow(Adw.ApplicationWindow):
         if c_idx is None or s_idx is None:
             return
 
-        new_param = {
-            "name": f"param{len(self.app.config['categories'][c_idx]['commands'][s_idx].get('parameters', [])) + 1}",
+        cmd = self.app.config['categories'][c_idx]['commands'][s_idx]
+        params = cmd.get("parameters")
+        if not isinstance(params, dict):
+            params = {}
+            cmd["parameters"] = params
+        new_param_name = f"param{len(params) + 1}"
+        params[new_param_name] = {
             "regex": "",
             "error_message": ""
         }
-        self.app.config["categories"][c_idx]["commands"][s_idx].get("parameters", []).append(new_param)
         self._render_parameters_list()
         self._render_test_preview_section()
 
-    def _on_delete_parameter_clicked(self, btn, p_idx):
+    def _on_delete_parameter_clicked(self, btn, p_key):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
         if c_idx is None or s_idx is None:
             return
 
-        self.app.config["categories"][c_idx]["commands"][s_idx]["parameters"].pop(p_idx)
+        params = self.app.config["categories"][c_idx]["commands"][s_idx].get("parameters")
+        if isinstance(params, dict):
+            params.pop(p_key, None)
+        elif isinstance(params, list) and isinstance(p_key, int) and 0 <= p_key < len(params):
+            params.pop(p_key)
         self._render_parameters_list()
         self._render_test_preview_section()
 
@@ -706,8 +765,13 @@ if __name__ == "__main__":
                 print(f"    Mode    : {sc['mode']}")
                 if sc.get("parameters"):
                     print("    Params  :")
-                    for p in sc["parameters"]:
-                        print(f"      * {p['name']} (regex: '{p.get('regex', '')}')")
+                    params = sc["parameters"]
+                    if isinstance(params, dict):
+                        for p_name, p_cfg in params.items():
+                            print(f"      * {p_name} (regex: '{p_cfg.get('regex', '')}')")
+                    elif isinstance(params, list):
+                        for p in params:
+                            print(f"      * {p.get('name')} (regex: '{p.get('regex', '')}')")
         print("="*60)
         sys.exit(0)
 

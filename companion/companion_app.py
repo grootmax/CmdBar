@@ -299,41 +299,53 @@ def substitute_and_quote_command(template, params_data):
 
 
 def tokenize_and_substitute(template, params=None):
-    """
-    Splits template into token list and substitutes parameter values.
-    """
-    if params is None:
-        params = {}
-    tokens = shlex.split(template)
+    if not template:
+        return []
+    if isinstance(template, list):
+        tokens = list(template)
+    else:
+        tokens = shlex.split(template)
+    if not params:
+        return tokens
     result = []
-    for t in tokens:
+    for token in tokens:
+        sub = token
         for k, v in params.items():
-            t = t.replace(f"{{{k}}}", str(v)).replace(f"<{k}>", str(v))
-        result.append(t)
+            str_v = str(v) if v is not None else ""
+            sub = sub.replace(f"{{{k}}}", str_v)
+            sub = sub.replace(f"<{k}>", str_v)
+            sub = sub.replace(f"{{{{{k}}}}}", str_v)
+        result.append(sub)
     return result
 
 
 def get_preview_tokens(tokens, params=None, schema=None):
-    """
-    Generates preview tokens redacting sensitive/secure parameters.
-    """
-    if params is None:
-        params = {}
-    if schema is None:
-        schema = []
-    secure_params = set()
+    if not tokens:
+        return []
+    secure_keys = set()
     if isinstance(schema, list):
-        for p in schema:
-            if isinstance(p, dict) and p.get("secure"):
-                secure_params.add(p.get("name"))
-    result = []
+        for item in schema:
+            if isinstance(item, dict) and item.get("secure"):
+                secure_keys.add(item.get("name"))
+    elif isinstance(schema, dict):
+        for k, v in schema.items():
+            if isinstance(v, dict) and v.get("secure"):
+                secure_keys.add(k)
+    preview = []
     for token in tokens:
-        replaced = token
-        for k, v in params.items():
-            val = "[REDACTED]" if k in secure_params else str(v)
-            replaced = replaced.replace(f"{{{k}}}", val).replace(f"<{k}>", val)
-        result.append(replaced)
-    return result
+        sub = token
+        if params:
+            for k, v in params.items():
+                val_str = str(v) if v is not None else ""
+                is_secure = (k in secure_keys) or any(s in k.lower() for s in ["password", "secret", "token"])
+                replace_val = "[REDACTED]" if is_secure else val_str
+                sub = sub.replace(f"{{{k}}}", replace_val)
+                sub = sub.replace(f"<{k}>", replace_val)
+                sub = sub.replace(f"{{{{{k}}}}}", replace_val)
+                if is_secure and val_str and val_str in sub:
+                    sub = sub.replace(val_str, "[REDACTED]")
+        preview.append(sub)
+    return preview
 
 
 def run_command_in_shell(command_str):
@@ -761,33 +773,33 @@ if GUI_AVAILABLE:
             if not self.validate_all():
                 return
             
-            if not self.command.get("verified", True):
-                if Adw and hasattr(Adw, "MessageDialog"):
+            params_data = {ph: self.entries[ph].get_text() for ph in self.placeholders}
+            final_cmd = substitute_and_quote_command(self.command.get('template', ''), params_data)
+
+            if self.command.get('verified') is False:
+                if GUI_AVAILABLE:
                     dlg = Adw.MessageDialog.new(
                         self,
-                        "Unverified Command",
-                        "This command is unverified. Are you sure you want to run it?"
+                        f"Confirm Execution: {self.command.get('name', 'Command')}",
+                        f"This command is unverified:\n\n{final_cmd}\n\nDo you want to execute it?"
                     )
                     dlg.add_response("cancel", "Cancel")
-                    dlg.add_response("run", "Run")
+                    dlg.add_response("execute", "Execute")
                     
-                    def on_response(dialog, response):
-                        if response != "run":
+                    def on_response(dialog, response_id):
+                        if response_id == "execute":
+                            self._start_execution(final_cmd)
+                        else:
                             buffer = self.output_view.get_buffer()
                             buffer.set_text("Execution cancelled by user confirmation dialog.\n")
-                            return
-                        self._execute_run()
                     
                     dlg.connect("response", on_response)
                     dlg.present()
                     return
 
-            self._execute_run()
+            self._start_execution(final_cmd)
 
-        def _execute_run(self):
-            params_data = {ph: self.entries[ph].get_text() for ph in self.placeholders}
-            final_cmd = substitute_and_quote_command(self.command['template'], params_data)
-            
+        def _start_execution(self, final_cmd):
             # Print construction & execution log
             buffer = self.output_view.get_buffer()
             buffer.set_text(f"Constructed Command:\n{final_cmd}\n\nRunning in shell...\n")

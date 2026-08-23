@@ -51,25 +51,23 @@ DEFAULT_CONFIG = {
           "name": "Ping Host",
           "command": "ping -c 3 <host>",
           "mode": "shell-quoted",
-          "parameters": [
-            {
-              "name": "host",
+          "parameters": {
+            "host": {
               "regex": "^[a-zA-Z0-9.-]+$",
               "error_message": "Invalid host format! Must contain only alphanumeric, dots, and dashes."
             }
-          ]
+          }
         },
         {
           "name": "Direct Exec",
           "command": "/usr/bin/echo \"Hello\" <arg>",
           "mode": "direct-array",
-          "parameters": [
-            {
-              "name": "arg",
+          "parameters": {
+            "arg": {
               "regex": "^[a-zA-Z0-9_]+$",
               "error_message": "Invalid argument format! Must be alphanumeric or underscore."
             }
-          ]
+          }
         }
       ]
     }
@@ -158,16 +156,15 @@ def load_config(path=None):
                     if "template" in cmd and "command" not in cmd:
                         cmd["command"] = cmd["template"]
                         migrated = True
-                    if "parameters" in cmd and isinstance(cmd["parameters"], dict):
-                        params_list = []
-                        for param_name, param_cfg in cmd["parameters"].items():
-                            p_dict = {"name": param_name}
-                            if "regex" in param_cfg:
-                                p_dict["regex"] = param_cfg["regex"]
-                            if "placeholder" in param_cfg:
-                                p_dict["placeholder"] = param_cfg["placeholder"]
-                            params_list.append(p_dict)
-                        cmd["parameters"] = params_list
+                    if "parameters" in cmd and isinstance(cmd["parameters"], list):
+                        params_dict = {}
+                        for p in cmd["parameters"]:
+                            if isinstance(p, dict):
+                                p_name = p.get("name")
+                                if p_name:
+                                    p_cfg = {k: v for k, v in p.items() if k != "name"}
+                                    params_dict[p_name] = p_cfg
+                        cmd["parameters"] = params_dict
                         migrated = True
                         
         if migrated:
@@ -176,16 +173,10 @@ def load_config(path=None):
         config_data.pop("signature", None)
         return config_data
     except Exception:
-        # Fallback to default if corrupt
-        backup_path = path + ".bak"
-        try:
-            if os.path.exists(path):
-                os.replace(path, backup_path)
-        except Exception:
-            pass
+        # Fallback to default in memory if corrupt
         default_copy = json.loads(json.dumps(DEFAULT_CONFIG))
-        save_config(default_copy, path)
         default_copy.pop("signature", None)
+        default_copy["_is_invalid"] = True
         return default_copy
 
 def save_config(config_data, path=None):
@@ -196,8 +187,8 @@ def save_config(config_data, path=None):
         key_path = get_key_path(path)
         key = get_or_create_signing_key(key_path)
         config_data["signature"] = compute_signature(config_data, key)
-    with open(path, "w") as f:
-        json.dump(config_data, f, indent=2)
+    from app.atomic_write import atomic_write_json
+    atomic_write_json(path, config_data)
 
 def validate_parameter_value(value, parameter_schema):
     """
@@ -240,8 +231,17 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
     """
     errors = {}
     
+    schema_items = []
+    if isinstance(parameters_schema, dict):
+        for p_name, p_cfg in parameters_schema.items():
+            item = dict(p_cfg) if isinstance(p_cfg, dict) else {}
+            item["name"] = p_name
+            schema_items.append(item)
+    elif isinstance(parameters_schema, list):
+        schema_items = parameters_schema
+
     # First, validate all parameters
-    for param in parameters_schema:
+    for param in schema_items:
         name = param.get("name")
         val = parameter_values.get(name, "")
         is_valid, err_msg = validate_parameter_value(val, param)
@@ -251,7 +251,7 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
     # We should mask secure parameter values *only* for the preview substitution.
     # The actual validation must have already run on the plain-text value.
     preview_values = {}
-    for param in parameters_schema:
+    for param in schema_items:
         name = param.get("name")
         val = parameter_values.get(name, "")
         val = str(val).strip() if val is not None else ""
