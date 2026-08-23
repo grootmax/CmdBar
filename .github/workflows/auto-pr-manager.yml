@@ -362,19 +362,22 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
-                git diff \
-                  --name-only \
-                  --diff-filter=U |
-                while IFS= read -r FILE; do
+                CONFLICTED_FILES=$(git diff --name-only --diff-filter=U)
 
-                  echo "Resolving conflict:"
-                  echo "  $FILE"
+                if [ -n "$CONFLICTED_FILES" ]; then
+                  while IFS= read -r FILE; do
+                    [ -z "$FILE" ] && continue
 
-                  git checkout --theirs -- "$FILE" || git rm -- "$FILE"
+                    echo "Resolving conflict:"
+                    echo "  $FILE"
 
-                  git add -- "$FILE"
+                    if ! git checkout --theirs -- "$FILE" 2>/dev/null; then
+                      git rm -- "$FILE" 2>/dev/null || true
+                    fi
 
-                done
+                    git add -- "$FILE" 2>/dev/null || true
+                  done <<< "$CONFLICTED_FILES"
+                fi
 
                 # ==================================================
                 # VERIFY NO CONFLICTS REMAIN
@@ -415,8 +418,12 @@ jobs:
                 echo ""
                 echo "Committing conflict resolution..."
 
-                git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                if ! git diff --cached --quiet; then
+                  git commit \
+                    -m "chore: auto-resolve merge conflicts"
+                else
+                  echo "No changes staged to commit."
+                fi
 
               fi
 
