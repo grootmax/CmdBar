@@ -14,18 +14,19 @@ from companion.yubikey_auth import (
 )
 from companion.event_triggers import EventTriggerEngine
 from companion.stream_deck import get_stream_deck_manager
+from companion.rate_limiter import APIRateLimiter, default_rate_limiter
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, and manages signals for CommandExecuted,
+    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, rate limiting API, and manages signals for CommandExecuted,
     CommandOutput, and EventTriggered.
     :visibility: public
     """
 
-    def __init__(self, config_path=None):
+    def __init__(self, config_path=None, rate_limiter=None):
         self.config_path = config_path
         self._executed_listeners = []
         self._output_listeners = []
@@ -36,6 +37,7 @@ class CmdBarDBusService:
         self._event_triggered_listeners = []
         self.trigger_engine = EventTriggerEngine()
         self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
+        self.rate_limiter = rate_limiter or APIRateLimiter()
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:
@@ -322,7 +324,6 @@ class CmdBarDBusService:
         Validates category access for active SSO session.
         """
         return self._sso_manager.validate_category_access(session_id, category_name)
-
     def get_resource_metrics(self) -> dict:
         if hasattr(self, "_resource_monitor") and self._resource_monitor:
             return self._resource_monitor.get_metrics_dict()
@@ -421,3 +422,39 @@ class CmdBarDBusService:
             res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
             return res.get("status") in ("executed", "profile_switched")
         return False
+
+    def check_rate_limit(self, client_id: str, route: str = "default") -> dict:
+        """
+        Checks rate limit for client and route without consuming tokens.
+
+        :param client_id: Client identifier.
+        :param route: API route name.
+        :return: Evaluation result dict.
+
+        :visibility: public
+        """
+        return self.rate_limiter.check_limit(client_id, route=route)
+
+    def consume_rate_limit(self, client_id: str, route: str = "default", cost: int = 1) -> dict:
+        """
+        Consumes rate limit tokens for client and route.
+
+        :param client_id: Client identifier.
+        :param route: API route name.
+        :param cost: Token cost.
+        :return: Result dict.
+
+        :visibility: public
+        """
+        return self.rate_limiter.consume(client_id, route=route, cost=cost)
+
+    def get_rate_limit_analytics(self, client_id: str = None) -> dict:
+        """
+        Retrieves rate limit analytics metrics.
+
+        :param client_id: Optional client ID filter.
+        :return: Metrics dict.
+
+        :visibility: public
+        """
+        return self.rate_limiter.get_analytics(client_id=client_id)
