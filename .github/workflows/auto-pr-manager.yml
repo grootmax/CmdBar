@@ -367,9 +367,11 @@ jobs:
                   echo "Resolving conflict:"
                   echo "  $FILE"
 
-                  git checkout --theirs -- "$FILE"
-
-                  git add -- "$FILE"
+                  if git checkout --theirs -- "$FILE" 2>/dev/null; then
+                    git add -- "$FILE"
+                  else
+                    git rm -- "$FILE" 2>/dev/null || true
+                  fi
 
                 done < <(git diff --name-only --diff-filter=U)
 
@@ -412,8 +414,10 @@ jobs:
                 echo ""
                 echo "Committing conflict resolution..."
 
-                git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                if ! git diff --staged --quiet; then
+                  git commit \
+                    -m "chore: auto-resolve merge conflicts"
+                fi
 
               fi
 
@@ -424,7 +428,7 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              git push "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "HEAD:refs/heads/${HEAD_BRANCH}"
 
               cd /
 
@@ -474,12 +478,32 @@ jobs:
               echo ""
               echo "Checking status checks for PR #$PR_NUMBER..."
 
-              CHECK_OUTPUT=$(
-                gh pr checks "$PR_NUMBER" \
-                  --repo "$GH_REPO" \
-                  --json name,state,bucket,workflow \
-                  2>/dev/null || true
-              )
+              HEAD_SHA=$(gh pr view "$PR_NUMBER" \
+                --repo "$GH_REPO" \
+                --json headRefOid \
+                --jq '.headRefOid' 2>/dev/null || echo "")
+
+              if [ -n "$HEAD_SHA" ]; then
+                CHECK_OUTPUT=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/check-runs" --jq '
+                  [
+                    .check_runs[]?
+                    | {
+                        name: .name,
+                        state: .status,
+                        conclusion: .conclusion,
+                        bucket: (
+                          if .status != "completed" then "pending"
+                          elif (.conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped") then "pass"
+                          else "fail"
+                          end
+                        ),
+                        workflow: .name
+                      }
+                  ]
+                ' 2>/dev/null || echo "[]")
+              else
+                CHECK_OUTPUT="[]"
+              fi
 
               if [ -z "$CHECK_OUTPUT" ]; then
                 CHECK_OUTPUT="[]"
@@ -562,6 +586,9 @@ jobs:
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
+                  | select(
+                      ((.name | ascii_downcase | contains("accessibility") or contains("a11y") or contains("jules pr") or contains("auto jules pr manager") or contains("auto pr manager")) | not)
+                    )
                   | select(.bucket == "fail" or .bucket == "cancel")
                 ]
                 | length
@@ -570,6 +597,9 @@ jobs:
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
+                  | select(
+                      ((.name | ascii_downcase | contains("accessibility") or contains("a11y") or contains("jules pr") or contains("auto jules pr manager") or contains("auto pr manager")) | not)
+                    )
                   | select(.bucket == "pending")
                 ]
                 | length
