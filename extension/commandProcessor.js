@@ -608,7 +608,7 @@ export function rankCommands(commands, query, usageMap = {}) {
   for (const cmd of commands) {
     const commandStr = cmd.command || "";
     const nameStr = cmd.name || "";
-    const usage = usageMap[commandStr] || usageMap[nameStr] || 0;
+    const usage = (usageMap && (usageMap[commandStr] || usageMap[nameStr])) || 0;
 
     const cmdMatch = fuzzyMatch(query, commandStr, usage);
     const nameMatch = fuzzyMatch(query, nameStr, usage);
@@ -628,6 +628,7 @@ export function rankCommands(commands, query, usageMap = {}) {
       results.push({
         command: cmd,
         matchResult: bestMatch,
+        matches: bestMatch.matches,
         score: bestMatch.score,
       });
     }
