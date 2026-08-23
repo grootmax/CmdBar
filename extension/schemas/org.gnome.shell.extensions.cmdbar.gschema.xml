@@ -26,5 +26,10 @@
       <summary>Auto-Format Command Output</summary>
       <description>Automatically format command output into pretty JSON, CSV/TSV tables, or code blocks.</description>
     </key>
+    <key name="active-workspace-id" type="s">
+      <default>''</default>
+      <summary>Active Workspace ID</summary>
+      <description>ID of the active organization workspace for shared team commands.</description>
+    </key>
   </schema>
 </schemalist>

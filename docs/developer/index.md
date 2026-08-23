@@ -22,3 +22,13 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Organization Workspaces Manager (`app/workspace_manager.py` & `extension/workspaceManager.js`)
+
+The Organization Workspaces architecture provides cross-platform management of team workspaces:
+- **RBAC Matrix**: Enforces `admin`, `member`, and `viewer` permissions across workspace management, shared command editing, private registry access, and analytics viewing.
+- **Category Merging**: Merges local categories with active workspace shared commands in under 2.5ms.
+- **Usage Analytics Engine**: Records execution metrics, success/failure counts, top commands, and recent event logs.
+- **Billing Quota Management**: Enforces quota limits per billing plan (`free`, `pro`, `enterprise`).
+- **Private Command Registries**: Manages versioned command package bundles for internal distribution.
+- **Slack Incoming Webhooks**: Formats and dispatches Slack Block Kit notifications for workspace execution and administration events.

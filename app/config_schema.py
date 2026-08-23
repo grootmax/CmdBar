@@ -51,6 +51,8 @@ DEFAULT_CONFIG = {
     "fallback_provider": "ollama",
     "fallback_model": "llama3"
   },
+  "workspaces": [],
+  "active_workspace_id": None,
   "categories": [
     {
       "name": "System Utilities",
