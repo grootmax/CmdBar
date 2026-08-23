@@ -19,6 +19,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 - **Import Wizard & Community Template Sharing** – Easily import templates from the built-in library, local JSON files, or remote URLs, and export custom commands into template schema JSON files.
 - **Output Formatters** – Automatically parse and nicely format command outputs: JSON pretty-printing with Pango markup & ANSI syntax highlighting, ASCII table rendering for CSV/TSV data, and monospaced boxed code blocks
 - **Multi-Step Command Chains** – Define sequential workflows with conditional logic ("Pull → Build → Deploy → Notify"), step dependencies, custom success criteria, pause prompts, real-time progress visualization, and automatic error handling with rollback commands.
+- **Command Result Caching** – Cache outputs of read-only commands (e.g. `git status`, `df -h`) with per-command TTL, JSON persistence (`~/.config/cmdbar/cache.json`), manual refresh buttons in menu items, and cache invalidation
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
 - **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences.
 - **Dynamic menu** – Fully driven by a simple JSON file

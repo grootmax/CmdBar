@@ -231,12 +231,6 @@ export async function saveConfigAtomicallyAsync(configData, customPath) {
       } catch (e) {}
     }
 
-    if (mode !== undefined) {
-      try {
-        await fs.promises.chmod(tempPath, mode);
-      } catch (e) {}
-    }
-
     // 4. Atomic rename/swap operation
     await fs.promises.rename(tempPath, targetPath);
   } catch (error) {
