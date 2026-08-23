@@ -6,6 +6,7 @@ import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
 from app.config_schema import validate_branding_config, get_effective_branding
 from companion.sso_manager import SSOManager, SSOProviderConfig
+from companion.stream_deck import get_stream_deck_manager
 from companion.yubikey_auth import (
     YubiKeyAuthManager,
     is_sensitive_command,
@@ -392,7 +393,6 @@ class CmdBarDBusService:
         :visibility: public
         """
         return self.trigger_engine.remove_trigger(trigger_id)
-
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
         if self.stream_deck_manager:

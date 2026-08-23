@@ -307,7 +307,17 @@ DEFAULT_CONFIG = {
       ]
     }
   ],
-  "triggers": []
+  "triggers": [],
+  "shared_audit_trail": {
+    "enabled": True,
+    "team_id": "default-team",
+    "workspace_id": "default-workspace",
+    "privacy_mode": False,
+    "pii_masking": True,
+    "retention_days": 90,
+    "siem_format": "cef",
+    "siem_endpoint": ""
+  }
 }
 
 

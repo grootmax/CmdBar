@@ -205,6 +205,16 @@ export const DEFAULT_CONFIG = {
     },
   ],
   triggers: [],
+  shared_audit_trail: {
+    enabled: true,
+    team_id: "default-team",
+    workspace_id: "default-workspace",
+    privacy_mode: false,
+    pii_masking: true,
+    retention_days: 90,
+    siem_format: "cef",
+    siem_endpoint: "",
+  },
 };
 
 const isNode =
