@@ -74,6 +74,21 @@ try {
     const readDataAsync = JSON.parse(fs.readFileSync(tempFile, 'utf8'));
     assert.deepStrictEqual(readDataAsync, testDataAsync, 'Written data should match source data (async)');
 
+    // 7. Workspace-Specific Config Standalone Verification
+    const { initWorkspaceConfig, loadWorkspaceConfig, WorkspaceManager } = await import('./extension/workspaceConfig.js');
+    const wsTestDir = path.join(tempDir, 'ws-test-dir');
+    const { config: wsConfig, configPath: wsPath } = initWorkspaceConfig(wsTestDir, 'node');
+    assert.strictEqual(fs.existsSync(wsPath), true, 'Workspace config file should be created');
+    assert.strictEqual(wsConfig.workspace.template, 'node', 'Workspace template should be node');
+
+    const loadedWs = loadWorkspaceConfig(wsTestDir);
+    assert.notStrictEqual(loadedWs, null, 'Workspace config should load successfully');
+
+    const wsManager = new WorkspaceManager();
+    wsManager.setCurrentCwd(wsTestDir);
+    const activeWsCfg = wsManager.getActiveConfig();
+    assert.strictEqual(activeWsCfg.categories.some(c => c.name === 'Node.js Scripts'), true, 'Active config should contain Node.js category');
+
     // Cleanup temp files & dir
     if (fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true });

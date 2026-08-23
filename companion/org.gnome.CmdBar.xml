@@ -28,6 +28,32 @@
       <annotation name="org.freedesktop.DBus.Description" value="Get list of commands as JSON string"/>
       <arg name="json_commands" type="s" direction="out"/>
     </method>
+
+    <method name="DetectWorkspace">
+      <annotation name="org.freedesktop.DBus.Description" value="Auto-detect workspace config from working directory"/>
+      <arg name="cwd" type="s" direction="in"/>
+      <arg name="has_workspace" type="b" direction="out"/>
+      <arg name="workspace_path" type="s" direction="out"/>
+    </method>
+
+    <method name="InitWorkspace">
+      <annotation name="org.freedesktop.DBus.Description" value="Initialize workspace config from template"/>
+      <arg name="cwd" type="s" direction="in"/>
+      <arg name="template_name" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+      <arg name="config_path" type="s" direction="out"/>
+    </method>
+
+    <method name="SwitchWorkspace">
+      <annotation name="org.freedesktop.DBus.Description" value="Switch active workspace to specified directory"/>
+      <arg name="cwd" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="ListWorkspaces">
+      <annotation name="org.freedesktop.DBus.Description" value="List known workspace configurations as JSON"/>
+      <arg name="json_workspaces" type="s" direction="out"/>
+    </method>
     
     <signal name="CommandExecuted">
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a command finishes execution"/>
