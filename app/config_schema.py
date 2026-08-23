@@ -295,6 +295,15 @@ DEFAULT_CONFIG = {
         "rules": [],
         "overrides": [],
     },
+    "midi": {
+        "enabled": True,
+        "performance_mode": False,
+        "active_bank": "Bank 1",
+        "active_deck": "Deck A",
+        "led_feedback": True,
+        "mappings": [],
+    },
+    },
     "iot": {
         "enabled": False,
         "mqtt": {
