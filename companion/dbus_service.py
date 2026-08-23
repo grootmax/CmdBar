@@ -4,6 +4,7 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.workspace_config import get_effective_config, switch_workspace, create_workspace_config
 
 class CmdBarDBusService:
     """
@@ -131,3 +132,17 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def get_effective_config(self, cwd: str = None) -> dict:
+        return get_effective_config(cwd=cwd, global_config_path=self.config_path)
+
+    def get_effective_config_json(self, cwd: str = None) -> str:
+        return json.dumps(self.get_effective_config(cwd=cwd))
+
+    def switch_workspace(self, new_cwd: str) -> dict:
+        return switch_workspace(new_cwd=new_cwd, global_config_path=self.config_path)
+
+    def init_workspace(self, dir_path: str = None, template_name: str = "generic") -> str:
+        res = create_workspace_config(target_dir=dir_path, template_name=template_name)
+        return res.get("config_path", "")
+

@@ -1,4 +1,4 @@
-import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
+import { loadConfig, saveConfig, getDefaultConfigPath, getEffectiveConfig, createWorkspaceConfig } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
@@ -20,6 +20,19 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
+    </method>
+    <method name="GetEffectiveConfig">
+      <arg name="cwd" type="s" direction="in"/>
+      <arg name="json_config" type="s" direction="out"/>
+    </method>
+    <method name="SwitchWorkspace">
+      <arg name="cwd" type="s" direction="in"/>
+      <arg name="json_config" type="s" direction="out"/>
+    </method>
+    <method name="InitWorkspace">
+      <arg name="dir_path" type="s" direction="in"/>
+      <arg name="template_name" type="s" direction="in"/>
+      <arg name="config_path" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -228,6 +241,48 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
+    }
+  }
+
+  async GetEffectiveConfig(cwd) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const cfg = await getEffectiveConfig(cwd, configPath);
+      return JSON.stringify(cfg);
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetEffectiveConfig error: ${e.message}`);
+      return JSON.stringify({});
+    }
+  }
+
+  async SwitchWorkspace(cwd) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const cfg = await getEffectiveConfig(cwd, configPath);
+      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        this._indicator._reloadMenu(cfg);
+      }
+      return JSON.stringify(cfg);
+    } catch (e) {
+      console.error(`CmdBar D-Bus SwitchWorkspace error: ${e.message}`);
+      return JSON.stringify({});
+    }
+  }
+
+  async InitWorkspace(dirPath, templateName) {
+    try {
+      const result = await createWorkspaceConfig(dirPath, templateName || "generic");
+      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        this._indicator._reloadMenu();
+      }
+      return result.configPath || "";
+    } catch (e) {
+      console.error(`CmdBar D-Bus InitWorkspace error: ${e.message}`);
+      return "";
     }
   }
 

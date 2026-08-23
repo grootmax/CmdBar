@@ -240,3 +240,15 @@ export async function saveConfigAtomicallyAsync(configData, customPath) {
         throw error;
     }
 }
+
+export {
+    findGitRoot,
+    findWorkspaceConfig,
+    createWorkspaceConfig,
+    mergeConfigs,
+    getEffectiveConfig,
+    switchWorkspace,
+    PROJECT_TEMPLATES,
+    WORKSPACE_FILE_NAMES,
+} from "../extension/workspaceConfig.js";
+

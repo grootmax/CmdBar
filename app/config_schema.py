@@ -303,3 +303,15 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
         # We can also append the list format to be 100% explicit
         array_preview += f"\nArgs List: {json.dumps(resolved_parts)}"
         return array_preview, errors
+
+
+from companion.workspace_config import (
+    find_git_root,
+    find_workspace_config,
+    create_workspace_config,
+    merge_configs,
+    get_effective_config,
+    switch_workspace,
+    PROJECT_TEMPLATES,
+)
+
