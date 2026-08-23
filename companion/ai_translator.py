@@ -7,8 +7,37 @@ Supports OpenAI, Anthropic (Claude), and Ollama (local model), with fallback.
 import os
 import re
 import json
+import ssl
 import urllib.request
 import urllib.error
+from urllib.parse import urlparse, urlunparse
+
+
+def apply_domain_alias(endpoint: str, domain_alias: str) -> str:
+    """
+    Applies domain alias override to endpoint URL if specified.
+    """
+    if not endpoint or not isinstance(endpoint, str):
+        return endpoint or ""
+    if not domain_alias or not isinstance(domain_alias, str) or not domain_alias.strip():
+        return endpoint
+
+    alias = domain_alias.strip()
+    if alias.startswith("http://") or alias.startswith("https://"):
+        base = alias.rstrip("/")
+        try:
+            parsed = urlparse(endpoint)
+            return f"{base}{parsed.path}" + (f"?{parsed.query}" if parsed.query else "")
+        except Exception:
+            return f"{base}/{endpoint.lstrip('/')}"
+    else:
+        try:
+            parsed = urlparse(endpoint)
+            # preserve scheme and path, replace netloc/host
+            new_parsed = parsed._replace(netloc=alias)
+            return urlunparse(new_parsed)
+        except Exception:
+            return endpoint
 
 
 def parse_command_from_ai_response(response_text: str) -> str:
@@ -96,9 +125,12 @@ def build_ai_request(provider: str, raw_prompt: str, options: dict = None) -> tu
     )
     temp = options.get("temperature", 0.2)
     api_key = get_ai_api_key(prov, options)
+    branding = options.get("branding") or (options if options.get("branding_enabled") else {})
+    domain_alias = options.get("domain_alias") or (branding.get("domain_alias") if isinstance(branding, dict) else "")
 
     if prov == "openai":
         endpoint = options.get("endpoint") or "https://api.openai.com/v1/chat/completions"
+        endpoint = apply_domain_alias(endpoint, domain_alias)
         model = options.get("model") or "gpt-4o"
         headers = {"Content-Type": "application/json"}
         if api_key:
@@ -115,6 +147,7 @@ def build_ai_request(provider: str, raw_prompt: str, options: dict = None) -> tu
 
     elif prov in ("anthropic", "claude"):
         endpoint = options.get("endpoint") or "https://api.anthropic.com/v1/messages"
+        endpoint = apply_domain_alias(endpoint, domain_alias)
         model = options.get("model") or "claude-3-5-sonnet-20241022"
         headers = {
             "Content-Type": "application/json",
@@ -134,6 +167,7 @@ def build_ai_request(provider: str, raw_prompt: str, options: dict = None) -> tu
 
     elif prov == "ollama":
         endpoint = options.get("endpoint") or "http://localhost:11434/api/generate"
+        endpoint = apply_domain_alias(endpoint, domain_alias)
         model = options.get("model") or "llama3"
         headers = {"Content-Type": "application/json"}
         if api_key:
@@ -193,13 +227,31 @@ def extract_ai_response_text(provider: str, response_data: dict) -> str:
     )
 
 
-def http_post_json(url: str, headers: dict, data_bytes: bytes, timeout: int = 15) -> dict:
+def http_post_json(url: str, headers: dict, data_bytes: bytes, timeout: int = 15, ssl_options: dict = None) -> dict:
     """
-    Executes HTTP POST using urllib.request.
+    Executes HTTP POST using urllib.request with Custom SSL support.
     """
     req = urllib.request.Request(url, data=data_bytes, headers=headers, method="POST")
+    ctx = None
+    if ssl_options and isinstance(ssl_options, dict):
+        verify = ssl_options.get("verify_ssl", True)
+        if not verify:
+            ctx = ssl._create_unverified_context()
+        else:
+            ctx = ssl.create_default_context()
+        ca_path = ssl_options.get("ca_path")
+        cert_path = ssl_options.get("cert_path")
+        key_path = ssl_options.get("key_path")
+        if ca_path and os.path.exists(ca_path):
+            ctx.load_verify_locations(cafile=ca_path)
+        if cert_path and os.path.exists(cert_path):
+            ctx.load_cert_chain(certfile=cert_path, keyfile=key_path if key_path and os.path.exists(key_path) else None)
+
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        kwargs = {"timeout": timeout}
+        if ctx is not None:
+            kwargs["context"] = ctx
+        with urllib.request.urlopen(req, **kwargs) as resp:
             resp_body = resp.read().decode("utf-8")
             return json.loads(resp_body)
     except urllib.error.HTTPError as e:
@@ -220,13 +272,18 @@ def translate_natural_language_to_command(raw_prompt: str, config: dict = None) 
 
     config = config or {}
     ai_cfg = config.get("ai", config) if isinstance(config, dict) else {}
+    branding_cfg = config.get("branding", {}) if isinstance(config, dict) else {}
     primary_provider = (ai_cfg.get("provider") or "openai").lower()
     fallback_provider = (ai_cfg.get("fallback_provider") or "ollama").lower()
+    ssl_opts = branding_cfg.get("custom_ssl") if isinstance(branding_cfg, dict) else None
+
+    opts = dict(ai_cfg) if isinstance(ai_cfg, dict) else {}
+    opts["branding"] = branding_cfg
 
     # Try Primary Provider
     try:
-        url, headers, body, prov = build_ai_request(primary_provider, prompt, ai_cfg)
-        res = http_post_json(url, headers, body)
+        url, headers, body, prov = build_ai_request(primary_provider, prompt, opts)
+        res = http_post_json(url, headers, body, ssl_options=ssl_opts) if ssl_opts else http_post_json(url, headers, body)
         text = extract_ai_response_text(prov, res)
         cmd = parse_command_from_ai_response(text)
         if cmd:
@@ -238,10 +295,10 @@ def translate_natural_language_to_command(raw_prompt: str, config: dict = None) 
 
         # Try Fallback Provider (e.g. Ollama)
         try:
-            fallback_opts = dict(ai_cfg)
+            fallback_opts = dict(opts)
             fallback_opts["model"] = ai_cfg.get("fallback_model") or ("llama3" if fallback_provider == "ollama" else ai_cfg.get("model"))
             url, headers, body, prov = build_ai_request(fallback_provider, prompt, fallback_opts)
-            res = http_post_json(url, headers, body)
+            res = http_post_json(url, headers, body, ssl_options=ssl_opts) if ssl_opts else http_post_json(url, headers, body)
             text = extract_ai_response_text(prov, res)
             cmd = parse_command_from_ai_response(text)
             if cmd:

@@ -26,5 +26,30 @@
       <summary>Auto-Format Command Output</summary>
       <description>Automatically format command output into pretty JSON, CSV/TSV tables, or code blocks.</description>
     </key>
+    <key name="white-label-enabled" type="b">
+      <default>false</default>
+      <summary>White Label Option</summary>
+      <description>Enable Enterprise white-label custom branding.</description>
+    </key>
+    <key name="organization-name" type="s">
+      <default>''</default>
+      <summary>Enterprise Identity / Organization Name</summary>
+      <description>Custom brand or organization name for enterprise white labeling.</description>
+    </key>
+    <key name="brand-color" type="s">
+      <default>''</default>
+      <summary>Brand Color</summary>
+      <description>Custom primary brand accent color hex code (e.g. #0055ff).</description>
+    </key>
+    <key name="domain-alias" type="s">
+      <default>''</default>
+      <summary>Domain Alias</summary>
+      <description>Custom domain alias or API base endpoint for enterprise routing.</description>
+    </key>
+    <key name="custom-ssl-cert" type="s">
+      <default>''</default>
+      <summary>Custom SSL Certificate</summary>
+      <description>Path to custom SSL/TLS certificate for enterprise TLS verification.</description>
+    </key>
   </schema>
 </schemalist>
