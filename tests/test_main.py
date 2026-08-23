@@ -110,10 +110,10 @@ def test_cli_companion_compatibility_translation():
         
         cmd = loaded["categories"][0]["commands"][0]
         assert cmd["command"] == "run {param1}"
-        assert isinstance(cmd["parameters"], list)
-        assert cmd["parameters"][0]["name"] == "param1"
-        assert cmd["parameters"][0]["regex"] == "^[a-z]+$"
-        assert cmd["parameters"][0]["placeholder"] == "Enter param"
+        assert isinstance(cmd["parameters"], dict)
+        assert "param1" in cmd["parameters"]
+        assert cmd["parameters"]["param1"]["regex"] == "^[a-z]+$"
+        assert cmd["parameters"]["param1"]["placeholder"] == "Enter param"
 
 
 def test_main_set_uniform_margin():
