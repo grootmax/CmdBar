@@ -28,6 +28,29 @@
       <annotation name="org.freedesktop.DBus.Description" value="Get list of commands as JSON string"/>
       <arg name="json_commands" type="s" direction="out"/>
     </method>
+
+    <method name="ListWindows">
+      <annotation name="org.freedesktop.DBus.Description" value="List active desktop windows as JSON string"/>
+      <arg name="json_windows" type="s" direction="out"/>
+    </method>
+
+    <method name="ControlWindow">
+      <annotation name="org.freedesktop.DBus.Description" value="Perform window management control operation (close, move, resize, tile)"/>
+      <arg name="action" type="s" direction="in"/>
+      <arg name="param" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="GetWindowPreview">
+      <annotation name="org.freedesktop.DBus.Description" value="Get ASCII visual window layout preview"/>
+      <arg name="preview_text" type="s" direction="out"/>
+    </method>
+
+    <method name="SwitchWorkspace">
+      <annotation name="org.freedesktop.DBus.Description" value="Switch active workspace"/>
+      <arg name="target" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
     
     <signal name="CommandExecuted">
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a command finishes execution"/>

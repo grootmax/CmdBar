@@ -10,6 +10,7 @@ import hmac
 import hashlib
 import secrets
 from companion.ai_translator import is_ai_command, translate_natural_language_to_command
+from companion.window_manager import execute_window_command
 from app.template_manager import (
     load_all_templates,
     load_template_file,
@@ -359,7 +360,18 @@ def get_preview_tokens(tokens, params=None, schema=None):
 def run_command_in_shell(command_str):
     """
     Runs the given command string inside a shell and returns (exit_code, stdout, stderr).
+    Also supports window management commands (cmdbar:window:...).
     """
+    if command_str and isinstance(command_str, str):
+        clean = command_str.strip()
+        if clean.startswith("cmdbar:window:") or clean.startswith("window:"):
+            win_res = execute_window_command(clean)
+            if win_res.get("isWindowCmd"):
+                res = win_res.get("result", {})
+                code = 0 if res.get("success", True) else 1
+                out = res.get("preview") or res.get("message") or ""
+                return code, out, ""
+
     try:
         res = subprocess.run(command_str, shell=True, text=True, capture_output=True)
         return res.returncode, res.stdout, res.stderr

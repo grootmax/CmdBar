@@ -78,6 +78,45 @@ DEFAULT_CONFIG = {
           }
         }
       ]
+    },
+    {
+      "name": "Window Management",
+      "commands": [
+        {
+          "name": "Close Focused Window",
+          "command": "cmdbar:window:close",
+          "shortcut": "<Super>q"
+        },
+        {
+          "name": "Tile Window Left",
+          "command": "cmdbar:window:tile left",
+          "shortcut": "<Super>Left"
+        },
+        {
+          "name": "Tile Window Right",
+          "command": "cmdbar:window:tile right",
+          "shortcut": "<Super>Right"
+        },
+        {
+          "name": "Maximize Window",
+          "command": "cmdbar:window:tile maximize",
+          "shortcut": "<Super>Up"
+        },
+        {
+          "name": "Next Workspace",
+          "command": "cmdbar:window:workspace next",
+          "shortcut": "<Control><Alt>Right"
+        },
+        {
+          "name": "Previous Workspace",
+          "command": "cmdbar:window:workspace prev",
+          "shortcut": "<Control><Alt>Left"
+        },
+        {
+          "name": "Show Window Preview",
+          "command": "cmdbar:window:preview"
+        }
+      ]
     }
   ]
 }

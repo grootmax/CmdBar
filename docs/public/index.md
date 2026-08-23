@@ -16,4 +16,5 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 - **Import Wizard & Community Sharing**: "Import from Template" wizard in the companion app to browse library or import community JSON templates, plus "Export Template" to share custom commands.
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
+- **Window Management Commands**: Control window close, move, resize, tile, switch workspace with custom shortcut keybindings, visual ASCII window layout previews, and multi-WM support (GNOME Shell, i3, sway, hyprland).
 - **Local Live Reload**: Configuration changes sync instantly.

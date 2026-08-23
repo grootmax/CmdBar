@@ -28,6 +28,61 @@
           "placeholder": "service-name & count"
         }
       ]
+    },
+    {
+      "name": "Window Management",
+      "commands": [
+        {
+          "name": "Close Focused Window",
+          "command": "cmdbar:window:close",
+          "shortcut": "<Super>q"
+        },
+        {
+          "name": "Tile Window Left",
+          "command": "cmdbar:window:tile left",
+          "shortcut": "<Super>Left"
+        },
+        {
+          "name": "Tile Window Right",
+          "command": "cmdbar:window:tile right",
+          "shortcut": "<Super>Right"
+        },
+        {
+          "name": "Maximize Window",
+          "command": "cmdbar:window:tile maximize",
+          "shortcut": "<Super>Up"
+        },
+        {
+          "name": "Move Window Left",
+          "command": "cmdbar:window:move left"
+        },
+        {
+          "name": "Move Window Right",
+          "command": "cmdbar:window:move right"
+        },
+        {
+          "name": "Resize Window Grow",
+          "command": "cmdbar:window:resize grow"
+        },
+        {
+          "name": "Resize Window Shrink",
+          "command": "cmdbar:window:resize shrink"
+        },
+        {
+          "name": "Next Workspace",
+          "command": "cmdbar:window:workspace next",
+          "shortcut": "<Control><Alt>Right"
+        },
+        {
+          "name": "Previous Workspace",
+          "command": "cmdbar:window:workspace prev",
+          "shortcut": "<Control><Alt>Left"
+        },
+        {
+          "name": "Show Window Preview",
+          "command": "cmdbar:window:preview"
+        }
+      ]
     }
   ]
 }

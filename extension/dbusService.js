@@ -1,5 +1,11 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import {
+  getWindowsList,
+  executeWindowCommand,
+  generateWindowPreview,
+  switchWorkspace as doSwitchWorkspace,
+} from "./windowManager.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -20,6 +26,21 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
+    </method>
+    <method name="ListWindows">
+      <arg name="json_windows" type="s" direction="out"/>
+    </method>
+    <method name="ControlWindow">
+      <arg name="action" type="s" direction="in"/>
+      <arg name="param" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetWindowPreview">
+      <arg name="preview_text" type="s" direction="out"/>
+    </method>
+    <method name="SwitchWorkspace">
+      <arg name="target" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -228,6 +249,46 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
+    }
+  }
+
+  ListWindows() {
+    try {
+      const windows = getWindowsList();
+      return JSON.stringify(windows);
+    } catch (e) {
+      console.error(`CmdBar D-Bus ListWindows error: ${e.message}`);
+      return JSON.stringify([]);
+    }
+  }
+
+  ControlWindow(action, param) {
+    try {
+      const cmdStr = `cmdbar:window:${action || "close"} ${param || ""}`;
+      const res = executeWindowCommand(cmdStr);
+      return Boolean(res && res.result && res.result.success);
+    } catch (e) {
+      console.error(`CmdBar D-Bus ControlWindow error: ${e.message}`);
+      return false;
+    }
+  }
+
+  GetWindowPreview() {
+    try {
+      return generateWindowPreview();
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetWindowPreview error: ${e.message}`);
+      return "Error generating window preview";
+    }
+  }
+
+  SwitchWorkspace(target) {
+    try {
+      const res = doSwitchWorkspace(target || "next");
+      return Boolean(res && res.success);
+    } catch (e) {
+      console.error(`CmdBar D-Bus SwitchWorkspace error: ${e.message}`);
+      return false;
     }
   }
 
