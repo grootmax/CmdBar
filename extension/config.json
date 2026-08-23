@@ -1,4 +1,12 @@
 {
+  "midi": {
+    "enabled": true,
+    "performance_mode": false,
+    "active_bank": "Bank 1",
+    "active_deck": "Deck A",
+    "led_feedback": true,
+    "mappings": []
+  },
   "categories": [
     {
       "name": "Projects",

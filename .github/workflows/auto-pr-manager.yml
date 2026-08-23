@@ -427,7 +427,9 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo "Warning: Failed to push $HEAD_BRANCH"
+              fi
 
               cd /
 

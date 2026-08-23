@@ -51,6 +51,14 @@ DEFAULT_CONFIG = {
     "fallback_provider": "ollama",
     "fallback_model": "llama3"
   },
+  "midi": {
+    "enabled": True,
+    "performance_mode": False,
+    "active_bank": "Bank 1",
+    "active_deck": "Deck A",
+    "led_feedback": True,
+    "mappings": []
+  },
   "categories": [
     {
       "name": "System Utilities",

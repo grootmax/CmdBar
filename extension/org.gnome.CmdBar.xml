@@ -29,6 +29,25 @@
       <arg name="json_commands" type="s" direction="out"/>
     </method>
     
+    <method name="ProcessMidiEvent">
+      <annotation name="org.freedesktop.DBus.Description" value="Process incoming MIDI event bytes from hardware controller"/>
+      <arg name="bytes" type="ay" direction="in"/>
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+
+    <method name="SetMidiBank">
+      <annotation name="org.freedesktop.DBus.Description" value="Switch active MIDI bank"/>
+      <arg name="bank" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="TogglePerformanceMode">
+      <annotation name="org.freedesktop.DBus.Description" value="Toggle high performance mode for zero-latency execution"/>
+      <arg name="enabled" type="b" direction="in"/>
+      <arg name="current_state" type="b" direction="out"/>
+    </method>
+    
     <signal name="CommandExecuted">
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a command finishes execution"/>
       <arg name="name" type="s"/>
