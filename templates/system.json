@@ -1,0 +1,60 @@
+[
+  {
+    "name": "System Disk Space Usage",
+    "description": "Display human-readable disk space breakdown",
+    "command": "df -h",
+    "category": "System Utilities",
+    "icon": "drive-harddisk-symbolic",
+    "mode": "shell-quoted"
+  },
+  {
+    "name": "Systemctl Service Status",
+    "description": "Check status of a system service",
+    "command": "systemctl status <service_name>",
+    "category": "System Utilities",
+    "icon": "system-run-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "service_name": {
+        "placeholder": "nginx",
+        "regex": "^[a-zA-Z0-9_.-]+$"
+      }
+    }
+  },
+  {
+    "name": "Find Process Listening on Port",
+    "description": "Identify process listening on given TCP port",
+    "command": "lsof -i :<port_number>",
+    "category": "System Utilities",
+    "icon": "network-workgroup-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "port_number": {
+        "placeholder": "8080",
+        "regex": "^[0-9]+$"
+      }
+    }
+  },
+  {
+    "name": "Journalctl Service Logs",
+    "description": "Tail live systemd logs for a service",
+    "command": "journalctl -u <service_name> -f -n 100",
+    "category": "System Utilities",
+    "icon": "document-open-recent-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "service_name": {
+        "placeholder": "docker",
+        "regex": "^[a-zA-Z0-9_.-]+$"
+      }
+    }
+  },
+  {
+    "name": "Memory and Swap Usage",
+    "description": "Display total, used, and free memory in megabytes",
+    "command": "free -m -h",
+    "category": "System Utilities",
+    "icon": "computer-symbolic",
+    "mode": "shell-quoted"
+  }
+]
