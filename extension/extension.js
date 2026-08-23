@@ -22,6 +22,14 @@ import {
   isAICommand,
   cleanAIPrompt,
 } from "./aiTranslator.js";
+import {
+  isCommandCacheable,
+  getCommandTTL,
+  CommandCacheStore,
+} from "./commandCache.js";
+
+export const globalCacheStore = new CommandCacheStore();
+globalCacheStore.init().catch(() => {});
 
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
@@ -266,12 +274,16 @@ function requestCommandConfirmation(
 
 /**
  * Run a command asynchronously as a direct tokenized array and notify the user when done.
+ * Supports command output caching with TTL, manual refresh, and cache invalidation.
  * @param {string} commandName
  * @param {string|string[]} commandString
  * @param {object} [cmdObj]
  * @param {object} [placeholderMap]
+ * @param {object} [config]
+ * @param {object} [options] Options object (e.g. { forceRefresh: true })
+ * @public
  */
-function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, config) {
+export function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, config, options = {}) {
   let rawCmdStr = Array.isArray(commandString)
     ? commandString.join(" ")
     : String(commandString || "");
@@ -286,11 +298,33 @@ function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, con
     : tokenizeCommand(commandString);
   let argv = substituteTokens(tokens, placeholderMap);
   if (argv.length === 0) {
-    Main.notify(
-      "Command Execution Failed",
-      "Command parsed to empty argument list.",
-    );
+    if (Main && typeof Main.notify === "function") {
+      Main.notify(
+        "Command Execution Failed",
+        "Command parsed to empty argument list.",
+      );
+    }
     return;
+  }
+
+  let cacheKey = argv.join(" ");
+  let cacheable = isCommandCacheable(cmdObj);
+  let forceRefresh = Boolean(options && options.forceRefresh);
+
+  if (cacheable && !forceRefresh) {
+    let cached = globalCacheStore.get(cacheKey);
+    if (cached) {
+      let age = Math.max(0, Math.round((Date.now() - cached.timestamp) / 1000));
+      let title = `Command Succeeded (Cached ${age}s ago): ${commandName}`;
+      let body = `Exit status: ${cached.exitStatus}`;
+      if (cached.stdout && cached.stdout.trim()) {
+        body += `\n\nOutput:\n${cached.stdout.trim()}`;
+      }
+      if (Main && typeof Main.notify === "function") {
+        Main.notify(title, body);
+      }
+      return cached;
+    }
   }
 
   let previewArgv = getPreviewTokens(
@@ -323,12 +357,25 @@ function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, con
             }
 
             if (success) {
-              let title = `Command Succeeded: ${commandName}`;
+              if (cacheable) {
+                let ttl = getCommandTTL(cmdObj);
+                globalCacheStore.set(cacheKey, rawCmdStr, {
+                  stdout: stdout || "",
+                  stderr: stderr || "",
+                  exitStatus,
+                }, ttl);
+              }
+
+              let title = forceRefresh
+                ? `Command Refreshed: ${commandName}`
+                : `Command Succeeded: ${commandName}`;
               let body = `Exit status: ${exitStatus}`;
               if (stdout && stdout.trim()) {
                 body += `\n\nOutput:\n${stdout.trim()}`;
               }
-              Main.notify(title, body);
+              if (Main && typeof Main.notify === "function") {
+                Main.notify(title, body);
+              }
             } else {
               let title = `Command Failed: ${commandName}`;
               let body = `Exit status: ${exitStatus}`;
@@ -337,22 +384,28 @@ function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, con
               } else if (stdout && stdout.trim()) {
                 body += `\n\nOutput:\n${stdout.trim()}`;
               }
-              Main.notify(title, body);
+              if (Main && typeof Main.notify === "function") {
+                Main.notify(title, body);
+              }
             }
           } catch (err) {
             console.error(`CmdBar: error finishing command: ${err.message}`);
-            Main.notify(
-              `Command Error: ${commandName}`,
-              `Failed to execute: ${err.message}`,
-            );
+            if (Main && typeof Main.notify === "function") {
+              Main.notify(
+                `Command Error: ${commandName}`,
+                `Failed to execute: ${err.message}`,
+              );
+            }
           }
         });
       } catch (e) {
         console.error(`CmdBar: failed to spawn command: ${e.message}`);
-        Main.notify(
-          `Command Launch Failed: ${commandName}`,
-          `Could not start command: ${e.message}`,
-        );
+        if (Main && typeof Main.notify === "function") {
+          Main.notify(
+            `Command Launch Failed: ${commandName}`,
+            `Could not start command: ${e.message}`,
+          );
+        }
       }
     },
     () => {
@@ -361,6 +414,38 @@ function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, con
       );
     },
   );
+}
+
+/**
+ * Manually refreshes the cache for a given command.
+ * @param {string} commandName
+ * @param {string|string[]} commandString
+ * @param {object} [cmdObj]
+ * @param {object} [placeholderMap]
+ * @param {object} [config]
+ * @public
+ */
+export function refreshCommandCache(commandName, commandString, cmdObj, placeholderMap, config) {
+  return runCommandAsync(commandName, commandString, cmdObj, placeholderMap, config, { forceRefresh: true });
+}
+
+/**
+ * Invalidates cache entry for a given command string.
+ * @param {string|string[]} commandString
+ * @returns {boolean}
+ * @public
+ */
+export function invalidateCommandCache(commandString) {
+  let key = Array.isArray(commandString) ? commandString.join(" ") : String(commandString || "");
+  return globalCacheStore.invalidate(key);
+}
+
+/**
+ * Clears all cached command outputs.
+ * @public
+ */
+export function clearCommandCache() {
+  globalCacheStore.clear();
 }
 
 /**
@@ -698,6 +783,59 @@ export function copyToClipboard(text) {
   return success;
 }
 
+/**
+ * Helper function supporting wl-copy/wtype/ydotool (Wayland) and xclip/xdotool/xte (X11) to paste/type text.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function pasteClipboardText(text) {
+  copyToClipboard(text);
+
+  let isWayland = false;
+  try {
+    let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
+    let sessionType = GLib.getenv("XDG_SESSION_TYPE");
+    if (
+      waylandDisplay ||
+      (sessionType && sessionType.toLowerCase() === "wayland")
+    ) {
+      isWayland = true;
+    }
+  } catch (e) {}
+
+  let commands = isWayland
+    ? [
+        ["wtype", "-M", "ctrl", "v"],
+        ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
+        ["xdotool", "key", "ctrl+v"],
+      ]
+    : [
+        ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
+        ["xdotool", "type", text],
+        ["xte", "kd Control_L", "k v", "ku Control_L"],
+      ];
+
+  let success = false;
+  for (let argv of commands) {
+    try {
+      let proc = Gio.Subprocess.new(
+        argv,
+        Gio.SubprocessFlags.NONE,
+      );
+      proc.communicate_utf8_async(null, null, (subprocess, result) => {
+        try {
+          subprocess.communicate_utf8_finish(result);
+        } catch (err) {}
+      });
+      success = true;
+      break;
+    } catch (e) {
+      continue;
+    }
+  }
+  return success;
+}
+
 // Standard menu item for parameterless or parameter-prompting commands
 const CommandMenuItem = GObject.registerClass(
   class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
@@ -766,6 +904,38 @@ const CommandMenuItem = GObject.registerClass(
         }
       });
       this.box.add_child(this.copyButton);
+
+      // Refresh Button for Cacheable Commands
+      if (isCommandCacheable(this._cmdObj)) {
+        this.refreshButton = new St.Button({
+          child: new St.Icon({
+            icon_name: "view-refresh-symbolic",
+            style_class: "popup-menu-icon",
+          }),
+          style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
+          track_hover: true,
+          can_focus: true,
+        });
+
+        this.refreshButton.connect("clicked", () => {
+          runCommandAsync(
+            this._commandName,
+            this._commandTemplate,
+            this._cmdObj,
+            null,
+            null,
+            { forceRefresh: true }
+          );
+          if (
+            this._indicator &&
+            this._indicator.menu &&
+            typeof this._indicator.menu.close === "function"
+          ) {
+            this._indicator.menu.close();
+          }
+        });
+        this.box.add_child(this.refreshButton);
+      }
 
       // Execute Button
       this.executeButton = new St.Button({

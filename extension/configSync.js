@@ -53,6 +53,23 @@ export const DEFAULT_CONFIG = {
         },
       ],
     },
+    {
+      name: "System Status",
+      commands: [
+        {
+          name: "Disk Space Usage",
+          command: "df -h",
+          cacheable: true,
+          ttl: 60,
+        },
+        {
+          name: "Git Status",
+          command: "git status",
+          cacheable: true,
+          ttl: 30,
+        },
+      ],
+    },
   ],
 };
 
