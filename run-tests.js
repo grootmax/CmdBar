@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands, detectFormat, formatOutput } from './extension/commandProcessor.js';
 import { saveConfigAtomically, saveConfigAtomicallyAsync } from './companion/configStore.js';
+import { TerminalSession, E2EEncryptor, PermissionManager } from './extension/liveTerminalSharing.js';
 
 console.log('Running standalone verification tests...');
 
@@ -78,6 +79,30 @@ try {
     if (fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true });
     }
+
+    // 7. Live Terminal Sharing Verification Tests
+    const testSession = new TerminalSession('test_sess_01', 'admin_user', 'Standalone Test Terminal');
+    const encryptor = new E2EEncryptor();
+    const secretKey = encryptor.generateKey();
+    testSession.setEncryptionKey(secretKey);
+
+    assert.strictEqual(testSession.sessionId, 'test_sess_01', 'Session ID should match');
+    assert.strictEqual(testSession.permissionManager.getRole('admin_user'), 'admin', 'Host should have admin role');
+
+    testSession.join({ id: 'guest_user', username: 'Guest' });
+    assert.strictEqual(testSession.permissionManager.getRole('guest_user'), 'read-only', 'Guest should default to read-only');
+
+    assert.throws(() => {
+        testSession.processInput('guest_user', 'ls');
+    }, 'Read-only user should not be allowed to input commands');
+
+    testSession.permissionManager.setRole('guest_user', 'read-write');
+    const inputRes = testSession.processInput('guest_user', 'clear\n');
+    assert.strictEqual(inputRes.data, 'clear\n', 'Read-write user should be allowed to input commands');
+
+    const stateSnapshot = testSession.getSessionState();
+    assert.strictEqual(stateSnapshot.participants.length, 2, 'Session state should report 2 participants');
+    assert.strictEqual(stateSnapshot.encrypted, true, 'Session should report encryption active');
 
     console.log('✅ Standalone verification tests completed successfully!');
     process.exit(0);
