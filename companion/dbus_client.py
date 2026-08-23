@@ -118,3 +118,55 @@ class CmdBarDBusClient:
                 cb(name, stdout, stderr)
             except Exception:
                 pass
+
+    def register_trigger(self, trigger) -> bool:
+        """Register an event trigger."""
+        trig_str = json.dumps(trigger) if isinstance(trigger, dict) else str(trigger)
+        res = self._call_method("RegisterTrigger", trig_str)
+        return bool(res)
+
+    def unregister_trigger(self, trigger_id: str) -> bool:
+        """Unregister an event trigger by ID."""
+        res = self._call_method("UnregisterTrigger", trigger_id)
+        return bool(res)
+
+    def get_triggers(self) -> list:
+        """Get all registered triggers."""
+        res = self._call_method("GetTriggers")
+        if isinstance(res, list):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip()
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return []
+        return []
+
+    def fire_event(self, event_type: str, context=None) -> list:
+        """Fire an event manually across triggers."""
+        ctx_str = json.dumps(context or {}) if isinstance(context, dict) else str(context or "{}")
+        res = self._call_method("FireEvent", event_type, ctx_str)
+        if isinstance(res, list):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip()
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return []
+        return []
+
+    def enable_trigger(self, trigger_id: str) -> bool:
+        """Enable a trigger by ID."""
+        res = self._call_method("EnableTrigger", trigger_id)
+        return bool(res)
+
+    def disable_trigger(self, trigger_id: str) -> bool:
+        """Disable a trigger by ID."""
+        res = self._call_method("DisableTrigger", trigger_id)
+        return bool(res)
