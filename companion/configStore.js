@@ -131,11 +131,10 @@ export function saveConfigAtomically(configData, customPath) {
         configData.signature = computeSignatureSync(configData, key);
     }
 
-    // Read existing file mode if target exists
-    let existingMode;
+    let mode;
     if (fs.existsSync(targetPath)) {
         try {
-            existingMode = fs.statSync(targetPath).mode;
+            mode = fs.statSync(targetPath).mode;
         } catch (e) {}
     }
 
@@ -144,15 +143,21 @@ export function saveConfigAtomically(configData, customPath) {
     // enabling an atomic `rename` operation.
     const tempPath = `${targetPath}.${Date.now()}.${Math.random().toString(36).substring(2, 8)}.tmp`;
 
+    let mode;
+    if (fs.existsSync(targetPath)) {
+        try {
+            mode = fs.statSync(targetPath).mode;
+        } catch (e) {}
+    }
+
     try {
         const jsonString = JSON.stringify(configData, null, 2);
 
         // 3. Write JSON content to temporary file
         fs.writeFileSync(tempPath, jsonString, 'utf8');
-
-        if (existingMode !== undefined) {
+        if (mode !== undefined) {
             try {
-                fs.chmodSync(tempPath, existingMode);
+                fs.chmodSync(tempPath, mode);
             } catch (e) {}
         }
 
@@ -193,27 +198,25 @@ export async function saveConfigAtomicallyAsync(configData, customPath) {
         configData.signature = computeSignatureSync(configData, key);
     }
 
-    // Read existing file mode if target exists
-    let existingMode;
+    // 2. Generate temporary file path in the SAME directory
+    const tempPath = `${targetPath}.${Date.now()}.${Math.random().toString(36).substring(2, 8)}.tmp`;
+
+    let mode;
     if (fs.existsSync(targetPath)) {
         try {
             const stats = await fs.promises.stat(targetPath);
-            existingMode = stats.mode;
+            mode = stats.mode;
         } catch (e) {}
     }
-
-    // 2. Generate temporary file path in the SAME directory
-    const tempPath = `${targetPath}.${Date.now()}.${Math.random().toString(36).substring(2, 8)}.tmp`;
 
     try {
         const jsonString = JSON.stringify(configData, null, 2);
 
         // 3. Write JSON content to temporary file
         await fs.promises.writeFile(tempPath, jsonString, 'utf8');
-
-        if (existingMode !== undefined) {
+        if (mode !== undefined) {
             try {
-                await fs.promises.chmod(tempPath, existingMode);
+                await fs.promises.chmod(tempPath, mode);
             } catch (e) {}
         }
 

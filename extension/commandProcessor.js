@@ -4,16 +4,16 @@
 
 let GLib;
 try {
-    if (typeof globalThis.imports !== 'undefined' && globalThis.imports.gi) {
-        GLib = globalThis.imports.gi.GLib;
-    }
+  if (typeof globalThis.imports !== "undefined" && globalThis.imports.gi) {
+    GLib = globalThis.imports.gi.GLib;
+  }
 } catch (e) {}
 
 if (!GLib) {
-    try {
-        const gi = await import('gi');
-        GLib = gi.GLib;
-    } catch (e) {}
+  try {
+    const gi = await import("gi");
+    GLib = gi.GLib;
+  } catch (e) {}
 }
 
 /**
@@ -23,11 +23,11 @@ if (!GLib) {
  * @public
  */
 export function validateInput(text) {
-    if (text === null || text === undefined) {
-        return false;
-    }
-    const str = String(text);
-    return str.trim().length > 0;
+  if (text === null || text === undefined) {
+    return false;
+  }
+  const str = String(text);
+  return str.trim().length > 0;
 }
 
 /**
@@ -37,10 +37,10 @@ export function validateInput(text) {
  * @returns {boolean}
  */
 export function hasPlaceholder(commandTemplate) {
-    if (!commandTemplate || typeof commandTemplate !== 'string') {
-        return false;
-    }
-    return /<[^>]+>|\{\{[^}]+\}\}|\{[^}]+\}/.test(commandTemplate);
+  if (!commandTemplate || typeof commandTemplate !== "string") {
+    return false;
+  }
+  return /<[^>]+>|\{\{[^}]+\}\}|\{[^}]+\}/.test(commandTemplate);
 }
 
 /**
@@ -52,77 +52,88 @@ export function hasPlaceholder(commandTemplate) {
  * @public
  */
 export function substituteCommand(commandTemplate, val) {
-    if (!commandTemplate || typeof commandTemplate !== 'string') {
-        return '';
-    }
-    const cleanVal = val !== undefined && val !== null ? String(val) : '';
-    return commandTemplate.replace(/\{\{[^}]+\}\}|<[^>]+>|\{[^}]+\}/g, () => cleanVal);
+  if (!commandTemplate || typeof commandTemplate !== "string") {
+    return "";
+  }
+  const cleanVal = val !== undefined && val !== null ? String(val) : "";
+  return commandTemplate.replace(
+    /\{\{[^}]+\}\}|<[^>]+>|\{[^}]+\}/g,
+    () => cleanVal,
+  );
 }
 
 /**
  * Writes the configuration atomically by first writing to a temporary file
  * and then renaming (or replacing) the target file with the temporary one.
  * Supports both Node.js (with dynamic imports of 'fs') and GJS (with dynamic imports of 'gi').
- * 
- * @param {string} targetPath 
- * @param {object|string} data 
+ *
+ * @param {string} targetPath
+ * @param {object|string} data
  * @returns {Promise<void>}
  */
 export async function writeConfigAtomically(targetPath, data) {
-    const contentStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-    const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
+  const contentStr =
+    typeof data === "string" ? data : JSON.stringify(data, null, 2);
+  const isNode =
+    typeof process !== "undefined" && process.versions && process.versions.node;
 
-    if (isNode) {
-        const fs = (await import('fs')).default || (await import('fs'));
-        const path = (await import('path')).default || (await import('path'));
-        const targetDir = path.dirname(targetPath);
-        if (!fs.existsSync(targetDir)) {
-            fs.mkdirSync(targetDir, { recursive: true });
-        }
-        const tempPath = targetPath + '.tmp';
-
-        let mode;
-        if (fs.existsSync(targetPath)) {
-            try {
-                mode = fs.statSync(targetPath).mode;
-            } catch (e) {}
-        }
-
-        try {
-            fs.writeFileSync(tempPath, contentStr, 'utf8');
-            if (mode !== undefined) {
-                try {
-                    fs.chmodSync(tempPath, mode);
-                } catch (e) {}
-            }
-            fs.renameSync(tempPath, targetPath);
-        } catch (error) {
-            try {
-                if (fs.existsSync(tempPath)) {
-                    fs.unlinkSync(tempPath);
-                }
-            } catch (cleanupError) {}
-            throw error;
-        }
-    } else {
-        // GJS (GNOME Shell) environment
-        const { Gio, GLib } = await import('gi');
-        const file = Gio.File.new_for_path(targetPath);
-        const tmpPath = targetPath + '.tmp';
-        const tmpFile = Gio.File.new_for_path(tmpPath);
-        const bytes = new GLib.Bytes(contentStr);
-        try {
-            tmpFile.replace_contents(bytes, null, false, Gio.FileCreateFlags.NONE, null);
-            tmpFile.move(file, Gio.FileCopyFlags.OVERWRITE, null, null);
-        } catch (error) {
-            try {
-                if (tmpFile.query_exists(null)) {
-                    tmpFile.delete(null);
-                }
-            } catch (cleanupError) {}
-            throw error;
-        }
+  if (isNode) {
+    const fs = (await import("fs")).default || (await import("fs"));
+    const path = (await import("path")).default || (await import("path"));
+    const targetDir = path.dirname(targetPath);
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
     }
+    const tempPath = targetPath + ".tmp";
+
+    let mode;
+    if (fs.existsSync(targetPath)) {
+      try {
+        mode = fs.statSync(targetPath).mode;
+      } catch (e) {}
+    }
+
+    try {
+      fs.writeFileSync(tempPath, contentStr, "utf8");
+      if (mode !== undefined) {
+        try {
+          fs.chmodSync(tempPath, mode);
+        } catch (e) {}
+      }
+      fs.renameSync(tempPath, targetPath);
+    } catch (error) {
+      try {
+        if (fs.existsSync(tempPath)) {
+          fs.unlinkSync(tempPath);
+        }
+      } catch (cleanupError) {}
+      throw error;
+    }
+  } else {
+    // GJS (GNOME Shell) environment
+    const { Gio, GLib } = await import("gi");
+    const file = Gio.File.new_for_path(targetPath);
+    const tmpPath = targetPath + ".tmp";
+    const tmpFile = Gio.File.new_for_path(tmpPath);
+    const bytes = new GLib.Bytes(contentStr);
+    try {
+      tmpFile.replace_contents(
+        bytes,
+        null,
+        false,
+        Gio.FileCreateFlags.NONE,
+        null,
+      );
+      tmpFile.move(file, Gio.FileCopyFlags.OVERWRITE, null, null);
+    } catch (error) {
+      try {
+        if (tmpFile.query_exists(null)) {
+          tmpFile.delete(null);
+        }
+      } catch (cleanupError) {}
+      throw error;
+    }
+  }
 }
 
 /**
@@ -131,12 +142,13 @@ export async function writeConfigAtomically(targetPath, data) {
  * @returns {string[]}
  */
 export function parseEnv(stdout) {
-    if (!stdout || typeof stdout !== 'string') {
-        return [];
-    }
-    return stdout.split('\n')
-        .map(line => line.trim())
-        .filter(line => line.includes('='));
+  if (!stdout || typeof stdout !== "string") {
+    return [];
+  }
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.includes("="));
 }
 
 /**
@@ -147,56 +159,56 @@ export function parseEnv(stdout) {
  * @public
  */
 export function tokenizeCommand(commandTemplate) {
-    if (!commandTemplate || typeof commandTemplate !== 'string') {
-        return [];
-    }
-    const args = [];
-    let current = '';
-    let inDoubleQuotes = false;
-    let inSingleQuotes = false;
-    let escaped = false;
+  if (!commandTemplate || typeof commandTemplate !== "string") {
+    return [];
+  }
+  const args = [];
+  let current = "";
+  let inDoubleQuotes = false;
+  let inSingleQuotes = false;
+  let escaped = false;
 
-    for (let i = 0; i < commandTemplate.length; i++) {
-        const char = commandTemplate[i];
+  for (let i = 0; i < commandTemplate.length; i++) {
+    const char = commandTemplate[i];
 
-        if (escaped) {
-            current += char;
-            escaped = false;
-            continue;
-        }
-
-        if (char === '\\' && !inSingleQuotes) {
-            escaped = true;
-            continue;
-        }
-
-        if (char === '"' && !inSingleQuotes) {
-            inDoubleQuotes = !inDoubleQuotes;
-            continue;
-        }
-
-        if (char === "'" && !inDoubleQuotes) {
-            inSingleQuotes = !inSingleQuotes;
-            continue;
-        }
-
-        if (char === ' ' || char === '\t' || char === '\r' || char === '\n') {
-            if (inDoubleQuotes || inSingleQuotes) {
-                current += char;
-            } else if (current.length > 0) {
-                args.push(current);
-                current = '';
-            }
-        } else {
-            current += char;
-        }
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
     }
 
-    if (current.length > 0) {
+    if (char === "\\" && !inSingleQuotes) {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"' && !inSingleQuotes) {
+      inDoubleQuotes = !inDoubleQuotes;
+      continue;
+    }
+
+    if (char === "'" && !inDoubleQuotes) {
+      inSingleQuotes = !inSingleQuotes;
+      continue;
+    }
+
+    if (char === " " || char === "\t" || char === "\r" || char === "\n") {
+      if (inDoubleQuotes || inSingleQuotes) {
+        current += char;
+      } else if (current.length > 0) {
         args.push(current);
+        current = "";
+      }
+    } else {
+      current += char;
     }
+  }
 
-    return args;
+  if (current.length > 0) {
+    args.push(current);
+  }
+
+  return args;
 }
 
 /**
@@ -206,46 +218,46 @@ export function tokenizeCommand(commandTemplate) {
  * @returns {string[]}
  */
 export function getPlaceholders(commandTemplate) {
-    if (!commandTemplate || typeof commandTemplate !== 'string') {
-        return [];
+  if (!commandTemplate || typeof commandTemplate !== "string") {
+    return [];
+  }
+  const regex = /\{\{[^}]+\}\}|<[^>]+>|\{[^}]+\}/g;
+  const matches = [];
+  let match;
+  while ((match = regex.exec(commandTemplate)) !== null) {
+    if (!matches.includes(match[0])) {
+      matches.push(match[0]);
     }
-    const regex = /\{\{[^}]+\}\}|<[^>]+>|\{[^}]+\}/g;
-    const matches = [];
-    let match;
-    while ((match = regex.exec(commandTemplate)) !== null) {
-        if (!matches.includes(match[0])) {
-            matches.push(match[0]);
-        }
-    }
-    return matches;
+  }
+  return matches;
 }
 
 export const DEFAULT_ALLOWED_PREFIXES = [
-    '/usr/bin/',
-    '/bin/',
-    '/usr/local/bin/',
-    '/usr/sbin/',
-    '/sbin/'
+  "/usr/bin/",
+  "/bin/",
+  "/usr/local/bin/",
+  "/usr/sbin/",
+  "/sbin/",
 ];
 
 export const DEFAULT_ALLOWED_BINARIES = [
-    'make',
-    'echo',
-    'deploy',
-    'aws',
-    'ping',
-    'git',
-    'docker',
-    'zenity',
-    'python',
-    'python3',
-    'node',
-    'npm',
-    'notify-send',
-    'pkill',
-    'env',
-    'sh',
-    'bash'
+  "make",
+  "echo",
+  "deploy",
+  "aws",
+  "ping",
+  "git",
+  "docker",
+  "zenity",
+  "python",
+  "python3",
+  "node",
+  "npm",
+  "notify-send",
+  "pkill",
+  "env",
+  "sh",
+  "bash",
 ];
 
 /**
@@ -255,39 +267,43 @@ export const DEFAULT_ALLOWED_BINARIES = [
  * @returns {boolean}
  */
 export function isBinaryAllowlisted(binaryPath, customAllowlist = []) {
-    if (!binaryPath || typeof binaryPath !== 'string') {
-        return false;
-    }
-    const cleanPath = binaryPath.trim();
-    if (!cleanPath) {
-        return false;
-    }
-
-    if (Array.isArray(customAllowlist) && customAllowlist.length > 0) {
-        if (customAllowlist.includes(cleanPath)) {
-            return true;
-        }
-        for (const item of customAllowlist) {
-            if (typeof item === 'string' && item.endsWith('/') && cleanPath.startsWith(item)) {
-                return true;
-            }
-        }
-    }
-
-    if (cleanPath.startsWith('/')) {
-        for (const prefix of DEFAULT_ALLOWED_PREFIXES) {
-            if (cleanPath.startsWith(prefix)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    if (DEFAULT_ALLOWED_BINARIES.includes(cleanPath)) {
-        return true;
-    }
-
+  if (!binaryPath || typeof binaryPath !== "string") {
     return false;
+  }
+  const cleanPath = binaryPath.trim();
+  if (!cleanPath) {
+    return false;
+  }
+
+  if (Array.isArray(customAllowlist) && customAllowlist.length > 0) {
+    if (customAllowlist.includes(cleanPath)) {
+      return true;
+    }
+    for (const item of customAllowlist) {
+      if (
+        typeof item === "string" &&
+        item.endsWith("/") &&
+        cleanPath.startsWith(item)
+      ) {
+        return true;
+      }
+    }
+  }
+
+  if (cleanPath.startsWith("/")) {
+    for (const prefix of DEFAULT_ALLOWED_PREFIXES) {
+      if (cleanPath.startsWith(prefix)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  if (DEFAULT_ALLOWED_BINARIES.includes(cleanPath)) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -297,33 +313,38 @@ export function isBinaryAllowlisted(binaryPath, customAllowlist = []) {
  * @returns {string[]}
  */
 export function substituteTokens(tokens, placeholderMap) {
-    if (!tokens || !Array.isArray(tokens)) {
-        return [];
+  if (!tokens || !Array.isArray(tokens)) {
+    return [];
+  }
+  if (!placeholderMap || typeof placeholderMap !== "object") {
+    return [...tokens];
+  }
+  const expandedMap = {};
+  for (const [key, val] of Object.entries(placeholderMap)) {
+    if (key.startsWith("<") || key.startsWith("{")) {
+      expandedMap[key] = val;
+    } else {
+      expandedMap[`<${key}>`] = val;
+      expandedMap[`{{${key}}}`] = val;
+      expandedMap[`{${key}}`] = val;
     }
-    if (!placeholderMap || typeof placeholderMap !== 'object') {
-        return [...tokens];
+  }
+  const entries = Object.entries(expandedMap).sort(
+    (a, b) => b[0].length - a[0].length,
+  );
+  return tokens.map((token) => {
+    let substituted = token;
+    for (const [placeholder, val] of entries) {
+      const cleanVal = val !== undefined && val !== null ? String(val) : "";
+      const escapedPlaceholder = placeholder.replace(
+        /[-\/\\^$*+?.()|[\]{}]/g,
+        "\\$&",
+      );
+      const regex = new RegExp(escapedPlaceholder, "g");
+      substituted = substituted.replace(regex, () => cleanVal);
     }
-    const expandedMap = {};
-    for (const [key, val] of Object.entries(placeholderMap)) {
-        if (key.startsWith('<') || key.startsWith('{')) {
-            expandedMap[key] = val;
-        } else {
-            expandedMap[`<${key}>`] = val;
-            expandedMap[`{{${key}}}`] = val;
-            expandedMap[`{${key}}`] = val;
-        }
-    }
-    const entries = Object.entries(expandedMap).sort((a, b) => b[0].length - a[0].length);
-    return tokens.map(token => {
-        let substituted = token;
-        for (const [placeholder, val] of entries) {
-            const cleanVal = val !== undefined && val !== null ? String(val) : '';
-            const escapedPlaceholder = placeholder.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-            const regex = new RegExp(escapedPlaceholder, 'g');
-            substituted = substituted.replace(regex, () => cleanVal);
-        }
-        return substituted;
-    });
+    return substituted;
+  });
 }
 
 /**
@@ -334,47 +355,52 @@ export function substituteTokens(tokens, placeholderMap) {
  * @returns {string[]}
  */
 export function getPreviewTokens(argv, placeholderMap, parametersSchema) {
-    if (!argv || !Array.isArray(argv)) {
-        return [];
+  if (!argv || !Array.isArray(argv)) {
+    return [];
+  }
+  const secureKeys = new Set();
+  if (Array.isArray(parametersSchema)) {
+    for (const p of parametersSchema) {
+      if (p && p.secure) {
+        secureKeys.add(p.name);
+      }
     }
-    const secureKeys = new Set();
-    if (Array.isArray(parametersSchema)) {
-        for (const p of parametersSchema) {
-            if (p && p.secure) {
-                secureKeys.add(p.name);
-            }
-        }
-    } else if (parametersSchema && typeof parametersSchema === 'object') {
-        for (const [ph, p] of Object.entries(parametersSchema)) {
-            if (p && p.secure) {
-                secureKeys.add(ph);
-            }
-        }
+  } else if (parametersSchema && typeof parametersSchema === "object") {
+    for (const [ph, p] of Object.entries(parametersSchema)) {
+      if (p && p.secure) {
+        secureKeys.add(ph);
+      }
     }
+  }
 
-    return argv.map(arg => {
-        let previewArg = arg;
-        if (placeholderMap && typeof placeholderMap === 'object') {
-            for (const [key, val] of Object.entries(placeholderMap)) {
-                if (val !== undefined && val !== null) {
-                    const cleanVal = String(val);
-                    const cleanKey = key.replace(/<|>/g, '');
-                    const isSecure = secureKeys.has(cleanKey) ||
-                                     cleanKey.toLowerCase().includes('password') ||
-                                     cleanKey.toLowerCase().includes('secret') ||
-                                     cleanKey.toLowerCase().includes('token');
+  return argv.map((arg) => {
+    let previewArg = arg;
+    if (placeholderMap && typeof placeholderMap === "object") {
+      for (const [key, val] of Object.entries(placeholderMap)) {
+        if (val !== undefined && val !== null) {
+          const cleanVal = String(val);
+          const cleanKey = key.replace(/<|>/g, "");
+          const isSecure =
+            secureKeys.has(cleanKey) ||
+            cleanKey.toLowerCase().includes("password") ||
+            cleanKey.toLowerCase().includes("secret") ||
+            cleanKey.toLowerCase().includes("token");
 
-                    if (isSecure) {
-                        if (cleanVal.length > 0) {
-                            const escapedVal = cleanVal.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-                            previewArg = previewArg.replace(new RegExp(escapedVal, 'g'), '[REDACTED]');
-                        }
-                    }
-                }
+          if (isSecure) {
+            if (cleanVal.length > 0) {
+              const escapedVal = cleanVal.replace(
+                /[-\/\\^$*+?.()|[\]{}]/g,
+                "\\$&",
+              );
+              previewArg = previewArg.replace(
+                new RegExp(escapedVal, "g"),
+                "[REDACTED]",
+              );
             }
+          }
         }
-        return previewArg;
-    });
+      }
+    }
+    return previewArg;
+  });
 }
-
-
