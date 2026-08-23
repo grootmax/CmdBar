@@ -215,3 +215,115 @@ def test_job_completion_cleanup():
     assert indicator._jobs_section_header is None
 
 
+class SimulatedCommandMenuItem:
+    def __init__(self, command_name, command_template, cmd_obj=None):
+        self.command_name = command_name
+        self.command_template = command_template
+        self.cmd_obj = cmd_obj or {}
+        self.output_label = {"text": "", "style_class": "", "visible": False}
+        self.interval_ms = self._get_refresh_interval_ms()
+
+    def _get_refresh_interval_ms(self):
+        val = (
+            self.cmd_obj.get("interval")
+            or self.cmd_obj.get("refreshInterval")
+            or self.cmd_obj.get("intervalMs")
+            or self.cmd_obj.get("intervalSec")
+            or self.cmd_obj.get("interval_sec")
+            or self.cmd_obj.get("interval_ms")
+        )
+        if isinstance(val, (int, float)) and val > 0:
+            return int(val * 1000 if val <= 100 else val)
+        if isinstance(val, str) and val.isdigit():
+            num = int(val)
+            if num > 0:
+                return num * 1000 if num <= 100 else num
+        if self.cmd_obj.get("output") is True or self.cmd_obj.get("showOutput") is True:
+            return 5000
+        return 0
+
+    def format_output_text(self, raw_output, is_success):
+        lines = [line.strip() for line in (raw_output or "").splitlines() if line.strip()]
+        if lines:
+            summary = lines[-1]
+        else:
+            summary = "OK" if is_success else "Error"
+
+        if len(summary) > 50:
+            summary = summary[:47] + "..."
+        return summary
+
+    def set_status_running(self):
+        self.output_label["text"] = "Running..."
+        self.output_label["style_class"] = "cmdbar-output-running"
+        self.output_label["visible"] = True
+
+    def set_status_success(self, text):
+        self.output_label["text"] = text
+        self.output_label["style_class"] = "cmdbar-output-success"
+        self.output_label["visible"] = True
+
+    def set_status_error(self, text):
+        self.output_label["text"] = text
+        self.output_label["style_class"] = "cmdbar-output-error"
+        self.output_label["visible"] = True
+
+    def refresh_output(self, simulated_stdout="", simulated_stderr="", success=True):
+        self.set_status_running()
+        raw_output = simulated_stdout if success else (simulated_stderr or simulated_stdout)
+        formatted = self.format_output_text(raw_output, success)
+        if success:
+            self.set_status_success(formatted)
+        else:
+            self.set_status_error(formatted)
+
+
+def test_command_menu_item_interval_parsing():
+    item1 = SimulatedCommandMenuItem("Test 1", "uptime", {"interval": 5})
+    assert item1.interval_ms == 5000
+
+    item2 = SimulatedCommandMenuItem("Test 2", "df -h", {"refreshInterval": 10000})
+    assert item2.interval_ms == 10000
+
+    item3 = SimulatedCommandMenuItem("Test 3", "whoami", {"output": True})
+    assert item3.interval_ms == 5000
+
+    item4 = SimulatedCommandMenuItem("Test 4", "date", {})
+    assert item4.interval_ms == 0
+
+
+def test_command_menu_item_output_formatting_and_truncation():
+    item = SimulatedCommandMenuItem("Disk Usage", "df -h", {"output": True})
+
+    # Multiline output - pick last non-empty line
+    multiline = "Filesystem Size Used Avail Use%\n/dev/sda1 100G 20G 80G 20%\n"
+    formatted = item.format_output_text(multiline, is_success=True)
+    assert formatted == "/dev/sda1 100G 20G 80G 20%"
+
+    # Long line truncation to 50 chars
+    long_line = "A" * 60
+    formatted_long = item.format_output_text(long_line, is_success=True)
+    assert len(formatted_long) == 50
+    assert formatted_long.endswith("...")
+    assert formatted_long == ("A" * 47) + "..."
+
+    # Empty output fallback
+    assert item.format_output_text("", is_success=True) == "OK"
+    assert item.format_output_text("", is_success=False) == "Error"
+
+
+def test_command_menu_item_status_colors_and_refresh():
+    item = SimulatedCommandMenuItem("Service Status", "systemctl status app", {"output": True})
+
+    # Success state (green)
+    item.refresh_output(simulated_stdout="active (running)", success=True)
+    assert item.output_label["text"] == "active (running)"
+    assert item.output_label["style_class"] == "cmdbar-output-success"
+
+    # Error state (red)
+    item.refresh_output(simulated_stderr="Job for app.service failed", success=False)
+    assert item.output_label["text"] == "Job for app.service failed"
+    assert item.output_label["style_class"] == "cmdbar-output-error"
+
+
+
