@@ -16,6 +16,7 @@ import {
   formatShortcutHint,
   parseAccel,
   formatOutput,
+  rankCommands,
 } from "./commandProcessor.js";
 import { loadConfig } from "./configSync.js";
 import {
@@ -23,18 +24,32 @@ import {
   isAICommand,
   cleanAIPrompt,
 } from "./aiTranslator.js";
+import {
+  isCalculatorQuery,
+  calculate,
+  cleanCalculatorQuery,
+} from "./quickCalculator.js";
 
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
     if (Main && typeof Main.notify === "function") {
-      Main.notify("CmdBar AI Assistant", "Translating prompt to shell command...");
+      Main.notify(
+        "CmdBar AI Assistant",
+        "Translating prompt to shell command...",
+      );
     }
 
-    const generatedCmd = await translateNaturalLanguageToCommand(commandStr, config || {});
+    const generatedCmd = await translateNaturalLanguageToCommand(
+      commandStr,
+      config || {},
+    );
 
     if (!generatedCmd) {
       if (Main && typeof Main.notify === "function") {
-        Main.notify("AI Translation Failed", "AI model returned an empty command.");
+        Main.notify(
+          "AI Translation Failed",
+          "AI model returned an empty command.",
+        );
       }
       return;
     }
@@ -54,9 +69,11 @@ async function handleAICommandExecution(commandStr, config, onComplete) {
           if (onComplete) onComplete();
         },
         () => {
-          console.log("CmdBar AI: User cancelled execution of AI generated command.");
+          console.log(
+            "CmdBar AI: User cancelled execution of AI generated command.",
+          );
           if (onComplete) onComplete();
-        }
+        },
       );
     } else {
       _executeDirectTokens(tokens, "AI Command");
@@ -74,7 +91,7 @@ function _executeDirectTokens(argv, commandName) {
   try {
     let proc = Gio.Subprocess.new(
       argv,
-      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
     );
 
     proc.communicate_utf8_async(null, null, (subprocess, result) => {
@@ -273,10 +290,38 @@ function requestCommandConfirmation(
  * @param {object} [cmdObj]
  * @param {object} [placeholderMap]
  */
-function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, config) {
+function runCommandAsync(
+  commandName,
+  commandString,
+  cmdObj,
+  placeholderMap,
+  config,
+) {
   let rawCmdStr = Array.isArray(commandString)
     ? commandString.join(" ")
     : String(commandString || "");
+
+  if (isCalculatorQuery(rawCmdStr) || isCalculatorQuery(commandName)) {
+    const calcQuery = isCalculatorQuery(rawCmdStr) ? rawCmdStr : commandName;
+    const calcRes = calculate(calcQuery);
+    if (calcRes.success) {
+      copyToClipboard(calcRes.result);
+      if (Main && typeof Main.notify === "function") {
+        Main.notify(
+          "Quick Calculator",
+          `${calcRes.formatted}\n(Result copied to clipboard)`,
+        );
+      }
+    } else {
+      if (Main && typeof Main.notify === "function") {
+        Main.notify(
+          "Quick Calculator Error",
+          calcRes.error || "Failed to calculate",
+        );
+      }
+    }
+    return;
+  }
 
   if (isAICommand(rawCmdStr) || isAICommand(commandName)) {
     handleAICommandExecution(rawCmdStr, config || {}, () => {});
@@ -535,7 +580,11 @@ const CommandInputMenuItem = GObject.registerClass(
                 let argv = substituteTokens(tokens, placeholderMap);
                 let fullCmdStr = argv.join(" ");
 
-                if (isAICommand(fullCmdStr) || isAICommand(this._commandTemplate) || isAICommand(text)) {
+                if (
+                  isAICommand(fullCmdStr) ||
+                  isAICommand(this._commandTemplate) ||
+                  isAICommand(text)
+                ) {
                   let promptText = isAICommand(text) ? text : fullCmdStr;
                   handleAICommandExecution(
                     promptText,
@@ -548,7 +597,7 @@ const CommandInputMenuItem = GObject.registerClass(
                       ) {
                         this._indicator.menu.close();
                       }
-                    }
+                    },
                   );
                   return;
                 }
@@ -670,14 +719,8 @@ export function copyToClipboard(text) {
   } catch (e) {}
 
   let tools = isWayland
-    ? [
-        ["wl-copy"],
-        ["xclip", "-selection", "clipboard"],
-      ]
-    : [
-        ["xclip", "-selection", "clipboard"],
-        ["wl-copy"],
-      ];
+    ? [["wl-copy"], ["xclip", "-selection", "clipboard"]]
+    : [["xclip", "-selection", "clipboard"], ["wl-copy"]];
 
   let success = false;
   for (let argv of tools) {
@@ -725,7 +768,7 @@ export function pasteClipboardText(text) {
   try {
     let proc = Gio.Subprocess.new(
       argv,
-      Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+      Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
     );
     proc.communicate_utf8_async(null, null, (subprocess, result) => {
       try {
@@ -902,6 +945,172 @@ const JobMenuItem = GObject.registerClass(
   },
 );
 
+// Calculator result menu item with right-click to copy and visual feedback
+const CalculatorResultMenuItem = GObject.registerClass(
+  class CalculatorResultMenuItem extends PopupMenu.PopupBaseMenuItem {
+    _init(indicator, calcResult) {
+      super._init({
+        reactive: true,
+        activate: false,
+      });
+
+      this._indicator = indicator;
+      this._calcResult = calcResult;
+
+      this.box = new St.BoxLayout({
+        vertical: false,
+        x_expand: true,
+        style:
+          "padding: 6px 8px; background-color: rgba(53, 132, 228, 0.15); border-radius: 6px;",
+      });
+
+      this.icon = new St.Icon({
+        icon_name: "accessories-calculator-symbolic",
+        style_class: "popup-menu-icon",
+        style: "margin-right: 8px; color: #3584e4;",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      this.box.add_child(this.icon);
+
+      let textLabel =
+        calcResult && calcResult.success
+          ? calcResult.formatted
+          : calcResult
+            ? calcResult.error
+            : "Calculation Error";
+      this.label = new St.Label({
+        text: textLabel,
+        y_align: Clutter.ActorAlign.CENTER,
+        x_expand: true,
+        style: "font-weight: bold;",
+      });
+      this.box.add_child(this.label);
+
+      this.copyButton = new St.Button({
+        child: new St.Icon({
+          icon_name: "edit-copy-symbolic",
+          style_class: "popup-menu-icon",
+        }),
+        style: "padding: 4px 6px; border-radius: 4px;",
+        track_hover: true,
+        can_focus: true,
+      });
+
+      this.copyButton.connect("clicked", () => {
+        this._copyResult();
+      });
+      this.box.add_child(this.copyButton);
+
+      this.add_child(this.box);
+
+      this._activateId = this.connect("activate", () => {
+        this._copyResult();
+      });
+
+      this.connect("button-press-event", (actor, event) => {
+        let button = event.get_button();
+        if (button === 3) {
+          this._copyResult();
+          return Clutter.EVENT_STOP;
+        }
+        return Clutter.EVENT_PROPAGATE;
+      });
+    }
+
+    _copyResult() {
+      if (this._calcResult && this._calcResult.success) {
+        copyToClipboard(this._calcResult.result);
+        this.label.text = `Copied to clipboard: ${this._calcResult.result}`;
+        if (Main && typeof Main.notify === "function") {
+          Main.notify(
+            "Quick Calculator",
+            `Copied result: ${this._calcResult.result}`,
+          );
+        }
+        if (
+          this._indicator &&
+          this._indicator.menu &&
+          typeof this._indicator.menu.close === "function"
+        ) {
+          this._indicator.menu.close();
+        }
+      }
+    }
+
+    destroy() {
+      if (this._activateId) {
+        this.disconnect(this._activateId);
+        this._activateId = 0;
+      }
+      super.destroy();
+    }
+  },
+);
+
+// Search and Quick Calculator Entry Menu Item at top of menu
+const SearchEntryMenuItem = GObject.registerClass(
+  class SearchEntryMenuItem extends PopupMenu.PopupBaseMenuItem {
+    _init(indicator) {
+      super._init({
+        reactive: true,
+        activate: false,
+      });
+
+      this._indicator = indicator;
+
+      this.box = new St.BoxLayout({
+        vertical: false,
+        x_expand: true,
+        style: "padding: 4px 6px;",
+      });
+
+      this.searchIcon = new St.Icon({
+        icon_name: "edit-find-symbolic",
+        style_class: "popup-menu-icon",
+        style: "margin-right: 6px;",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      this.box.add_child(this.searchIcon);
+
+      this.entry = new St.Entry({
+        placeholder_text: "Search or type > 2+2...",
+        style_class: "cmdbar-search-entry",
+        x_expand: true,
+        can_focus: true,
+      });
+
+      this.box.add_child(this.entry);
+      this.add_child(this.box);
+
+      this.entry.clutter_text.connect("text-changed", () => {
+        let text = this.entry.get_text();
+        if (this._indicator) {
+          this._indicator.onSearchFilterChanged(text);
+        }
+      });
+
+      this.entry.clutter_text.connect("activate", () => {
+        let text = this.entry.get_text();
+        if (isCalculatorQuery(text)) {
+          let calcRes = calculate(text);
+          if (calcRes.success) {
+            copyToClipboard(calcRes.result);
+            if (Main && typeof Main.notify === "function") {
+              Main.notify(
+                "Quick Calculator",
+                `Copied result: ${calcRes.result}`,
+              );
+            }
+            if (this._indicator && this._indicator.menu) {
+              this._indicator.menu.close();
+            }
+          }
+        }
+      });
+    }
+  },
+);
+
 // Menu item for group/category headers
 const CategoryHeaderMenuItem = GObject.registerClass(
   class CategoryHeaderMenuItem extends PopupMenu.PopupBaseMenuItem {
@@ -1027,6 +1236,12 @@ const CmdBarIndicator = GObject.registerClass(
 
         // Clear all current items in menu
         this.menu.removeAll();
+        this._calcResultMenuItem = null;
+
+        // Search and Quick Calculator entry at top of menu
+        this._searchEntryMenuItem = new SearchEntryMenuItem(this);
+        this.menu.addMenuItem(this._searchEntryMenuItem);
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         if (!config || !config.categories || config.categories.length === 0) {
           let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
@@ -1066,6 +1281,29 @@ const CmdBarIndicator = GObject.registerClass(
         });
       } catch (e) {
         console.error(`CmdBar: error reloading menu: ${e.message}`);
+      }
+    }
+
+    onSearchFilterChanged(filterText) {
+      if (isCalculatorQuery(filterText)) {
+        let calcRes = calculate(filterText);
+        if (!this._calcResultMenuItem) {
+          this._calcResultMenuItem = new CalculatorResultMenuItem(
+            this,
+            calcRes,
+          );
+          this.menu.addMenuItem(this._calcResultMenuItem, 1);
+        } else {
+          this._calcResultMenuItem._calcResult = calcRes;
+          this._calcResultMenuItem.label.text = calcRes.success
+            ? calcRes.formatted
+            : calcRes.error || "Error";
+        }
+        this._calcResultMenuItem.visible = true;
+      } else {
+        if (this._calcResultMenuItem) {
+          this._calcResultMenuItem.visible = false;
+        }
       }
     }
 
@@ -1236,7 +1474,9 @@ const CmdBarIndicator = GObject.registerClass(
         body = `The process was stopped by the user.`;
       } else if (success) {
         title = `Command Succeeded: ${job.commandName}`;
-        body = stdout ? formatOutput(stdout).text : "Execution completed successfully.";
+        body = stdout
+          ? formatOutput(stdout).text
+          : "Execution completed successfully.";
       } else {
         title = `Command Failed: ${job.commandName}`;
         body = stderr
@@ -1402,15 +1642,9 @@ export default class CmdBarExtension extends Extension {
           }
         } catch (e) {}
 
-        Main.wm.addKeybinding(
-          "shortcut",
-          this._settings,
-          flags,
-          mode,
-          () => {
-            this._toggleMenu();
-          },
-        );
+        Main.wm.addKeybinding("shortcut", this._settings, flags, mode, () => {
+          this._toggleMenu();
+        });
       }
     } catch (e) {
       console.error(`CmdBar: Failed to register keybinding: ${e.message}`);

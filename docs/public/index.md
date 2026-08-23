@@ -11,6 +11,7 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 
 ## Core Features
 
+- **Quick Calculator & Eval Mode**: Type `> 2+2`, `> sin(pi/4)`, `> 10 km to miles`, or `> 100 USD to EUR` to instantly calculate results offline, with right-click or Enter to copy result.
 - **Dynamic Menu**: Fully driven by JSON config files.
 - **Snippet & Template Library**: Pre-built command templates for Git, Docker, Kubernetes, AWS CLI, npm/pnpm, and System utilities.
 - **Import Wizard & Community Sharing**: "Import from Template" wizard in the companion app to browse library or import community JSON templates, plus "Export Template" to share custom commands.

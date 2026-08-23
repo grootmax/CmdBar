@@ -48,14 +48,24 @@ jobs:
 
           echo "Checking for open pull requests..."
 
-          gh pr list \
+          if ! gh pr list \
             --repo "$GH_REPO" \
             --state open \
             --json number,title,headRefName,baseRefName,isDraft,createdAt \
-            --limit 100 |
-            jq 'sort_by(.number)' > /tmp/all-prs.json
+            --limit 100 2>/dev/null |
+            jq 'sort_by(.number)' > /tmp/all-prs.json; then
+            echo ""
+            echo "Failed to retrieve pull requests."
+            echo "Nothing to process."
+            echo ""
+            exit 0
+          fi
 
-          TOTAL_PR_COUNT=$(jq 'length' /tmp/all-prs.json)
+          if [ ! -s /tmp/all-prs.json ] || ! jq '.' /tmp/all-prs.json >/dev/null 2>&1; then
+            echo "[]" > /tmp/all-prs.json
+          fi
+
+          TOTAL_PR_COUNT=$(jq 'length' /tmp/all-prs.json 2>/dev/null || echo "0")
 
           # ==================================================
           # 2. NO PRs
@@ -87,12 +97,12 @@ jobs:
 
           jq '
             [
-              .[]
-              | select(.headRefName | startswith("jules/"))
+              .[]?
+              | select((.headRefName // "") | startswith("jules/"))
             ]
-          ' /tmp/all-prs.json > /tmp/jules-prs.json
+          ' /tmp/all-prs.json > /tmp/jules-prs.json 2>/dev/null || echo "[]" > /tmp/jules-prs.json
 
-          JULES_PR_COUNT=$(jq 'length' /tmp/jules-prs.json)
+          JULES_PR_COUNT=$(jq 'length' /tmp/jules-prs.json 2>/dev/null || echo "0")
 
           # ==================================================
           # 4. NO JULES PRs
@@ -199,7 +209,7 @@ jobs:
               MERGEABLE=$(gh pr view "$PR_NUMBER" \
                 --repo "$GH_REPO" \
                 --json mergeable \
-                --jq '.mergeable')
+                --jq '.mergeable' 2>/dev/null || echo "UNKNOWN")
 
               echo "Attempt $ATTEMPT: mergeable=$MERGEABLE"
 
@@ -263,11 +273,16 @@ jobs:
               echo ""
               echo "Cloning repository..."
 
-              git clone \
+              if ! git clone \
                 "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" \
-                "$WORKDIR"
+                "$WORKDIR" 2>/dev/null; then
+                echo "ERROR: Failed to clone repository."
+                rm -rf "$WORKDIR" || true
+                echo "Stopping processing."
+                break
+              fi
 
-              cd "$WORKDIR"
+              cd "$WORKDIR" || { rm -rf "$WORKDIR" || true; break; }
 
               # ==================================================
               # CONFIGURE GIT
@@ -275,11 +290,11 @@ jobs:
 
               git config \
                 user.name \
-                "github-actions[bot]"
+                "github-actions[bot]" || true
 
               git config \
                 user.email \
-                "41898282+github-actions[bot]@users.noreply.github.com"
+                "41898282+github-actions[bot]@users.noreply.github.com" || true
 
               # ==================================================
               # FETCH BRANCHES
@@ -288,11 +303,23 @@ jobs:
               echo ""
               echo "Fetching base branch..."
 
-              git fetch origin "$BASE_BRANCH"
+              if ! git fetch origin "$BASE_BRANCH" 2>/dev/null; then
+                echo "ERROR: Failed to fetch base branch $BASE_BRANCH."
+                cd /
+                rm -rf "$WORKDIR" || true
+                echo "Stopping processing."
+                break
+              fi
 
               echo "Fetching Jules branch..."
 
-              git fetch origin "$HEAD_BRANCH"
+              if ! git fetch origin "$HEAD_BRANCH" 2>/dev/null; then
+                echo "ERROR: Failed to fetch Jules branch $HEAD_BRANCH."
+                cd /
+                rm -rf "$WORKDIR" || true
+                echo "Stopping processing."
+                break
+              fi
 
               # ==================================================
               # CHECKOUT JULES BRANCH
@@ -301,9 +328,15 @@ jobs:
               echo ""
               echo "Checking out Jules branch..."
 
-              git checkout -B \
+              if ! git checkout -B \
                 "$HEAD_BRANCH" \
-                "origin/$HEAD_BRANCH"
+                "origin/$HEAD_BRANCH" 2>/dev/null; then
+                echo "ERROR: Failed to checkout Jules branch $HEAD_BRANCH."
+                cd /
+                rm -rf "$WORKDIR" || true
+                echo "Stopping processing."
+                break
+              fi
 
               # ==================================================
               # MERGE BASE INTO JULES BRANCH
@@ -362,19 +395,32 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
-                git diff \
-                  --name-only \
-                  --diff-filter=U |
-                while IFS= read -r FILE; do
+                mapfile -t CONFLICT_FILES < <(git diff --name-only --diff-filter=U 2>/dev/null || true)
 
-                  echo "Resolving conflict:"
-                  echo "  $FILE"
+                if [ "${#CONFLICT_FILES[@]}" -gt 0 ] && [ -n "${CONFLICT_FILES[0]}" ]; then
+                  for FILE in "${CONFLICT_FILES[@]}"; do
+                    echo "Resolving conflict:"
+                    echo "  $FILE"
+                  done
 
-                  git checkout --theirs -- "$FILE"
+                  if ! git checkout --theirs -- "${CONFLICT_FILES[@]}" 2>/dev/null; then
+                    echo "ERROR: Failed to checkout --theirs for conflicted files."
+                    git merge --abort 2>/dev/null || true
+                    cd /
+                    rm -rf "$WORKDIR" || true
+                    echo "Stopping processing."
+                    break
+                  fi
 
-                  git add -- "$FILE"
-
-                done
+                  if ! git add -- "${CONFLICT_FILES[@]}" 2>/dev/null; then
+                    echo "ERROR: Failed to stage resolved conflict files."
+                    git merge --abort 2>/dev/null || true
+                    cd /
+                    rm -rf "$WORKDIR" || true
+                    echo "Stopping processing."
+                    break
+                  fi
+                fi
 
                 # ==================================================
                 # VERIFY NO CONFLICTS REMAIN
@@ -382,8 +428,8 @@ jobs:
 
                 REMAINING_CONFLICTS=$(git diff \
                   --name-only \
-                  --diff-filter=U |
-                  wc -l)
+                  --diff-filter=U 2>/dev/null |
+                  wc -l || echo "0")
 
                 if [ "$REMAINING_CONFLICTS" -ne 0 ]; then
 
@@ -416,7 +462,7 @@ jobs:
                 echo "Committing conflict resolution..."
 
                 git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                  -m "chore: auto-resolve merge conflicts" || true
 
               fi
 
@@ -427,7 +473,13 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo "ERROR: Failed to push $HEAD_BRANCH."
+                cd /
+                rm -rf "$WORKDIR"
+                echo "Stopping processing."
+                break
+              fi
 
               cd /
 
@@ -495,17 +547,17 @@ jobs:
               # Filter for dedicated accessibility check
               A11Y_CHECK=$(echo "$CHECK_OUTPUT" | jq '
                 [
-                  .[]
+                  .[]?
                   | select(
-                      (.name | ascii_downcase | contains("accessibility"))
-                      or (.name | ascii_downcase | contains("a11y"))
+                      ((.name // "") | ascii_downcase | contains("accessibility"))
+                      or ((.name // "") | ascii_downcase | contains("a11y"))
                       or (((.workflow // "") | ascii_downcase) | contains("accessibility"))
                       or (((.workflow // "") | ascii_downcase) | contains("a11y"))
                     )
                 ]
-              ')
+              ' 2>/dev/null || echo "[]")
 
-              A11Y_COUNT=$(echo "$A11Y_CHECK" | jq 'length')
+              A11Y_COUNT=$(echo "$A11Y_CHECK" | jq 'length' 2>/dev/null || echo "0")
 
               # --------------------------------------------------
               # ACCESSIBILITY CHECK MISSING (NOT REPORTED YET)
@@ -524,11 +576,11 @@ jobs:
               # --------------------------------------------------
               A11Y_FAILED=$(echo "$A11Y_CHECK" | jq '
                 [
-                  .[]
+                  .[]?
                   | select(.bucket == "fail" or .bucket == "cancel")
                 ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               if [ "$A11Y_FAILED" -gt 0 ]; then
                 echo ""
@@ -544,11 +596,11 @@ jobs:
               # --------------------------------------------------
               A11Y_PENDING=$(echo "$A11Y_CHECK" | jq '
                 [
-                  .[]
+                  .[]?
                   | select(.bucket == "pending")
                 ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               if [ "$A11Y_PENDING" -gt 0 ]; then
                 echo ""
@@ -564,19 +616,19 @@ jobs:
               # --------------------------------------------------
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 [
-                  .[]
+                  .[]?
                   | select(.bucket == "fail" or .bucket == "cancel")
                 ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
-                  .[]
+                  .[]?
                   | select(.bucket == "pending")
                 ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               if [ "$OTHER_FAILED" -gt 0 ]; then
                 echo ""
