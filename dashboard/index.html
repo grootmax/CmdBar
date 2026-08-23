@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CmdBar Web Dashboard</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="stylesheet" href="./style.css">
+  <meta name="theme-color" content="#3584e4">
+  <meta name="description" content="Web Dashboard & Drag-and-Drop Editor for CmdBar GNOME Extension">
+</head>
+<body>
+  <!-- Navigation Header -->
+  <header class="app-header" role="banner">
+    <div class="brand">
+      <div class="brand-icon" aria-hidden="true">>_</div>
+      <h1 class="brand-title">CmdBar Dashboard</h1>
+    </div>
+
+    <div class="header-controls">
+      <div id="statusBadge" class="status-badge" role="status" aria-live="polite">
+        <span class="status-dot"></span>
+        <span id="statusText">Connected (Online)</span>
+      </div>
+
+      <button id="themeToggleBtn" class="btn btn-sm" aria-label="Toggle Theme">
+        <span id="themeIcon">🌙</span> <span id="themeLabel">Dark</span>
+      </button>
+
+      <button id="collabBtn" class="btn btn-sm btn-primary" aria-label="Team Collaboration">
+        👥 Team Workspace
+      </button>
+
+      <button id="exportBtn" class="btn btn-sm" aria-label="Export Config">
+        📥 Export JSON
+      </button>
+
+      <button id="importBtn" class="btn btn-sm" aria-label="Import Config">
+        📤 Import JSON
+      </button>
+
+      <input type="file" id="importFileInput" accept=".json" style="display: none;">
+    </div>
+  </header>
+
+  <!-- Main App Layout -->
+  <main class="app-layout" role="main">
+    <!-- Left Sidebar: Workspaces & Quick Actions -->
+    <section class="column sidebar-col" aria-label="Workspaces and Profiles">
+      <div class="column-header">
+        <h2 class="column-title">💼 Workspaces</h2>
+        <button id="newWorkspaceBtn" class="btn btn-sm btn-primary" title="New Workspace">+</button>
+      </div>
+
+      <div id="workspaceList" class="workspace-list">
+        <!-- Workspaces dynamically rendered here -->
+      </div>
+
+      <div class="column-header" style="margin-top: 16px;">
+        <h2 class="column-title">⚡ Quick Actions</h2>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <button id="addCategoryBtn" class="btn" style="width: 100%;">+ Add Category</button>
+        <button id="addShortcutBtn" class="btn btn-primary" style="width: 100%;">+ Add Command</button>
+        <button id="syncNowBtn" class="btn" style="width: 100%;">🔄 Save & Sync System</button>
+      </div>
+    </section>
+
+    <!-- Center Column: Drag and Drop Category & Command Editor -->
+    <section class="column editor-col" aria-label="Drag and Drop Configuration Editor">
+      <div class="column-header">
+        <h2 class="column-title">🎛️ Command Layout Editor</h2>
+        <span id="saveStatusIndicator" style="font-size: 0.8rem; color: var(--text-muted);">All changes saved</span>
+      </div>
+
+      <input type="text" id="editorFilterInput" class="editor-search-bar" placeholder="🔍 Search or filter commands in editor...">
+
+      <div id="categoryContainer" class="categories-wrapper" style="display: flex; flex-direction: column; gap: 16px;">
+        <!-- Categories and reorderable cards rendered here -->
+      </div>
+    </section>
+
+    <!-- Right Column: Real-Time Preview Panel -->
+    <section class="column preview-col" aria-label="Real-Time Top-Bar Preview">
+      <div class="column-header">
+        <h2 class="column-title">👁️ Top-Bar Live Preview</h2>
+      </div>
+
+      <!-- Simulated GNOME Shell Status Bar -->
+      <div class="gnome-bar-preview">
+        <span>GNOME 46 Top Bar</span>
+        <div id="previewIndicator" class="gnome-bar-indicator">
+          <span>>_</span>
+          <span>CmdBar</span>
+        </div>
+        <span>12:42 PM</span>
+      </div>
+
+      <!-- Simulated CmdBar Dropdown Menu -->
+      <div class="menu-preview-box">
+        <input type="text" id="previewSearchInput" class="menu-search-input" placeholder="Type to search commands...">
+
+        <div id="previewMenuContent" style="display: flex; flex-direction: column; gap: 8px; max-height: 380px; overflow-y: auto;">
+          <!-- Live top bar preview items rendered here -->
+        </div>
+      </div>
+
+      <!-- Dry-Run Execution & Formatter Preview -->
+      <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+        <h3 style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted);">Formatted Output Preview</h3>
+        <div id="formatterPreviewBox" class="formatter-box">
+          { "status": "success", "command": "echo 'Preview dry run'", "output_formatter": "json_pretty" }
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Add/Edit Shortcut Modal -->
+  <div id="shortcutModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="shortcutModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="shortcutModalTitle" class="modal-title">Add / Edit Command</h3>
+        <button id="closeShortcutModalBtn" class="btn btn-sm">&times;</button>
+      </div>
+
+      <form id="shortcutForm" style="display: flex; flex-direction: column; gap: 12px;">
+        <div class="form-group">
+          <label for="modalCategorySelect" class="form-label">Category</label>
+          <select id="modalCategorySelect" class="form-select" required></select>
+        </div>
+
+        <div class="form-group">
+          <label for="modalShortcutName" class="form-label">Command Name</label>
+          <input type="text" id="modalShortcutName" class="form-input" placeholder="e.g. Ping Host" required>
+        </div>
+
+        <div class="form-group">
+          <label for="modalShortcutCmd" class="form-label">Executable Command String</label>
+          <input type="text" id="modalShortcutCmd" class="form-input" placeholder="e.g. ping -c 3 <host>" required>
+        </div>
+
+        <div class="form-group">
+          <label for="modalShortcutMode" class="form-label">Execution Mode</label>
+          <select id="modalShortcutMode" class="form-select">
+            <option value="shell-quoted">Shell Quoted (Default)</option>
+            <option value="direct-array">Direct Array Execution</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="modalShortcutPlaceholder" class="form-label">Placeholder / Parameter Description</label>
+          <input type="text" id="modalShortcutPlaceholder" class="form-input" placeholder="e.g. host or task-id">
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px;">
+          <button type="button" id="cancelShortcutBtn" class="btn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Command</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Team Collaboration Modal -->
+  <div id="collabModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="collabModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="collabModalTitle" class="modal-title">👥 Team Collaboration & Workspace Share</h3>
+        <button id="closeCollabModalBtn" class="btn btn-sm">&times;</button>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <p style="font-size: 0.875rem; color: var(--text-muted);">
+          Share shortcuts with your team, merge remote changes with conflict resolution, and synchronize workspace configurations.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label">Current Workspace Profile</label>
+          <input type="text" id="collabWorkspaceName" class="form-input" value="Default Team Workspace">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Shareable Team JSON Payload</label>
+          <textarea id="collabJsonPayload" class="form-textarea" rows="5" readonly></textarea>
+        </div>
+
+        <div style="display: flex; gap: 8px;">
+          <button id="copySharePayloadBtn" class="btn btn-sm btn-primary">📋 Copy Link/Payload</button>
+          <button id="mergeRemoteBtn" class="btn btn-sm">🔀 Merge Remote Team Config</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- App Script -->
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
