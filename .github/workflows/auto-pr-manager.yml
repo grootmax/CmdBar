@@ -366,15 +366,14 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
-                mapfile -t CONFLICTED_FILES < <(
-                  git diff \
-                    --name-only \
-                    --diff-filter=U
-                )
+                git diff \
+                  --name-only \
+                  --diff-filter=U > /tmp/conflicted-files.txt
 
-                for FILE in "${CONFLICTED_FILES[@]}"; do
-
-                  [ -z "$FILE" ] && continue
+                while IFS= read -r FILE; do
+                  if [ -n "$FILE" ]; then
+                    echo "Resolving conflict:"
+                    echo "  $FILE"
 
                   echo "Resolving conflict:"
                   echo "  $FILE"
@@ -384,7 +383,9 @@ jobs:
                   else
                     git rm -f -- "$FILE" 2>/dev/null || true
                   fi
-                done
+                done < /tmp/conflicted-files.txt
+
+                rm -f /tmp/conflicted-files.txt
 
                 # ==================================================
                 # VERIFY NO CONFLICTS REMAIN
@@ -422,8 +423,9 @@ jobs:
                 # COMMIT RESOLUTION
                 # ==================================================
 
-                echo ""
-                echo "Committing conflict resolution..."
+                if ! git diff --cached --quiet; then
+                  echo ""
+                  echo "Committing conflict resolution..."
 
                 if ! git diff --quiet || ! git diff --cached --quiet || [ -f .git/MERGE_HEAD ]; then
                   git commit \
