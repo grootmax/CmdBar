@@ -1269,3 +1269,14 @@ export async function saveCommandHistory(history, historyPath) {
     await releaseLock(lockPath);
   }
 }
+
+export {
+  PROJECT_TEMPLATES,
+  findGitRepositoryRoot,
+  findWorkspaceConfigPath,
+  detectProjectType,
+  initWorkspaceConfig,
+  loadWorkspaceConfig,
+  mergeConfigs,
+  WorkspaceManager
+} from "./workspaceConfig.js";
