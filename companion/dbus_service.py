@@ -12,12 +12,17 @@ from companion.yubikey_auth import (
     generate_emergency_codes,
     verify_and_consume_emergency_code,
 )
+from companion.event_triggers import EventTriggerEngine
+from companion.stream_deck import get_stream_deck_manager
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
-    SSO authentication methods, YubiKey 2FA Methods, and manages signals.
+    TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
+    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, and manages signals for CommandExecuted,
+    CommandOutput, and EventTriggered.
+    :visibility: public
     """
 
     def __init__(self, config_path=None):
@@ -25,9 +30,12 @@ class CmdBarDBusService:
         self._executed_listeners = []
         self._output_listeners = []
         self._sso_session_listeners = []
-        config = load_config()
+        config = load_config(self.config_path) if self.config_path else load_config()
         self._sso_manager = SSOManager(config)
         self.auth_manager = YubiKeyAuthManager()
+        self._event_triggered_listeners = []
+        self.trigger_engine = EventTriggerEngine()
+        self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:
@@ -326,3 +334,90 @@ class CmdBarDBusService:
     def get_resource_metrics_json(self) -> str:
         res = self.get_resource_metrics()
         return json.dumps(res)
+
+    def add_event_listener(self, on_event_triggered=None):
+        if on_event_triggered:
+            self._event_triggered_listeners.append(on_event_triggered)
+
+    def trigger_event(self, event_type: str, payload_json: str = "{}") -> bool:
+        """
+        Triggers an event and processes matching triggers.
+        :visibility: public
+        """
+        try:
+            payload = json.loads(payload_json) if payload_json else {}
+        except Exception:
+            payload = {}
+
+        def executor(cmd, params, context):
+            return run_command_in_shell(cmd)
+
+        results = self.trigger_engine.process_event(event_type, payload, command_executor=executor)
+        for res in results:
+            for listener in self._event_triggered_listeners:
+                try:
+                    listener(res["trigger_id"], event_type, res["command"], res["success"])
+                except Exception:
+                    pass
+        return True
+
+    def get_triggers(self) -> list:
+        """
+        Returns list of registered triggers.
+        :visibility: public
+        """
+        return self.trigger_engine.get_triggers()
+
+    def get_triggers_json(self) -> str:
+        """
+        Returns registered triggers as JSON string.
+        :visibility: public
+        """
+        return json.dumps(self.get_triggers())
+
+    def add_trigger(self, trigger_json: str) -> bool:
+        """
+        Adds a trigger from JSON string.
+        :visibility: public
+        """
+        try:
+            trig = json.loads(trigger_json)
+            return self.trigger_engine.add_trigger(trig)
+        except Exception:
+            return False
+
+    def remove_trigger(self, trigger_id: str) -> bool:
+        """
+        Removes a trigger by ID.
+        :visibility: public
+        """
+        return self.trigger_engine.remove_trigger(trigger_id)
+
+    def get_stream_deck_profiles(self) -> str:
+        """Returns JSON string containing available Stream Deck profiles and active profile."""
+        if self.stream_deck_manager:
+            summary = self.stream_deck_manager.get_status_summary()
+            return json.dumps({
+                "active_profile": summary["active_profile"],
+                "profiles": summary["available_profiles"]
+            })
+        return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Switches the active Stream Deck profile."""
+        if self.stream_deck_manager:
+            return self.stream_deck_manager.switch_profile(profile_name)
+        return False
+
+    def get_stream_deck_status(self) -> str:
+        """Returns diagnostic status JSON summary for Stream Deck integration."""
+        if self.stream_deck_manager:
+            return json.dumps(self.stream_deck_manager.get_status_summary())
+        return json.dumps({})
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Simulates key press on active Stream Deck grid."""
+        if self.stream_deck_manager:
+            res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
+            return res.get("status") in ("executed", "profile_switched")
+        return False
