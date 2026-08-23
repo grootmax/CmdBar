@@ -20,6 +20,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 - **Categories** – Group commands (Projects, Infrastructure, ECS, Tickets, etc.)
 - **Copy to clipboard** – Each command menu item includes a copy button (`wl-copy` on Wayland / `xclip` on X11) to copy command strings without executing
 - **Argument support** – Commands that need input (e.g. `prod <task-id>`, `feature TFG-877`) open a clean dialog
+- **Wayland Native & Tiling Window Manager Support** – Full native support for Hyprland, Sway, i3, and Wayland compositors with tiling-aware context parameter injection (`{active_window}`, `{workspace}`, `{active_class}`, `{compositor}`), floating rule management, high-performance JSON IPC protocol server, and interactive launcher integration (`wofi`, `rofi`, `fuzzel`, `dmenu`).
 - **Management App** – Beautiful Libadwaita app to add, edit, reorder and test shortcuts
 - **Live reload** – Changes in the JSON are reflected after a quick reload
 - **Ubuntu & GNOME ready** – Designed for GNOME 46+
@@ -332,7 +333,34 @@ We enforce high code-quality standards across the codebase. Ensure your changes 
   npx prettier --write "extension/**/*.js" "tests/**/*.js" "*.json"
   ```
 
-### 3. Makefile Cheat Sheet
+### 3. Wayland Native, Hyprland, Sway, and i3 Usage
+
+CmdBar includes native support for Wayland compositors (Hyprland, Sway, Wayfire, River) and tiling window managers (i3) without requiring GNOME Shell or GJS.
+
+#### Starting the JSON IPC Server:
+```bash
+python3 -m companion.companion_app --ipc-server
+```
+
+#### Querying Tiling Context (Active Window & Workspace):
+```bash
+python3 -m companion.companion_app --tiling-context
+```
+
+#### Sending Requests to the JSON IPC Protocol:
+```bash
+python3 -m companion.companion_app --ipc-send '{"action": "search", "query": "git"}'
+python3 -m companion.companion_app --ipc-send '{"action": "execute", "command": "echo {active_window}", "dry_run": true}'
+```
+
+#### Launching Interactive Menu (Wofi / Rofi / Fuzzel / Dmenu):
+```bash
+python3 -m companion.companion_app --launcher wofi
+```
+
+---
+
+### 4. Makefile Cheat Sheet
 
 The provided `Makefile` exposes helper commands to speed up your local workflow:
 
