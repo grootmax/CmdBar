@@ -1514,19 +1514,17 @@ const CmdBarIndicator = GObject.registerClass(
       }
 
       // Custom brand color styling
-      if (this._box) {
-        if (branding.enabled && branding.brand_colors) {
-          const primary = branding.brand_colors.primary || "#3584e4";
-          const text = branding.brand_colors.text || "#ffffff";
-          this._box.style = `color: ${text};`;
-          if (this.menu && this.menu.actor) {
-            this.menu.actor.style = `border-top: 2px solid ${primary};`;
-          }
-        } else {
-          this._box.style = null;
-          if (this.menu && this.menu.actor) {
-            this.menu.actor.style = null;
-          }
+      if (branding.enabled && branding.brand_colors) {
+        const primary = branding.brand_colors.primary || "#3584e4";
+        const text = branding.brand_colors.text || "#ffffff";
+        if (this._box) this._box.style = `color: ${text};`;
+        if (this.menu && this.menu.actor) {
+          this.menu.actor.style = `border-top: 2px solid ${primary};`;
+        }
+      } else {
+        if (this._box) this._box.style = null;
+        if (this.menu && this.menu.actor) {
+          this.menu.actor.style = null;
         }
       }
     }
@@ -1609,7 +1607,7 @@ const CmdBarIndicator = GObject.registerClass(
 
         if (config && config._isInvalid) {
           this._showNotification(
-            `${branding.enabled ? branding.app_name : "CmdBar"} Configuration Error`,
+            `${branding && branding.enabled ? branding.app_name : "CmdBar"} Configuration Error`,
             "Invalid configuration file detected. Using in-memory default settings without overwriting your file.",
           );
         }

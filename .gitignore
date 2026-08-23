@@ -8,3 +8,4 @@ reports/
 coverage/
 vendor/cache/
 vendor/cache/npm/
+coverage/
