@@ -298,6 +298,56 @@ def substitute_and_quote_command(template, params_data):
     return re.sub(pattern, replacer, template)
 
 
+def tokenize_and_substitute(template, params=None):
+    if not template:
+        return []
+    if isinstance(template, list):
+        tokens = list(template)
+    else:
+        tokens = shlex.split(template)
+    if not params:
+        return tokens
+    result = []
+    for token in tokens:
+        sub = token
+        for k, v in params.items():
+            str_v = str(v) if v is not None else ""
+            sub = sub.replace(f"{{{k}}}", str_v)
+            sub = sub.replace(f"<{k}>", str_v)
+            sub = sub.replace(f"{{{{{k}}}}}", str_v)
+        result.append(sub)
+    return result
+
+
+def get_preview_tokens(tokens, params=None, schema=None):
+    if not tokens:
+        return []
+    secure_keys = set()
+    if isinstance(schema, list):
+        for item in schema:
+            if isinstance(item, dict) and item.get("secure"):
+                secure_keys.add(item.get("name"))
+    elif isinstance(schema, dict):
+        for k, v in schema.items():
+            if isinstance(v, dict) and v.get("secure"):
+                secure_keys.add(k)
+    preview = []
+    for token in tokens:
+        sub = token
+        if params:
+            for k, v in params.items():
+                val_str = str(v) if v is not None else ""
+                is_secure = (k in secure_keys) or any(s in k.lower() for s in ["password", "secret", "token"])
+                replace_val = "[REDACTED]" if is_secure else val_str
+                sub = sub.replace(f"{{{k}}}", replace_val)
+                sub = sub.replace(f"<{k}>", replace_val)
+                sub = sub.replace(f"{{{{{k}}}}}", replace_val)
+                if is_secure and val_str and val_str in sub:
+                    sub = sub.replace(val_str, "[REDACTED]")
+        preview.append(sub)
+    return preview
+
+
 def run_command_in_shell(command_str):
     """
     Runs the given command string inside a shell and returns (exit_code, stdout, stderr).
@@ -724,8 +774,32 @@ if GUI_AVAILABLE:
                 return
             
             params_data = {ph: self.entries[ph].get_text() for ph in self.placeholders}
-            final_cmd = substitute_and_quote_command(self.command['template'], params_data)
-            
+            final_cmd = substitute_and_quote_command(self.command.get('template', ''), params_data)
+
+            if self.command.get('verified') is False:
+                if GUI_AVAILABLE:
+                    dlg = Adw.MessageDialog.new(
+                        self,
+                        f"Confirm Execution: {self.command.get('name', 'Command')}",
+                        f"This command is unverified:\n\n{final_cmd}\n\nDo you want to execute it?"
+                    )
+                    dlg.add_response("cancel", "Cancel")
+                    dlg.add_response("execute", "Execute")
+                    
+                    def on_response(dialog, response_id):
+                        if response_id == "execute":
+                            self._start_execution(final_cmd)
+                        else:
+                            buffer = self.output_view.get_buffer()
+                            buffer.set_text("Execution cancelled by user confirmation dialog.\n")
+                    
+                    dlg.connect("response", on_response)
+                    dlg.present()
+                    return
+
+            self._start_execution(final_cmd)
+
+        def _start_execution(self, final_cmd):
             # Print construction & execution log
             buffer = self.output_view.get_buffer()
             buffer.set_text(f"Constructed Command:\n{final_cmd}\n\nRunning in shell...\n")
