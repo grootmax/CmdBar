@@ -146,6 +146,7 @@ export const DEFAULT_CONFIG = {
   ],
   active_profile: "Development",
   policy: DEFAULT_POLICY_CONFIG,
+  triggers: [],
   categories: [
     {
       name: "AI Assistant",
@@ -431,6 +432,9 @@ export function validateConfigSchema(config) {
           return false;
       }
     }
+  }
+  if (config.triggers !== undefined && !Array.isArray(config.triggers)) {
+    return false;
   }
   return true;
 }

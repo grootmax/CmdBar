@@ -437,7 +437,8 @@ class EventTriggerEngine:
     Main Event Trigger Engine orchestrating File Watchers, Git Hooks, Webhooks, System Events, and Condition Evaluations.
     :visibility: public
     """
-    def __init__(self):
+    def __init__(self, action_executor=None):
+        self.action_executor = action_executor
         self.triggers = {}
         self.file_watchers = FileWatcher()
         self.git_hooks = GitHookManager()
@@ -445,6 +446,19 @@ class EventTriggerEngine:
         self.system_events = SystemEventManager()
         self.history = []
         self.max_history_size = 100
+
+    def register_trigger(self, trigger):
+        """Alias for add_trigger for compatibility."""
+        return self.add_trigger(trigger)
+
+    def unregister_trigger(self, trigger_id):
+        """Alias for remove_trigger for compatibility."""
+        return self.remove_trigger(trigger_id)
+
+    def fire_event(self, event_type, event_details=None, command_executor=None):
+        """Alias for process_event for compatibility."""
+        executor = command_executor or self.action_executor
+        return self.process_event(event_type, event_details, executor)
 
     def load_triggers(self, triggers_list):
         """
