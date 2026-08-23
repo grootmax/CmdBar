@@ -12,12 +12,21 @@ from companion.yubikey_auth import (
     generate_emergency_codes,
     verify_and_consume_emergency_code,
 )
+from app.workspace_config import (
+    WorkspaceManager,
+    init_workspace_config,
+    find_workspace_config_path,
+    detect_project_type,
+    PROJECT_TEMPLATES,
+)
+from companion.stream_deck import get_stream_deck_manager
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
-    SSO authentication methods, YubiKey 2FA Methods, and manages signals.
+    SSO authentication methods, YubiKey 2FA Methods, workspace management, and manages signals.
+    :visibility: public
     """
 
     def __init__(self, config_path=None):
@@ -25,9 +34,11 @@ class CmdBarDBusService:
         self._executed_listeners = []
         self._output_listeners = []
         self._sso_session_listeners = []
-        config = load_config()
+        config = load_config(self.config_path) if self.config_path else load_config()
         self._sso_manager = SSOManager(config)
         self.auth_manager = YubiKeyAuthManager()
+        self.workspace_manager = WorkspaceManager()
+        self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:
@@ -326,3 +337,63 @@ class CmdBarDBusService:
     def get_resource_metrics_json(self) -> str:
         res = self.get_resource_metrics()
         return json.dumps(res)
+
+    def detect_workspace(self, cwd: str) -> tuple:
+        path = find_workspace_config_path(cwd)
+        has_ws = path is not None
+        return has_ws, path or ""
+
+    def init_workspace(self, cwd: str, template_name: str = None) -> tuple:
+        try:
+            cfg, path = init_workspace_config(cwd, template_name)
+            self.workspace_manager.register_workspace(cwd)
+            return True, path
+        except Exception:
+            return False, ""
+
+    def switch_workspace(self, cwd: str) -> bool:
+        try:
+            global_cfg = load_config()
+            self.workspace_manager.set_global_config(global_cfg)
+            ws_cfg = self.workspace_manager.switch_workspace(cwd)
+            return ws_cfg is not None
+        except Exception:
+            return False
+
+    def list_workspaces(self) -> list:
+        return self.workspace_manager.list_workspaces()
+
+    def list_workspaces_json(self) -> str:
+        return json.dumps(self.list_workspaces())
+
+    def get_workspace_templates(self) -> dict:
+        return PROJECT_TEMPLATES
+
+    def get_stream_deck_profiles(self) -> str:
+        """Returns JSON string containing available Stream Deck profiles and active profile."""
+        if self.stream_deck_manager:
+            summary = self.stream_deck_manager.get_status_summary()
+            return json.dumps({
+                "active_profile": summary["active_profile"],
+                "profiles": summary["available_profiles"]
+            })
+        return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Switches the active Stream Deck profile."""
+        if self.stream_deck_manager:
+            return self.stream_deck_manager.switch_profile(profile_name)
+        return False
+
+    def get_stream_deck_status(self) -> str:
+        """Returns diagnostic status JSON summary for Stream Deck integration."""
+        if self.stream_deck_manager:
+            return json.dumps(self.stream_deck_manager.get_status_summary())
+        return json.dumps({})
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Simulates key press on active Stream Deck grid."""
+        if self.stream_deck_manager:
+            res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
+            return res.get("status") in ("executed", "profile_switched")
+        return False

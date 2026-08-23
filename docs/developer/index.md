@@ -87,3 +87,11 @@ The Security Policy Engine (`extension/commandPolicy.js` and `app/policy_manager
    - `approveRequest(requestId, approverContext, ttlMs)`: Issues time-bound `token_appr_*` token.
    - `rejectRequest(requestId, approverContext, reason)`: Marks request rejected.
    - `grantOverride(commandPattern, approverContext, ttlMs)`: Directly issues `token_dir_*` token for command pattern.
+
+### Workspace-Specific Configuration Module
+
+The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`) manages project-level configuration discovery and switching:
+- **CWD & Git Auto-Detection**: Searches upward from current working directory to Git repository root for `.cmdbar.json` or `.cmdbar/config.json`.
+- **Project Templates**: Initializes project configurations using built-in templates (`node`, `python`, `rust`, `go`, `generic`).
+- **Smooth Merging**: Merges workspace categories with global configuration, prepending project commands while avoiding command duplicates.
+- **WorkspaceManager**: High-performance active workspace manager with caching to guarantee sub-5ms lookup performance.
