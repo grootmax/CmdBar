@@ -20,6 +20,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 - **Copy to clipboard** – Each command menu item includes a copy button (`wl-copy` on Wayland / `xclip` on X11) to copy command strings without executing
 - **Argument support** – Commands that need input (e.g. `prod <task-id>`, `feature TFG-877`) open a clean dialog
 - **Management App** – Beautiful Libadwaita app to add, edit, reorder and test shortcuts
+- **Plugin Architecture & Extension System** – Extend CmdBar capabilities with third-party plugins stored in `~/.config/cmdbar/plugins/` featuring sandboxed execution, permission checks, custom commands, events, and marketplace catalog search
 - **Live reload** – Changes in the JSON are reflected after a quick reload
 - **Ubuntu & GNOME ready** – Designed for GNOME 46+
 

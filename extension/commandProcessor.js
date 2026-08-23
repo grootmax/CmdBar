@@ -112,7 +112,10 @@ export async function writeConfigAtomically(targetPath, data) {
   } else {
     // GJS (GNOME Shell) environment
     const giModule = await import("gi");
-    const Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
+    const Gio =
+      giModule.Gio ||
+      (giModule.default && giModule.default.Gio) ||
+      giModule.default;
     const GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
     const file = Gio.File.new_for_path(targetPath);
     const tmpPath = targetPath + ".tmp";
@@ -413,7 +416,7 @@ export function getPreviewTokens(argv, placeholderMap, parametersSchema) {
  * @returns {string}
  */
 export function formatShortcutHint(accel) {
-  let str = Array.isArray(accel) ? (accel[0] || "") : (accel || "");
+  let str = Array.isArray(accel) ? accel[0] || "" : accel || "";
   if (!str) return "Super+Space";
 
   let parts = [];
@@ -476,3 +479,136 @@ export function parseAccel(text) {
   return [`${modifiers}${baseKey}`];
 }
 
+/**
+ * Escapes HTML/XML special markup characters.
+ * @param {string} text
+ * @returns {string}
+ */
+export function escapeMarkup(text) {
+  if (text === null || text === undefined) return "";
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Fuzzy matching algorithm for search query against target string.
+ * @param {string} pattern
+ * @param {string} text
+ * @param {number} [usageFrequency=0]
+ * @returns {{match: boolean, matches: number[], score: number}}
+ */
+export function fuzzyMatch(pattern, text, usageFrequency = 0) {
+  if (!text || typeof text !== "string") {
+    return { match: false, matches: [], score: 0 };
+  }
+  if (!pattern || typeof pattern !== "string" || pattern.trim() === "") {
+    return { match: true, matches: [], score: 0 + usageFrequency * 2 };
+  }
+
+  const pLower = pattern.toLowerCase();
+  const tLower = text.toLowerCase();
+  const matches = [];
+
+  let pIdx = 0;
+  let score = 0;
+  let prevMatchIdx = -1;
+
+  for (let tIdx = 0; tIdx < tLower.length && pIdx < pLower.length; tIdx++) {
+    if (tLower[tIdx] === pLower[pIdx]) {
+      matches.push(tIdx);
+      score += 10;
+      if (prevMatchIdx !== -1 && tIdx === prevMatchIdx + 1) {
+        score += 15; // Consecutive match bonus
+      }
+      if (tIdx === 0 || /\s|[._\-\/]/.test(text[tIdx - 1])) {
+        score += 10; // Word start bonus
+      }
+      prevMatchIdx = tIdx;
+      pIdx++;
+    }
+  }
+
+  if (pIdx < pLower.length) {
+    return { match: false, matches: [], score: 0 };
+  }
+
+  if (pLower === tLower) {
+    score += 100; // Exact match bonus
+  }
+
+  score += (usageFrequency || 0) * 2;
+
+  return { match: true, matches, score };
+}
+
+/**
+ * Highlights matched character indices in text with <b> tags, properly escaping markup.
+ * @param {string} text
+ * @param {number[]} matches
+ * @returns {string}
+ */
+export function highlightMatches(text, matches = []) {
+  if (!text) return "";
+  if (!matches || matches.length === 0) {
+    return escapeMarkup(text);
+  }
+
+  const matchSet = new Set(matches);
+  let result = "";
+  let inBold = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const isMatch = matchSet.has(i);
+    if (isMatch && !inBold) {
+      result += "<b>";
+      inBold = true;
+    } else if (!isMatch && inBold) {
+      result += "</b>";
+      inBold = false;
+    }
+    result += escapeMarkup(text[i]);
+  }
+
+  if (inBold) {
+    result += "</b>";
+  }
+
+  return result;
+}
+
+/**
+ * Ranks a list of commands against a search query string.
+ * @param {Array<Object>} commands
+ * @param {string} query
+ * @param {Object.<string, number>} [usageMap={}]
+ * @returns {Array<{command: Object, matchResult: Object, score: number}>}
+ */
+export function rankCommands(commands, query, usageMap = {}) {
+  if (!Array.isArray(commands)) return [];
+  const results = [];
+
+  for (const cmd of commands) {
+    if (!cmd) continue;
+    const cmdKey = cmd.command || cmd.name || "";
+    const usage = usageMap[cmdKey] || usageMap[cmd.name] || 0;
+
+    const nameRes = fuzzyMatch(query, cmd.name || "", usage);
+    const cmdRes = fuzzyMatch(query, cmd.command || "", usage);
+
+    if (nameRes.match || cmdRes.match) {
+      const bestRes = nameRes.score >= cmdRes.score ? nameRes : cmdRes;
+      results.push({
+        command: cmd,
+        matchResult: bestRes,
+        score: bestRes.score,
+      });
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results;
+}

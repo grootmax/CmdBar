@@ -22,18 +22,28 @@ import {
   isAICommand,
   cleanAIPrompt,
 } from "./aiTranslator.js";
+import { PluginManager } from "./pluginManager.js";
 
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
     if (Main && typeof Main.notify === "function") {
-      Main.notify("CmdBar AI Assistant", "Translating prompt to shell command...");
+      Main.notify(
+        "CmdBar AI Assistant",
+        "Translating prompt to shell command...",
+      );
     }
 
-    const generatedCmd = await translateNaturalLanguageToCommand(commandStr, config || {});
+    const generatedCmd = await translateNaturalLanguageToCommand(
+      commandStr,
+      config || {},
+    );
 
     if (!generatedCmd) {
       if (Main && typeof Main.notify === "function") {
-        Main.notify("AI Translation Failed", "AI model returned an empty command.");
+        Main.notify(
+          "AI Translation Failed",
+          "AI model returned an empty command.",
+        );
       }
       return;
     }
@@ -53,9 +63,11 @@ async function handleAICommandExecution(commandStr, config, onComplete) {
           if (onComplete) onComplete();
         },
         () => {
-          console.log("CmdBar AI: User cancelled execution of AI generated command.");
+          console.log(
+            "CmdBar AI: User cancelled execution of AI generated command.",
+          );
           if (onComplete) onComplete();
-        }
+        },
       );
     } else {
       _executeDirectTokens(tokens, "AI Command");
@@ -73,7 +85,7 @@ function _executeDirectTokens(argv, commandName) {
   try {
     let proc = Gio.Subprocess.new(
       argv,
-      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
     );
 
     proc.communicate_utf8_async(null, null, (subprocess, result) => {
@@ -271,7 +283,13 @@ function requestCommandConfirmation(
  * @param {object} [cmdObj]
  * @param {object} [placeholderMap]
  */
-function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, config) {
+function runCommandAsync(
+  commandName,
+  commandString,
+  cmdObj,
+  placeholderMap,
+  config,
+) {
   let rawCmdStr = Array.isArray(commandString)
     ? commandString.join(" ")
     : String(commandString || "");
@@ -533,7 +551,11 @@ const CommandInputMenuItem = GObject.registerClass(
                 let argv = substituteTokens(tokens, placeholderMap);
                 let fullCmdStr = argv.join(" ");
 
-                if (isAICommand(fullCmdStr) || isAICommand(this._commandTemplate) || isAICommand(text)) {
+                if (
+                  isAICommand(fullCmdStr) ||
+                  isAICommand(this._commandTemplate) ||
+                  isAICommand(text)
+                ) {
                   let promptText = isAICommand(text) ? text : fullCmdStr;
                   handleAICommandExecution(
                     promptText,
@@ -546,7 +568,7 @@ const CommandInputMenuItem = GObject.registerClass(
                       ) {
                         this._indicator.menu.close();
                       }
-                    }
+                    },
                   );
                   return;
                 }
@@ -668,14 +690,8 @@ export function copyToClipboard(text) {
   } catch (e) {}
 
   let tools = isWayland
-    ? [
-        ["wl-copy"],
-        ["xclip", "-selection", "clipboard"],
-      ]
-    : [
-        ["xclip", "-selection", "clipboard"],
-        ["wl-copy"],
-      ];
+    ? [["wl-copy"], ["xclip", "-selection", "clipboard"]]
+    : [["xclip", "-selection", "clipboard"], ["wl-copy"]];
 
   let success = false;
   for (let argv of tools) {
@@ -696,6 +712,38 @@ export function copyToClipboard(text) {
     }
   }
   return success;
+}
+
+/**
+ * Helper function to simulate paste hotkey for copied text.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function pasteClipboardText(text) {
+  copyToClipboard(text);
+
+  let isWayland = false;
+  try {
+    let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
+    let sessionType = GLib.getenv("XDG_SESSION_TYPE");
+    if (
+      waylandDisplay ||
+      (sessionType && sessionType.toLowerCase() === "wayland")
+    ) {
+      isWayland = true;
+    }
+  } catch (e) {}
+
+  let argv = isWayland
+    ? ["wtype", "-M", "ctrl", "v"]
+    : ["xdotool", "key", "--clearmodifiers", "ctrl+v"];
+
+  try {
+    Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE || 0);
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 // Standard menu item for parameterless or parameter-prompting commands
@@ -1024,6 +1072,28 @@ const CmdBarIndicator = GObject.registerClass(
             });
           }
         });
+
+        if (
+          this._extension &&
+          this._extension._pluginManager &&
+          typeof this._extension._pluginManager.getAllCommands === "function"
+        ) {
+          const pluginCmds = this._extension._pluginManager.getAllCommands();
+          if (pluginCmds && pluginCmds.length > 0) {
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+            this.menu.addMenuItem(new CategoryHeaderMenuItem("Plugins"));
+            pluginCmds.forEach((cmd) => {
+              this.menu.addMenuItem(
+                new CommandMenuItem(
+                  this,
+                  cmd.name,
+                  cmd.command || cmd.name,
+                  cmd,
+                ),
+              );
+            });
+          }
+        }
       } catch (e) {
         console.error(`CmdBar: error reloading menu: ${e.message}`);
       }
@@ -1284,6 +1354,32 @@ export default class CmdBarExtension extends Extension {
   enable() {
     this._settings = this.getSettings();
 
+    // Initialize Plugin Manager and load plugins
+    this._pluginManager = new PluginManager(null, {
+      copyToClipboard,
+      pasteClipboardText,
+      notify: (title, message) => {
+        if (Main && typeof Main.notify === "function") {
+          Main.notify(title, message);
+        }
+      },
+      onCommandRegistered: () => {
+        if (this._indicator) {
+          this._indicator._reloadMenu();
+        }
+      },
+      onCommandUnregistered: () => {
+        if (this._indicator) {
+          this._indicator._reloadMenu();
+        }
+      },
+    });
+    try {
+      this._pluginManager.loadPlugins();
+    } catch (e) {
+      console.error(`CmdBar: Error loading plugins: ${e.message}`);
+    }
+
     this._indicator = new CmdBarIndicator(this);
     // Add to the system status bar panel
     Main.panel.addToStatusArea("cmdbar-indicator", this._indicator);
@@ -1362,15 +1458,9 @@ export default class CmdBarExtension extends Extension {
           }
         } catch (e) {}
 
-        Main.wm.addKeybinding(
-          "shortcut",
-          this._settings,
-          flags,
-          mode,
-          () => {
-            this._toggleMenu();
-          },
-        );
+        Main.wm.addKeybinding("shortcut", this._settings, flags, mode, () => {
+          this._toggleMenu();
+        });
       }
     } catch (e) {
       console.error(`CmdBar: Failed to register keybinding: ${e.message}`);
@@ -1436,6 +1526,11 @@ export default class CmdBarExtension extends Extension {
         this._shortcutId = 0;
       }
       this._settings = null;
+    }
+
+    if (this._pluginManager) {
+      this._pluginManager.unloadAllPlugins();
+      this._pluginManager = null;
     }
 
     if (this._indicator) {

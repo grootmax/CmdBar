@@ -1,23 +1,22 @@
 import pytest
 from app.config_schema import validate_parameter_value, resolve_command_preview
 
+
 def test_validate_parameter_value_success():
     schema = {
         "name": "host",
         "regex": "^[a-zA-Z0-9.-]+$",
-        "error_message": "Invalid host format!"
+        "error_message": "Invalid host format!",
     }
-    
+
     is_valid, err_msg = validate_parameter_value("google.com", schema)
     assert is_valid
     assert err_msg is None
 
+
 def test_validate_parameter_value_forbidden_chars():
-    schema = {
-        "name": "host",
-        "regex": "^[a-zA-Z0-9.-]+$"
-    }
-    
+    schema = {"name": "host", "regex": "^[a-zA-Z0-9.-]+$"}
+
     # Semicolon is forbidden
     is_valid, err_msg = validate_parameter_value("google.com; rm -rf /", schema)
     assert not is_valid
@@ -28,90 +27,105 @@ def test_validate_parameter_value_forbidden_chars():
     assert not is_valid
     assert "forbidden" in err_msg.lower()
 
+
 def test_validate_parameter_value_regex_failure():
     schema = {
         "name": "host",
         "regex": "^[a-zA-Z0-9.-]+$",
-        "error_message": "Invalid host format!"
+        "error_message": "Invalid host format!",
     }
-    
+
     is_valid, err_msg = validate_parameter_value("google.com/path", schema)
     assert not is_valid
     assert err_msg == "Invalid host format!"
 
+
 def test_resolve_command_preview_shell_quoted():
     template = "ping -c 3 <host>"
-    schema = [
-        {"name": "host", "regex": "^[a-zA-Z0-9.-]+$"}
-    ]
-    
-    resolved, errors = resolve_command_preview(template, "shell-quoted", {"host": "google.com"}, schema)
+    schema = [{"name": "host", "regex": "^[a-zA-Z0-9.-]+$"}]
+
+    resolved, errors = resolve_command_preview(
+        template, "shell-quoted", {"host": "google.com"}, schema
+    )
     assert resolved == "ping -c 3 google.com"
     assert not errors
 
     # Single brace {host}
     single_template = "git checkout {branch}"
     single_schema = [{"name": "branch"}]
-    resolved, errors = resolve_command_preview(single_template, "shell-quoted", {"branch": "main"}, single_schema)
+    resolved, errors = resolve_command_preview(
+        single_template, "shell-quoted", {"branch": "main"}, single_schema
+    )
     assert resolved == "git checkout main"
     assert not errors
 
     # Double brace {{host}} and mixed syntaxes
     mixed_template = "aws ecs --service {{service}} --id {task} --host <host>"
     mixed_schema = [{"name": "service"}, {"name": "task"}, {"name": "host"}]
-    resolved, errors = resolve_command_preview(mixed_template, "shell-quoted", {"service": "auth-api", "task": "123", "host": "prod.com"}, mixed_schema)
+    resolved, errors = resolve_command_preview(
+        mixed_template,
+        "shell-quoted",
+        {"service": "auth-api", "task": "123", "host": "prod.com"},
+        mixed_schema,
+    )
     assert resolved == "aws ecs --service auth-api --id 123 --host prod.com"
     assert not errors
 
     # Quote characters inside param
-    resolved, errors = resolve_command_preview(template, "shell-quoted", {"host": "google's.com"}, schema)
+    resolved, errors = resolve_command_preview(
+        template, "shell-quoted", {"host": "google's.com"}, schema
+    )
     # shlex.quote("google's.com") -> '"google'\''s.com"' or similar
     assert "google" in resolved
     assert "'" in resolved
 
+
 def test_resolve_command_preview_direct_array():
-    template = "/usr/bin/echo \"Hello\" <arg>"
-    schema = [
-        {"name": "arg", "regex": "^[a-zA-Z0-9_]+$"}
-    ]
-    
-    resolved, errors = resolve_command_preview(template, "direct-array", {"arg": "world"}, schema)
+    template = '/usr/bin/echo "Hello" <arg>'
+    schema = [{"name": "arg", "regex": "^[a-zA-Z0-9_]+$"}]
+
+    resolved, errors = resolve_command_preview(
+        template, "direct-array", {"arg": "world"}, schema
+    )
     assert "world" in resolved
     assert "Args List:" in resolved
     assert '["/usr/bin/echo", "Hello", "world"]' in resolved
+
 
 def test_validate_parameter_value_secure_redaction():
     schema = {
         "name": "password",
         "regex": "^[a-zA-Z0-9]+$",
         "secure": True,
-        "error_message": "Invalid password!"
+        "error_message": "Invalid password!",
     }
     # Test forbidden character check redaction
     is_valid, err_msg = validate_parameter_value("my;password", schema)
     assert not is_valid
     assert "my;password" not in err_msg
-    
+
     # Test regex mismatch error redaction
     is_valid, err_msg = validate_parameter_value("my_password", schema)
     assert not is_valid
     assert "my_password" not in err_msg
 
+
 def test_resolve_command_preview_secure_masking():
     template = "login -p <password>"
-    schema = [
-        {"name": "password", "regex": "^[a-zA-Z0-9]+$", "secure": True}
-    ]
-    resolved, errors = resolve_command_preview(template, "shell-quoted", {"password": "secretPassword"}, schema)
+    schema = [{"name": "password", "regex": "^[a-zA-Z0-9]+$", "secure": True}]
+    resolved, errors = resolve_command_preview(
+        template, "shell-quoted", {"password": "secretPassword"}, schema
+    )
     assert resolved == "login -p '**************'"
     assert "secretPassword" not in resolved
     assert not errors
+
 
 def test_validate_parameter_value_strips_whitespace():
     schema = {
         "name": "host",
         "regex": "^[a-zA-Z0-9.-]+$",
-        "error_message": "Invalid host format!"
+        "error_message": "Invalid host format!",
     }
     # validate_parameter_value should strip the string before validating against the regex
     is_valid, err_msg = validate_parameter_value("  google.com  ", schema)
@@ -120,22 +134,23 @@ def test_validate_parameter_value_strips_whitespace():
 
     # resolve_command_preview should use stripped value
     template = "ping -c 3 <host>"
-    resolved, errors = resolve_command_preview(template, "shell-quoted", {"host": "  google.com  "}, [schema])
+    resolved, errors = resolve_command_preview(
+        template, "shell-quoted", {"host": "  google.com  "}, [schema]
+    )
     assert resolved == "ping -c 3 google.com"
     assert not errors
 
+
 def test_resolve_command_preview_dict_map_schema():
     template = "ping -c 3 <host>"
-    schema = {
-        "host": {
-            "regex": "^[a-zA-Z0-9.-]+$",
-            "error_message": "Invalid host!"
-        }
-    }
-    
-    resolved, errors = resolve_command_preview(template, "shell-quoted", {"host": "google.com"}, schema)
+    schema = {"host": {"regex": "^[a-zA-Z0-9.-]+$", "error_message": "Invalid host!"}}
+
+    resolved, errors = resolve_command_preview(
+        template, "shell-quoted", {"host": "google.com"}, schema
+    )
     assert resolved == "ping -c 3 google.com"
     assert not errors
+
 
 def test_legacy_parameter_list_migration(tmp_path):
     import json
@@ -155,11 +170,11 @@ def test_legacy_parameter_list_migration(tmp_path):
                             {
                                 "name": "host",
                                 "regex": "^[a-zA-Z0-9.-]+$",
-                                "error_message": "Invalid host!"
+                                "error_message": "Invalid host!",
                             }
-                        ]
+                        ],
                     }
-                ]
+                ],
             }
         ]
     }
@@ -196,7 +211,7 @@ def test_python_config_signing_and_tamper_rejection(tmp_path):
         "categories": [
             {
                 "name": "Custom Cat",
-                "commands": [{"name": "Echo", "command": "echo test"}]
+                "commands": [{"name": "Echo", "command": "echo test"}],
             }
         ]
     }
@@ -224,5 +239,3 @@ def test_python_config_signing_and_tamper_rejection(tmp_path):
     with open(bak_file, "r") as f:
         bak_data = json.load(f)
     assert bak_data["categories"][0]["commands"][0]["command"] == "/tmp/malicious"
-
-
