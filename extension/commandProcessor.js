@@ -1132,3 +1132,160 @@ export function evaluateMathExpression(expr) {
     };
   }
 }
+
+const isNode =
+  typeof process !== "undefined" && process.versions && process.versions.node;
+
+let nodeFs = null;
+let nodeCp = null;
+let nodePath = null;
+
+if (isNode) {
+  try {
+    nodeFs = (await import("fs")).default || (await import("fs"));
+    nodeCp = (await import("child_process")).default || (await import("child_process"));
+    nodePath = (await import("path")).default || (await import("path"));
+  } catch (e) {}
+}
+
+/**
+ * Detects if a directory is a Git repository by checking for .git file/directory or git status.
+ * @param {string} [dirPath]
+ * @returns {boolean}
+ */
+export function detectGitRepo(dirPath) {
+  const targetDir = dirPath || (isNode ? process.cwd() : ".");
+
+  if (isNode) {
+    if (nodeFs) {
+      try {
+        const gitPath = nodePath ? nodePath.join(targetDir, ".git") : `${targetDir}/.git`;
+        if (nodeFs.existsSync(gitPath)) {
+          return true;
+        }
+      } catch (e) {}
+    }
+
+    if (nodeCp && nodeCp.execSync) {
+      try {
+        const out = nodeCp.execSync("git rev-parse --is-inside-work-tree", {
+          cwd: targetDir,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+        return out.trim() === "true";
+      } catch (e) {}
+    }
+    return false;
+  } else {
+    try {
+      if (typeof GLib !== "undefined" && GLib.build_filenamev) {
+        const gitPath = GLib.build_filenamev([targetDir, ".git"]);
+        if (GLib.file_test(gitPath, GLib.FileTest.EXISTS)) {
+          return true;
+        }
+      }
+    } catch (e) {}
+    return false;
+  }
+}
+
+/**
+ * Synchronously fetches current Git state (branch, status, last commit).
+ * @param {string} [dirPath]
+ * @returns {{ isGitRepo: boolean, branch: string, status: string, lastCommit: string, repoPath: string }}
+ */
+export function getGitStateSync(dirPath) {
+  const targetDir = dirPath || (isNode ? process.cwd() : ".");
+  const isRepo = detectGitRepo(targetDir);
+
+  if (!isRepo) {
+    return {
+      isGitRepo: false,
+      branch: "",
+      status: "N/A",
+      lastCommit: "",
+      repoPath: targetDir,
+    };
+  }
+
+  let branch = "main";
+  let status = "clean";
+  let lastCommit = "";
+
+  if (isNode && nodeCp && nodeCp.execSync) {
+    try {
+      branch =
+        nodeCp.execSync("git branch --show-current", { cwd: targetDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() ||
+        nodeCp.execSync("git rev-parse --abbrev-ref HEAD", { cwd: targetDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    } catch (e) {}
+
+    try {
+      const st = nodeCp.execSync("git status --short", { cwd: targetDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      status = st ? `dirty (${st.split("\n").length} modified)` : "clean";
+    } catch (e) {}
+
+    try {
+      lastCommit = nodeCp.execSync('git log -1 --format="%h %s"', { cwd: targetDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    } catch (e) {}
+  }
+
+  return {
+    isGitRepo: true,
+    branch: branch || "main",
+    status: status || "clean",
+    lastCommit: lastCommit || "",
+    repoPath: targetDir,
+  };
+}
+
+/**
+ * Asynchronously fetches current Git state (branch, status, last commit).
+ * @param {string} [dirPath]
+ * @returns {Promise<{ isGitRepo: boolean, branch: string, status: string, lastCommit: string, repoPath: string }>}
+ */
+export async function getGitStateAsync(dirPath) {
+  const targetDir = dirPath || (isNode ? process.cwd() : ".");
+  return getGitStateSync(targetDir);
+}
+
+/**
+ * Substitutes Git placeholders {git-branch}, {git-status}, {git-last-commit} in a command template.
+ * @param {string} commandTemplate
+ * @param {object} gitState
+ * @returns {string}
+ */
+export function substituteGitPlaceholders(commandTemplate, gitState) {
+  if (!commandTemplate || typeof commandTemplate !== "string") {
+    return "";
+  }
+  if (!gitState || typeof gitState !== "object") {
+    return commandTemplate;
+  }
+
+  const branch = gitState.branch || "";
+  const status = gitState.status || "";
+  const lastCommit = gitState.lastCommit || "";
+
+  return commandTemplate
+    .replace(/\{\{git-branch\}\}|<git-branch>|\{git-branch\}/gi, branch)
+    .replace(/\{\{git-status\}\}|<git-status>|\{git-status\}/gi, status)
+    .replace(/\{\{git-last-commit\}\}|<git-last-commit>|\{git-last-commit\}/gi, lastCommit);
+}
+
+/**
+ * Checks if a command template contains placeholders other than Git placeholders.
+ * @param {string} commandTemplate
+ * @returns {boolean}
+ */
+export function hasNonGitPlaceholders(commandTemplate) {
+  if (!commandTemplate || typeof commandTemplate !== "string") {
+    return false;
+  }
+  const stripped = commandTemplate
+    .replace(/\{\{git-branch\}\}|<git-branch>|\{git-branch\}/gi, "")
+    .replace(/\{\{git-status\}\}|<git-status>|\{git-status\}/gi, "")
+    .replace(/\{\{git-last-commit\}\}|<git-last-commit>|\{git-last-commit\}/gi, "");
+
+  return hasPlaceholder(stripped);
+}
