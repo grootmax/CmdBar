@@ -131,3 +131,15 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def get_resource_metrics(self) -> dict:
+        if hasattr(self, "_resource_monitor") and self._resource_monitor:
+            return self._resource_monitor.get_metrics_dict()
+        from companion.resource_monitor import SystemResourceMonitor
+        rm = SystemResourceMonitor()
+        rm.sample_metrics()
+        return rm.get_metrics_dict()
+
+    def get_resource_metrics_json(self) -> str:
+        res = self.get_resource_metrics()
+        return json.dumps(res)
