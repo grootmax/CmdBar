@@ -365,6 +365,13 @@ def run_command_in_shell(command_str):
 # =====================================================================
 
 def run_cli_mode():
+    from companion.environment_snapshot import (
+        export_snapshot,
+        import_snapshot,
+        create_backup,
+        restore_backup,
+        list_backups
+    )
     print("===============================================")
     print("   CmdBar Companion Management App (CLI Mode)   ")
     print("===============================================")
@@ -378,9 +385,12 @@ def run_cli_mode():
         print("4. Edit Command")
         print("5. Delete Command/Category")
         print("6. Test-Run Command Template")
-        print("7. Exit")
+        print("7. Export Environment Snapshot")
+        print("8. Import Environment Snapshot")
+        print("9. Backup / Restore Environment")
+        print("10. Exit")
         
-        choice = input("\nEnter choice [1-7]: ").strip()
+        choice = input("\nEnter choice [1-10]: ").strip()
         if choice == "1":
             list_categories_and_commands(config_data)
         elif choice == "2":
@@ -394,6 +404,47 @@ def run_cli_mode():
         elif choice == "6":
             test_run_command_flow(config_data)
         elif choice == "7":
+            out_file = input("Enter output path for snapshot [leave empty for print]: ").strip()
+            passphrase = input("Enter encryption passphrase [leave empty for unencrypted]: ").strip() or None
+            res = export_snapshot(output_path=out_file if out_file else None, passphrase=passphrase)
+            if out_file:
+                print(f"Environment Snapshot saved to '{out_file}'.")
+            else:
+                print("\nGenerated Snapshot:\n" + json.dumps(res, indent=2))
+        elif choice == "8":
+            in_file = input("Enter snapshot file path or JSON string: ").strip()
+            mode_input = input("Enter mode [merge/replace, default: merge]: ").strip().lower() or "merge"
+            passphrase = input("Enter passphrase if encrypted [leave empty if none]: ").strip() or None
+            try:
+                res = import_snapshot(in_file, mode=mode_input, passphrase=passphrase)
+                print(f"Snapshot imported successfully! (Snapshot ID: {res['snapshot_id']})")
+            except Exception as e:
+                print(f"Import failed: {e}")
+        elif choice == "9":
+            print("\nBackup & Restore:")
+            print("1. Create New Backup")
+            print("2. List Backups")
+            print("3. Restore from Backup")
+            sub_choice = input("Enter choice [1-3]: ").strip()
+            if sub_choice == "1":
+                desc = input("Backup description [default: Manual backup]: ").strip() or "Manual backup"
+                b_info = create_backup(description=desc)
+                print(f"Backup created at: {b_info['backup_path']}")
+            elif sub_choice == "2":
+                backups = list_backups()
+                if not backups:
+                    print("No backups found.")
+                else:
+                    for b in backups:
+                        print(f" - {b['backup_id']} ({b['timestamp']}): {b['description']} [{b['size']} bytes]")
+            elif sub_choice == "3":
+                b_id = input("Enter backup ID or file path: ").strip()
+                try:
+                    res = restore_backup(b_id)
+                    print("Environment restored successfully from backup!")
+                except Exception as e:
+                    print(f"Restore failed: {e}")
+        elif choice == "10":
             print("Goodbye!")
             break
         else:
@@ -1112,12 +1163,68 @@ if GUI_AVAILABLE:
 # =====================================================================
 
 def main():
+    from companion.environment_snapshot import (
+        export_snapshot,
+        import_snapshot,
+        create_backup,
+        restore_backup,
+        list_backups
+    )
     parser = argparse.ArgumentParser(description="CmdBar Companion App")
     parser.add_argument("--cli", action="store_true", help="Force running in Command Line Interface mode")
+    parser.add_argument("--export-snapshot", nargs="?", const="stdout", help="Export environment snapshot to file or stdout")
+    parser.add_argument("--import-snapshot", help="Import environment snapshot from file or JSON string")
+    parser.add_argument("--backup", action="store_true", help="Create a backup of the current environment")
+    parser.add_argument("--restore", help="Restore environment from backup ID or file path")
+    parser.add_argument("--list-backups", action="store_true", help="List all available environment backups")
+    parser.add_argument("--merge", action="store_true", help="Use merge mode when importing snapshot (default is replace or merge)")
+    parser.add_argument("--passphrase", help="Passphrase for encrypted snapshot export or import")
     args = parser.parse_args()
     
     # Initialize config directory/file
     init_config()
+
+    if args.export_snapshot:
+        out_path = None if args.export_snapshot == "stdout" else args.export_snapshot
+        res = export_snapshot(output_path=out_path, passphrase=args.passphrase)
+        if out_path:
+            print(f"Environment Snapshot exported to {out_path}")
+        else:
+            print(json.dumps(res, indent=2))
+        return
+
+    if args.import_snapshot:
+        mode = "merge" if args.merge else "replace"
+        try:
+            res = import_snapshot(args.import_snapshot, mode=mode, passphrase=args.passphrase)
+            print(f"Successfully imported snapshot: {res.get('snapshot_id')} (mode: {res.get('mode')})")
+        except Exception as e:
+            print(f"Error importing snapshot: {e}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    if args.backup:
+        b_info = create_backup(description="CLI backup")
+        print(f"Created backup at {b_info.get('backup_path')}")
+        return
+
+    if args.restore:
+        try:
+            restore_backup(args.restore)
+            print(f"Successfully restored environment from {args.restore}")
+        except Exception as e:
+            print(f"Error restoring backup: {e}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    if args.list_backups:
+        backups = list_backups()
+        if not backups:
+            print("No backups found.")
+        else:
+            for b in backups:
+                print(f"{b['backup_id']}\t{b['timestamp']}\t{b['description']}\t({b['size']} bytes)")
+        return
     
     if args.cli or not GUI_AVAILABLE:
         if not GUI_AVAILABLE and not args.cli:

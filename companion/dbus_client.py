@@ -93,6 +93,58 @@ class CmdBarDBusClient:
                 return []
         return []
 
+    def export_snapshot(self, options: dict = None) -> dict:
+        """Export environment snapshot via D-Bus."""
+        options_json = json.dumps(options or {})
+        res = self._call_method("ExportSnapshot", options_json)
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def import_snapshot(self, snapshot_data_or_json, options: dict = None) -> bool:
+        """Import environment snapshot via D-Bus."""
+        snap_str = snapshot_data_or_json if isinstance(snapshot_data_or_json, str) else json.dumps(snapshot_data_or_json)
+        options_json = json.dumps(options or {})
+        res = self._call_method("ImportSnapshot", snap_str, options_json)
+        return bool(res)
+
+    def create_backup(self, description: str = 'D-Bus backup') -> str:
+        """Create environment backup via D-Bus."""
+        res = self._call_method("CreateBackup", description)
+        if isinstance(res, str):
+            if res.startswith("'") and res.endswith("'"):
+                res = res[1:-1]
+            return res
+        return ""
+
+    def restore_backup(self, backup_path_or_id: str) -> bool:
+        """Restore environment from backup via D-Bus."""
+        res = self._call_method("RestoreBackup", backup_path_or_id)
+        return bool(res)
+
+    def list_backups(self) -> list:
+        """List all backups via D-Bus."""
+        res = self._call_method("ListBackups")
+        if isinstance(res, list):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return []
+        return []
+
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
         self._executed_callbacks.append(callback)
