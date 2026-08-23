@@ -132,7 +132,9 @@ jobs:
           # We process them strictly in this order.
           # ==================================================
 
-          jq -c '.[]' /tmp/jules-prs.json | while read -r PR; do
+          jq -c '.[]' /tmp/jules-prs.json > /tmp/jules-prs.jsonl
+
+          while read -r PR; do
 
             PR_NUMBER=$(echo "$PR" | jq -r '.number')
             TITLE=$(echo "$PR" | jq -r '.title')
@@ -288,11 +290,11 @@ jobs:
               echo ""
               echo "Fetching base branch..."
 
-              git fetch origin "$BASE_BRANCH"
+              git fetch origin "$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH"
 
               echo "Fetching Jules branch..."
 
-              git fetch origin "$HEAD_BRANCH"
+              git fetch origin "$HEAD_BRANCH:refs/remotes/origin/$HEAD_BRANCH"
 
               # ==================================================
               # CHECKOUT JULES BRANCH
@@ -362,19 +364,23 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
+                echo "Resolving conflicts by accepting base branch changes..."
+
                 git diff \
                   --name-only \
                   --diff-filter=U |
                 while IFS= read -r FILE; do
-
-                  echo "Resolving conflict:"
-                  echo "  $FILE"
-
-                  git checkout --theirs -- "$FILE"
-
-                  git add -- "$FILE"
-
+                  if [ -n "$FILE" ]; then
+                    echo "Resolving conflict in: $FILE"
+                    if git checkout --theirs -- "$FILE" 2>/dev/null; then
+                      git add -- "$FILE"
+                    else
+                      git rm -f -- "$FILE" 2>/dev/null || rm -f "$FILE" || true
+                    fi
+                  fi
                 done
+
+                git add -A
 
                 # ==================================================
                 # VERIFY NO CONFLICTS REMAIN
@@ -415,8 +421,10 @@ jobs:
                 echo ""
                 echo "Committing conflict resolution..."
 
-                git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                if ! git diff --cached --quiet; then
+                  git commit \
+                    -m "chore: auto-resolve merge conflicts"
+                fi
 
               fi
 
@@ -565,7 +573,10 @@ jobs:
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      (.bucket == "fail" or .bucket == "cancel")
+                      and ((.name | ascii_downcase | contains("jules pr manager") | not) and (((.workflow // "") | ascii_downcase) | contains("jules pr manager") | not) and (.name | ascii_downcase | contains("process jules") | not))
+                    )
                 ]
                 | length
               ')
@@ -573,7 +584,10 @@ jobs:
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "pending")
+                  | select(
+                      (.bucket == "pending")
+                      and ((.name | ascii_downcase | contains("jules pr manager") | not) and (((.workflow // "") | ascii_downcase) | contains("jules pr manager") | not) and (.name | ascii_downcase | contains("process jules") | not))
+                    )
                 ]
                 | length
               ')
@@ -679,7 +693,7 @@ jobs:
 
             break
 
-          done
+          done < /tmp/jules-prs.jsonl
 
           echo ""
           echo "=========================================="
