@@ -131,6 +131,28 @@ python3 companion/companion_app.py
 ```
 This utility manages configuration storage seamlessly and will also fallback gracefully to terminal-based output if the desktop environment / GTK is unavailable.
 
+#### Headless CLI-Only Server Mode
+CmdBar includes a lightweight, zero-external-dependency headless daemon mode with a REST API, WebSocket server, configuration management, and monitoring endpoint for server/headless environments:
+
+```bash
+# Start headless server on default host (127.0.0.1) and port (8080)
+python3 companion/companion_app.py --server
+
+# Or run via the cmdbar-server script with custom host, port, and authentication token
+scripts/cmdbar-server --host 0.0.0.0 --port 8080 --auth-token secret-api-token
+```
+
+##### Key Features & Service Integration:
+- **REST API**:
+  - `GET /health` & `GET /api/version` - Server status, uptime, version info
+  - `GET /api/config` & `PUT /api/config` - View or update complete configuration JSON safely
+  - `GET/POST/DELETE /api/categories` - Dynamic category management
+  - `GET/POST/PUT/DELETE /api/commands` - Dynamic command CRUD operations
+  - `POST /api/execute` - Parametric command execution with regex validation and execution metrics
+  - `GET /metrics` - Prometheus / JSON monitoring metrics endpoint (request counters, active WS clients, memory RSS, command duration)
+- **WebSocket Protocol (`/ws`)**: Real-time bi-directional events, command execution streaming, and subscription channels.
+- **systemd Integration**: Install as a user service using `scripts/install_systemd_service.sh` or copy `systemd/cmdbar-server.service` to `~/.config/systemd/user/`.
+
 ---
 
 ## Configuration Layout & Schemas
