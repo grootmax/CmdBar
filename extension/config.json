@@ -37,6 +37,27 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Git",
+      "commands": [
+        {
+          "name": "Git Status",
+          "command": ["git", "status"]
+        },
+        {
+          "name": "Git Pull",
+          "command": ["git", "pull", "origin", "{git-branch}"]
+        },
+        {
+          "name": "Git Push",
+          "command": ["git", "push", "origin", "{git-branch}"]
+        },
+        {
+          "name": "Git Commit",
+          "command": ["git", "commit", "-m", "<commit-message>"]
+        }
+      ]
     }
   ]
 }

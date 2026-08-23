@@ -12,6 +12,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 ## Features
 
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
+- **Git Repository Integration** – Auto-detects Git repositories upon menu open, displays a visual branch indicator header with repository branch and status, provides placeholders (`{git-branch}`, `{git-status}`, `{git-last-commit}`) for command templates, and includes default Git-aware templates (push, pull, commit, status)
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
 - **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences.
 - **Dynamic menu** – Fully driven by a simple JSON file

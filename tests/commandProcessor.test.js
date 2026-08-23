@@ -1,4 +1,4 @@
-import { validateInput, hasPlaceholder, substituteCommand, parseEnv, tokenizeCommand, getPlaceholders, substituteTokens, getPreviewTokens, fuzzyMatch, highlightMatches, escapeMarkup, rankCommands } from '../extension/commandProcessor.js';
+import { validateInput, hasPlaceholder, substituteCommand, parseEnv, tokenizeCommand, getPlaceholders, substituteTokens, getPreviewTokens, fuzzyMatch, highlightMatches, escapeMarkup, rankCommands, detectGitRepo, getGitStateSync, getGitStateAsync, substituteGitPlaceholders, hasNonGitPlaceholders } from '../extension/commandProcessor.js';
 
 describe('CmdBar Extension Core Unit Tests', () => {
     
@@ -279,6 +279,58 @@ describe('CmdBar Extension Core Unit Tests', () => {
 
             expect(duration).toBeLessThan(100); // Acceptance criteria: < 100ms
             expect(ranked.length).toBeGreaterThan(0);
+        });
+    });
+
+    describe('Git Repository Integration Placeholders & Helper Functions', () => {
+        test('detectGitRepo returns true for valid git repo directory and false for non-git dir', () => {
+            expect(detectGitRepo('/app/CmdBar')).toBe(true);
+            expect(detectGitRepo('/tmp')).toBe(false);
+        });
+
+        test('getGitStateSync fetches valid git state for current workspace', () => {
+            const gitState = getGitStateSync('/app/CmdBar');
+            expect(gitState.isGitRepo).toBe(true);
+            expect(typeof gitState.branch).toBe('string');
+            expect(gitState.branch.length).toBeGreaterThan(0);
+            expect(typeof gitState.status).toBe('string');
+            expect(typeof gitState.lastCommit).toBe('string');
+        });
+
+        test('getGitStateAsync resolves valid git state asynchronously', async () => {
+            const gitState = await getGitStateAsync('/app/CmdBar');
+            expect(gitState.isGitRepo).toBe(true);
+            expect(typeof gitState.branch).toBe('string');
+        });
+
+        test('substituteGitPlaceholders substitutes {git-branch}, {git-status}, {git-last-commit}', () => {
+            const mockGitState = {
+                branch: 'feature/git-integration',
+                status: 'clean',
+                lastCommit: 'a1b2c3d Feat git',
+            };
+
+            const template = 'git push origin {git-branch} && echo "{git-status}" && git show {git-last-commit}';
+            const substituted = substituteGitPlaceholders(template, mockGitState);
+
+            expect(substituted).toBe('git push origin feature/git-integration && echo "clean" && git show a1b2c3d Feat git');
+        });
+
+        test('substituteGitPlaceholders supports <git-branch> and {{git-branch}} syntax', () => {
+            const mockGitState = {
+                branch: 'main',
+                status: 'dirty',
+                lastCommit: '9988776 Initial',
+            };
+
+            expect(substituteGitPlaceholders('git pull origin <git-branch>', mockGitState)).toBe('git pull origin main');
+            expect(substituteGitPlaceholders('git pull origin {{git-branch}}', mockGitState)).toBe('git pull origin main');
+        });
+
+        test('hasNonGitPlaceholders returns false if command only has git placeholders', () => {
+            expect(hasNonGitPlaceholders('git push origin {git-branch}')).toBe(false);
+            expect(hasNonGitPlaceholders('echo {git-status} {git-last-commit}')).toBe(false);
+            expect(hasNonGitPlaceholders('git commit -m "<commit-message>" on {git-branch}')).toBe(true);
         });
     });
 });

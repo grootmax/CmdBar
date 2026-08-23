@@ -65,3 +65,25 @@
 .cmdbar-refresh-button:hover {
     background-color: rgba(255, 255, 255, 0.1);
 }
+
+/* Git Repository Integration Styles */
+.cmdbar-git-header {
+    padding: 6px 10px;
+    background-color: rgba(53, 132, 228, 0.12);
+    border: 1px solid rgba(53, 132, 228, 0.3);
+    border-radius: 6px;
+    margin: 4px 8px;
+}
+
+.cmdbar-git-branch-label {
+    font-weight: bold;
+    color: #3584e4;
+    font-size: 0.95em;
+}
+
+.cmdbar-git-status-label {
+    color: #888888;
+    font-size: 0.85em;
+    margin-left: 6px;
+}
+

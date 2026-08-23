@@ -2,7 +2,7 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands } from './extension/commandProcessor.js';
+import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands, detectGitRepo, getGitStateSync, substituteGitPlaceholders, hasNonGitPlaceholders } from './extension/commandProcessor.js';
 import { saveConfigAtomically, saveConfigAtomicallyAsync } from './companion/configStore.js';
 
 console.log('Running standalone verification tests...');
@@ -41,6 +41,15 @@ try {
         { name: 'Git Pull', command: 'git pull origin' }
     ], 'gp', { 'git pull origin': 5 });
     assert.strictEqual(ranked[0].command.name, 'Git Pull', 'Should rank higher usage frequency first');
+
+    // 5. Git Integration Tests
+    assert.strictEqual(detectGitRepo('/app/CmdBar'), true, 'Should detect /app/CmdBar as a git repository');
+    const gitState = getGitStateSync('/app/CmdBar');
+    assert.strictEqual(gitState.isGitRepo, true, 'Git state should confirm git repo');
+    assert.strictEqual(typeof gitState.branch, 'string', 'Branch should be string');
+    assert.strictEqual(substituteGitPlaceholders('git push origin {git-branch}', { branch: 'main' }), 'git push origin main', 'Should substitute {git-branch}');
+    assert.strictEqual(hasNonGitPlaceholders('git push origin {git-branch}'), false, 'Should have no non-git placeholders');
+    assert.strictEqual(hasNonGitPlaceholders('git commit -m "<msg>" on {git-branch}'), true, 'Should detect <msg> non-git placeholder');
 
     // 4. Atomic Persistence Tests (Sync & Async)
     const tempDir = path.join(os.tmpdir(), `cmdbar-standalone-test-${Date.now()}`);

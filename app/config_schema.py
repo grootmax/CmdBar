@@ -78,6 +78,31 @@ DEFAULT_CONFIG = {
           }
         }
       ]
+    },
+    {
+      "name": "Git",
+      "commands": [
+        {
+          "name": "Git Status",
+          "command": "git status",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Pull",
+          "command": "git pull origin {git-branch}",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Push",
+          "command": "git push origin {git-branch}",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Commit",
+          "command": "git commit -m \"<commit-message>\"",
+          "mode": "shell-quoted"
+        }
+      ]
     }
   ]
 }
@@ -267,6 +292,11 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
             preview_values[name] = "*" * len(val) if val else ""
         else:
             preview_values[name] = val
+
+    if isinstance(parameter_values, dict):
+        for k, v in parameter_values.items():
+            if k not in preview_values:
+                preview_values[k] = str(v).strip() if v is not None else ""
 
     pattern = r"\{\{([^}]+)\}\}|<([^>]+)>|\{([^}]+)\}"
     if mode == "shell-quoted":
