@@ -37,7 +37,10 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
 let Gio, GLib;
 try {
   const giModule = await import("gi");
-  Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
+  Gio =
+    giModule.Gio ||
+    (giModule.default && giModule.default.Gio) ||
+    giModule.default;
   GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
 } catch (e) {}
 
@@ -63,7 +66,7 @@ export class CmdBarDBusService {
         Gio.BusNameOwnerFlags.NONE,
         null,
         null,
-        null
+        null,
       );
       return true;
     } catch (e) {
@@ -89,16 +92,19 @@ export class CmdBarDBusService {
 
   async AddCommand(name, command, category) {
     if (!name || typeof name !== "string" || name.trim() === "") return false;
-    if (!command || typeof command !== "string" || command.trim() === "") return false;
+    if (!command || typeof command !== "string" || command.trim() === "")
+      return false;
 
-    const catName = (category && typeof category === "string" && category.trim())
-      ? category.trim()
-      : "External";
+    const catName =
+      category && typeof category === "string" && category.trim()
+        ? category.trim()
+        : "External";
 
     try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
+      const configPath =
+        this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
       const config = await loadConfig(configPath);
       if (!config.categories) config.categories = [];
 
@@ -120,7 +126,10 @@ export class CmdBarDBusService {
       }
 
       await saveConfig(config, configPath);
-      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+      if (
+        this._indicator &&
+        typeof this._indicator._reloadMenu === "function"
+      ) {
         this._indicator._reloadMenu();
       }
       return true;
@@ -135,9 +144,10 @@ export class CmdBarDBusService {
     const cleanName = name.trim();
 
     try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
+      const configPath =
+        this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
       const config = await loadConfig(configPath);
       if (!config.categories) return false;
 
@@ -152,7 +162,10 @@ export class CmdBarDBusService {
 
       if (removed) {
         await saveConfig(config, configPath);
-        if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        if (
+          this._indicator &&
+          typeof this._indicator._reloadMenu === "function"
+        ) {
           this._indicator._reloadMenu();
         }
       }
@@ -168,9 +181,10 @@ export class CmdBarDBusService {
     const cleanName = name.trim();
 
     try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
+      const configPath =
+        this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
       const config = await loadConfig(configPath);
 
       let foundCmd = null;
@@ -178,7 +192,10 @@ export class CmdBarDBusService {
         for (const cat of config.categories) {
           if (cat.commands) {
             const match = cat.commands.find(
-              (c) => c.name === cleanName || c.command === cleanName || c.template === cleanName
+              (c) =>
+                c.name === cleanName ||
+                c.command === cleanName ||
+                c.template === cleanName,
             );
             if (match) {
               foundCmd = match;
@@ -189,9 +206,14 @@ export class CmdBarDBusService {
       }
 
       const cmdName = foundCmd ? foundCmd.name : cleanName;
-      const cmdStr = foundCmd ? (foundCmd.command || foundCmd.template) : cleanName;
+      const cmdStr = foundCmd
+        ? foundCmd.command || foundCmd.template
+        : cleanName;
 
-      if (this._indicator && typeof this._indicator.executeCommand === "function") {
+      if (
+        this._indicator &&
+        typeof this._indicator.executeCommand === "function"
+      ) {
         this._indicator.executeCommand(cmdName, cmdStr, {}, foundCmd);
       }
       return true;
@@ -203,9 +225,10 @@ export class CmdBarDBusService {
 
   async GetCommands() {
     try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
+      const configPath =
+        this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
       const config = await loadConfig(configPath);
 
       const allCmds = [];
@@ -236,7 +259,11 @@ export class CmdBarDBusService {
       try {
         this._dbusImpl.emit_signal(
           "CommandExecuted",
-          new GLib.Variant("(sib)", [name || "", exitCode || 0, Boolean(success)])
+          new GLib.Variant("(sib)", [
+            name || "",
+            exitCode || 0,
+            Boolean(success),
+          ]),
         );
       } catch (e) {
         console.error(`CmdBar D-Bus emitCommandExecuted error: ${e.message}`);
@@ -249,7 +276,7 @@ export class CmdBarDBusService {
       try {
         this._dbusImpl.emit_signal(
           "CommandOutput",
-          new GLib.Variant("(sss)", [name || "", stdout || "", stderr || ""])
+          new GLib.Variant("(sss)", [name || "", stdout || "", stderr || ""]),
         );
       } catch (e) {
         console.error(`CmdBar D-Bus emitCommandOutput error: ${e.message}`);

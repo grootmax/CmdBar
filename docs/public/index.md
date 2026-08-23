@@ -11,6 +11,7 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 
 ## Core Features
 
+- **Quick Calculator & Eval Mode**: Type `> 2+2`, `> sin(pi/4)`, `> 10 km to miles`, or `> 100 USD to EUR` to instantly calculate results offline, with right-click or Enter to copy result.
 - **Dynamic Menu**: Fully driven by JSON config files.
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
