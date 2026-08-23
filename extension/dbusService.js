@@ -1,5 +1,5 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
-import { tokenizeCommand } from "./commandProcessor.js";
+import { tokenizeCommand, evaluateCommandPolicy, CommandPolicyManager } from "./commandProcessor.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -20,6 +20,16 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
+    </method>
+    <method name="EvaluatePolicy">
+      <arg name="command" type="s" direction="in"/>
+      <arg name="context_json" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+    <method name="RequestApproval">
+      <arg name="command" type="s" direction="in"/>
+      <arg name="reason" type="s" direction="in"/>
+      <arg name="request_id" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -228,6 +238,37 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
+    }
+  }
+
+  async EvaluatePolicy(command, contextJson) {
+    try {
+      let ctx = {};
+      if (contextJson) {
+        try {
+          ctx = JSON.parse(contextJson);
+        } catch (e) {}
+      }
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const res = evaluateCommandPolicy(command, ctx, config ? config.policy : null);
+      return JSON.stringify(res);
+    } catch (e) {
+      console.error(`CmdBar D-Bus EvaluatePolicy error: ${e.message}`);
+      return JSON.stringify({ allowed: false, reason: e.message });
+    }
+  }
+
+  async RequestApproval(command, reason) {
+    try {
+      const pm = new CommandPolicyManager();
+      const req = pm.requestApproval(command, {}, reason);
+      return req.id;
+    } catch (e) {
+      console.error(`CmdBar D-Bus RequestApproval error: ${e.message}`);
+      return "";
     }
   }
 
