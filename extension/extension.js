@@ -17,6 +17,10 @@ import {
   parseAccel,
   formatOutput,
   evaluateCommandPolicy,
+  isWMCommand,
+  parseWMCommand,
+  WindowManager,
+  renderWindowPreviewCard,
 } from "./commandProcessor.js";
 import { wrapCommandInSandbox, isSandboxEnabled } from "./sandboxWrapper.js";
 import { loadConfig, saveConfig, getEffectiveBranding, getEffectiveDomainUrl } from "./configSync.js";
@@ -1900,6 +1904,24 @@ const CmdBarIndicator = GObject.registerClass(
         ? commandTemplate
         : tokenizeCommand(commandTemplate);
       let argv = substituteTokens(tokens, placeholderMap);
+      let fullCmdStr = argv.join(" ");
+
+      if (isWMCommand(fullCmdStr) || isWMCommand(commandTemplate)) {
+        try {
+          const wm = new WindowManager(this);
+          const parsed = parseWMCommand(fullCmdStr || commandTemplate);
+          wm.executeAction(parsed.action, { target: parsed.target, ...placeholderMap });
+          this._showNotification("Window Command", `Executed: ${commandName || parsed.action}`);
+          if (parsed.action === "preview") {
+            const wins = wm.getWindowsList();
+            const previewText = wins.map(w => renderWindowPreviewCard(w).previewHtml).join("\n");
+            this._showNotification("Window Preview", `Active Windows (${wins.length})`);
+          }
+        } catch (wmErr) {
+          this._showNotification("Window Error", wmErr.message);
+        }
+        return;
+      }
 
       if (argv.length === 0) {
         this._showNotification(
@@ -1909,7 +1931,6 @@ const CmdBarIndicator = GObject.registerClass(
         return;
       }
 
-      let fullCmdStr = argv.join(" ");
       let policyEval = evaluateCommandPolicy(
         fullCmdStr,
         {},

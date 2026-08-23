@@ -108,3 +108,10 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 
 The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
 For full details, see [Team Command Sharing Specification](team_command_sharing.md).
+
+### Window Management Module
+
+The window management module (`extension/windowManager.js` & `companion/window_manager.py`) provides window manipulation, shortcuts, visual previews, and multi-WM compatibility:
+- **Window Control**: Close, move, resize, tile (half and quarter tile layouts), and workspace switching.
+- **Visual Preview**: Visual tile bounds overlay calculation (`calculateTileBounds`, `generatePreviewOverlayData`) and window preview cards with SVG window frames (`renderWindowPreviewCard`).
+- **Multi-WM Compatibility**: Native GNOME Shell `Meta` APIs with CLI fallback generators for i3, Sway, Hyprland, `wmctrl`, and `xdotool`.

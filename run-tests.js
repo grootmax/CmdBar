@@ -22,6 +22,10 @@ import {
   verifyAndConsumeEmergencyCode,
   authenticateCommand,
   benchmarkYubikeyAuth,
+  calculateTileBounds,
+  generateWMCommand,
+  parseWMCommand,
+  isWMCommand,
 } from "./extension/commandProcessor.js";
 import {
   saveConfigAtomically,
@@ -253,6 +257,50 @@ try {
   wsManager.setCurrentCwd(wsTestDir);
   const activeWsCfg = wsManager.getActiveConfig();
   assert.strictEqual(activeWsCfg.categories.some(c => c.name === 'Node.js Scripts'), true, 'Active config should contain Node.js category');
+
+  // 9. Window Management Verification Tests
+  const leftBounds = calculateTileBounds("tile-left", {
+    x: 0,
+    y: 0,
+    width: 1920,
+    height: 1080,
+  });
+  assert.deepStrictEqual(
+    leftBounds,
+    { x: 0, y: 0, width: 960, height: 1080 },
+    "Tile left bounds should match 50% width",
+  );
+
+  assert.strictEqual(
+    isWMCommand("wm:tile-left"),
+    true,
+    "wm:tile-left should be identified as WM command",
+  );
+  assert.strictEqual(
+    isWMCommand("make build"),
+    false,
+    "make build should not be identified as WM command",
+  );
+
+  const parsedWM = parseWMCommand("wm:move-workspace 3");
+  assert.strictEqual(
+    parsedWM.isWM,
+    true,
+    "Parsed command should mark isWM true",
+  );
+  assert.strictEqual(
+    parsedWM.action,
+    "move-workspace",
+    "Parsed action should be move-workspace",
+  );
+  assert.strictEqual(parsedWM.target, 3, "Parsed target should be 3");
+
+  const i3Cmd = generateWMCommand("close", {}, "i3");
+  assert.strictEqual(
+    i3Cmd,
+    "i3-msg kill",
+    "i3 close command should generate i3-msg kill",
+  );
 
   const fidoRes = verifyFIDO2Assertion(
     { user_presence: true, signature: "mock_valid" },
