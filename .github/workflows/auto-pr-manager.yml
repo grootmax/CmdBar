@@ -267,11 +267,15 @@ jobs:
               echo ""
               echo "Cloning repository..."
 
-              git clone \
+              if ! git clone \
                 "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" \
-                "$WORKDIR"
+                "$WORKDIR"; then
+                echo "ERROR: Failed to clone repository."
+                rm -rf "$WORKDIR" || true
+                break
+              fi
 
-              cd "$WORKDIR"
+              cd "$WORKDIR" || { rm -rf "$WORKDIR" || true; break; }
 
               # ==================================================
               # CONFIGURE GIT
@@ -279,11 +283,11 @@ jobs:
 
               git config \
                 user.name \
-                "github-actions[bot]"
+                "github-actions[bot]" || true
 
               git config \
                 user.email \
-                "41898282+github-actions[bot]@users.noreply.github.com"
+                "41898282+github-actions[bot]@users.noreply.github.com" || true
 
               # ==================================================
               # FETCH BRANCHES
@@ -292,11 +296,21 @@ jobs:
               echo ""
               echo "Fetching base branch..."
 
-              git fetch origin "$BASE_BRANCH"
+              if ! git fetch origin "$BASE_BRANCH"; then
+                echo "ERROR: Failed to fetch base branch."
+                cd /
+                rm -rf "$WORKDIR" || true
+                break
+              fi
 
               echo "Fetching Jules branch..."
 
-              git fetch origin "$HEAD_BRANCH"
+              if ! git fetch origin "$HEAD_BRANCH"; then
+                echo "ERROR: Failed to fetch Jules branch."
+                cd /
+                rm -rf "$WORKDIR" || true
+                break
+              fi
 
               # ==================================================
               # CHECKOUT JULES BRANCH
@@ -305,9 +319,14 @@ jobs:
               echo ""
               echo "Checking out Jules branch..."
 
-              git checkout -B \
+              if ! git checkout -B \
                 "$HEAD_BRANCH" \
-                "origin/$HEAD_BRANCH"
+                "origin/$HEAD_BRANCH"; then
+                echo "ERROR: Failed to checkout Jules branch."
+                cd /
+                rm -rf "$WORKDIR" || true
+                break
+              fi
 
               # ==================================================
               # MERGE BASE INTO JULES BRANCH
@@ -502,12 +521,33 @@ jobs:
               echo "Checking status checks for PR #$PR_NUMBER..."
 
               CHECK_OUTPUT=$(
-                gh api "repos/$GH_REPO/commits/$HEAD_SHA/check-runs" \
-                  --jq '[.check_runs[] | {name: .name, status: .status, conclusion: .conclusion, workflow: (.app.name // ""), bucket: (if .status != "completed" then "pending" elif (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required") then "fail" else "pass" end)}]' \
+                gh pr view "$PR_NUMBER" \
+                  --repo "$GH_REPO" \
+                  --json statusCheckRollup \
+                  --jq '.statusCheckRollup' \
                   2>/dev/null || echo "[]"
               )
 
-              if [ -z "$CHECK_OUTPUT" ]; then
+              if [ -z "$CHECK_OUTPUT" ] || [ "$CHECK_OUTPUT" = "null" ] || [ "$CHECK_OUTPUT" = "[]" ]; then
+                HEAD_SHA=$(
+                  gh pr view "$PR_NUMBER" \
+                    --repo "$GH_REPO" \
+                    --json headRefOid \
+                    --jq '.headRefOid' \
+                    2>/dev/null || echo ""
+                )
+                if [ -n "$HEAD_SHA" ]; then
+                  CHECK_OUTPUT=$(
+                    gh api "repos/$GH_REPO/commits/$HEAD_SHA/check-runs" \
+                      --jq '.check_runs' \
+                      2>/dev/null || echo "[]"
+                  )
+                else
+                  CHECK_OUTPUT="[]"
+                fi
+              fi
+
+              if [ -z "$CHECK_OUTPUT" ] || [ "$CHECK_OUTPUT" = "null" ]; then
                 CHECK_OUTPUT="[]"
               fi
 
@@ -520,10 +560,10 @@ jobs:
                 [
                   .[]
                   | select(
-                      (.name | ascii_downcase | contains("accessibility"))
-                      or (.name | ascii_downcase | contains("a11y"))
-                      or (((.workflow // "") | ascii_downcase) | contains("accessibility"))
-                      or (((.workflow // "") | ascii_downcase) | contains("a11y"))
+                      ((.name // .context // "") | ascii_downcase | contains("accessibility"))
+                      or ((.name // .context // "") | ascii_downcase | contains("a11y"))
+                      or (((.workflowName // .workflow // "") | ascii_downcase) | contains("accessibility"))
+                      or (((.workflowName // .workflow // "") | ascii_downcase) | contains("a11y"))
                     )
                 ]
               ')
@@ -548,7 +588,10 @@ jobs:
               A11Y_FAILED=$(echo "$A11Y_CHECK" | jq '
                 [
                   .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      (.conclusion // .state // .bucket // "") | ascii_downcase |
+                      (contains("fail") or contains("cancel") or contains("time") or contains("error"))
+                    )
                 ]
                 | length
               ')
@@ -568,7 +611,10 @@ jobs:
               A11Y_PENDING=$(echo "$A11Y_CHECK" | jq '
                 [
                   .[]
-                  | select(.bucket == "pending")
+                  | select(
+                      ((.status // "") | ascii_downcase | (contains("in_progress") or contains("queued") or contains("waiting") or contains("pending")))
+                      or (((.status // "") | ascii_downcase != "completed") and ((.conclusion // .state // "") | ascii_downcase == ""))
+                    )
                 ]
                 | length
               ')
@@ -589,11 +635,14 @@ jobs:
                 [
                   .[]
                   | select(
-                      ((.name | ascii_downcase | contains("accessibility")) | not)
-                      and ((.name | ascii_downcase | contains("a11y")) | not)
-                      and ((.name | ascii_downcase | contains("process jules prs")) | not)
+                      ((.name // .context // "") | ascii_downcase | contains("process jules prs") | not) and
+                      ((.name // .context // "") | ascii_downcase | contains("auto jules pr manager") | not) and
+                      ((.workflowName // .workflow // "") | ascii_downcase | contains("auto jules pr manager") | not)
                     )
-                  | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      (.conclusion // .state // .bucket // "") | ascii_downcase |
+                      (contains("fail") or contains("cancel") or contains("time") or contains("error"))
+                    )
                 ]
                 | length
               ')
@@ -602,11 +651,14 @@ jobs:
                 [
                   .[]
                   | select(
-                      ((.name | ascii_downcase | contains("accessibility")) | not)
-                      and ((.name | ascii_downcase | contains("a11y")) | not)
-                      and ((.name | ascii_downcase | contains("process jules prs")) | not)
+                      ((.name // .context // "") | ascii_downcase | contains("process jules prs") | not) and
+                      ((.name // .context // "") | ascii_downcase | contains("auto jules pr manager") | not) and
+                      ((.workflowName // .workflow // "") | ascii_downcase | contains("auto jules pr manager") | not)
                     )
-                  | select(.bucket == "pending")
+                  | select(
+                      ((.status // "") | ascii_downcase | (contains("in_progress") or contains("queued") or contains("waiting") or contains("pending")))
+                      or (((.status // "") | ascii_downcase != "completed") and ((.conclusion // .state // "") | ascii_downcase == ""))
+                    )
                 ]
                 | length
               ')
