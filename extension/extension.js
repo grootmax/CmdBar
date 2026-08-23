@@ -698,6 +698,49 @@ export function copyToClipboard(text) {
   return success;
 }
 
+/**
+ * Helper function supporting wtype (Wayland) and xdotool (X11) to paste clipboard text (Ctrl+V).
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function pasteClipboardText(text) {
+  let isWayland = false;
+  try {
+    let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
+    let sessionType = GLib.getenv("XDG_SESSION_TYPE");
+    if (
+      waylandDisplay ||
+      (sessionType && sessionType.toLowerCase() === "wayland")
+    ) {
+      isWayland = true;
+    }
+  } catch (e) {}
+
+  let tools = isWayland
+    ? [["wtype", "-M", "ctrl", "v"]]
+    : [["xdotool", "key", "--clearmodifiers", "ctrl+v"]];
+
+  let success = false;
+  for (let argv of tools) {
+    try {
+      let proc = Gio.Subprocess.new(
+        argv,
+        Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+      );
+      proc.communicate_utf8_async(text || "", null, (subprocess, result) => {
+        try {
+          subprocess.communicate_utf8_finish(result);
+        } catch (err) {}
+      });
+      success = true;
+      break;
+    } catch (e) {
+      continue;
+    }
+  }
+  return success;
+}
+
 // Standard menu item for parameterless or parameter-prompting commands
 const CommandMenuItem = GObject.registerClass(
   class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
