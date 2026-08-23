@@ -364,7 +364,6 @@ jobs:
 
                 CONFLICTED_FILES=$(git diff --name-only --diff-filter=U)
 
-                echo "$CONFLICTED_FILES" |
                 while IFS= read -r FILE; do
 
                   [ -z "$FILE" ] && continue
@@ -376,7 +375,7 @@ jobs:
 
                   git add -- "$FILE"
 
-                done
+                done <<< "$CONFLICTED_FILES"
 
                 # ==================================================
                 # VERIFY NO CONFLICTS REMAIN
