@@ -51,7 +51,7 @@ jobs:
           gh pr list \
             --repo "$GH_REPO" \
             --state open \
-            --json number,title,headRefName,baseRefName,isDraft,createdAt \
+            --json number,title,headRefName,baseRefName,isDraft,createdAt,headRefOid \
             --limit 100 |
             jq 'sort_by(.number)' > /tmp/all-prs.json
 
@@ -137,6 +137,7 @@ jobs:
             PR_NUMBER=$(echo "$PR" | jq -r '.number')
             TITLE=$(echo "$PR" | jq -r '.title')
             HEAD_BRANCH=$(echo "$PR" | jq -r '.headRefName')
+            HEAD_SHA=$(echo "$PR" | jq -r '.headRefOid // .headRefName')
             BASE_BRANCH=$(echo "$PR" | jq -r '.baseRefName')
             IS_DRAFT=$(echo "$PR" | jq -r '.isDraft')
 
@@ -362,19 +363,20 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
-                git diff \
-                  --name-only \
-                  --diff-filter=U |
+                CONFLICTED_FILES=$(git diff --name-only --diff-filter=U)
+
                 while IFS= read -r FILE; do
+
+                  [ -z "$FILE" ] && continue
 
                   echo "Resolving conflict:"
                   echo "  $FILE"
 
-                  git checkout --theirs -- "$FILE"
+                  git checkout --theirs -- "$FILE" 2>/dev/null || git rm -f -- "$FILE" 2>/dev/null || true
 
-                  git add -- "$FILE"
+                  git add -- "$FILE" 2>/dev/null || true
 
-                done
+                done <<< "$CONFLICTED_FILES"
 
                 # ==================================================
                 # VERIFY NO CONFLICTS REMAIN
@@ -415,8 +417,12 @@ jobs:
                 echo ""
                 echo "Committing conflict resolution..."
 
-                git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                git add -A || true
+
+                if ! git diff --cached --quiet; then
+                  git commit \
+                    -m "chore: auto-resolve merge conflicts" || true
+                fi
 
               fi
 
@@ -427,11 +433,22 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              PUSH_SUCCESS=true
+
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo "WARNING: Failed to push updated branch for PR #$PR_NUMBER."
+                PUSH_SUCCESS=false
+              fi
 
               cd /
 
               rm -rf "$WORKDIR"
+
+              if [ "$PUSH_SUCCESS" = "false" ]; then
+                echo ""
+                echo "PR #$PR_NUMBER push failed. Stopping processing."
+                break
+              fi
 
               echo ""
               echo "=========================================="
@@ -478,10 +495,17 @@ jobs:
               echo "Checking status checks for PR #$PR_NUMBER..."
 
               CHECK_OUTPUT=$(
-                gh pr checks "$PR_NUMBER" \
-                  --repo "$GH_REPO" \
-                  --json name,state,bucket,workflow \
-                  2>/dev/null || true
+                gh api "repos/$GH_REPO/commits/$HEAD_SHA/check-runs" 2>/dev/null | jq '
+                  .check_runs // [] | map({
+                    name: .name,
+                    state: .status,
+                    bucket: (
+                      if .status != "completed" then "pending"
+                      elif (.conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped") then "pass"
+                      else "fail" end
+                    )
+                  })
+                ' 2>/dev/null || echo "[]"
               )
 
               if [ -z "$CHECK_OUTPUT" ]; then
@@ -561,10 +585,12 @@ jobs:
 
               # --------------------------------------------------
               # CHECK OTHER CHECKS FOR FAILURE / PENDING
+              # (Excluding the PR manager itself)
               # --------------------------------------------------
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
+                  | select((.name | ascii_downcase | contains("jules prs") | not) and (.name | ascii_downcase | contains("auto jules pr manager") | not))
                   | select(.bucket == "fail" or .bucket == "cancel")
                 ]
                 | length
@@ -573,6 +599,7 @@ jobs:
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
+                  | select((.name | ascii_downcase | contains("jules prs") | not) and (.name | ascii_downcase | contains("auto jules pr manager") | not))
                   | select(.bucket == "pending")
                 ]
                 | length

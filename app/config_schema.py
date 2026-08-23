@@ -51,6 +51,16 @@ DEFAULT_CONFIG = {
     "fallback_provider": "ollama",
     "fallback_model": "llama3"
   },
+  "rate_limiting": {
+    "enabled": True,
+    "default_tier": "pro",
+    "tiers": {
+      "free": {"capacity": 10, "refill_rate": 0.1667},
+      "pro": {"capacity": 60, "refill_rate": 1.0},
+      "enterprise": {"capacity": 300, "refill_rate": 5.0}
+    },
+    "custom_limits": {}
+  },
   "categories": [
     {
       "name": "System Utilities",
