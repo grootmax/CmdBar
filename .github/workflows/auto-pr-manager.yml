@@ -288,11 +288,11 @@ jobs:
               echo ""
               echo "Fetching base branch..."
 
-              git fetch origin "$BASE_BRANCH"
+              git fetch origin "$BASE_BRANCH":refs/remotes/origin/"$BASE_BRANCH"
 
               echo "Fetching Jules branch..."
 
-              git fetch origin "$HEAD_BRANCH"
+              git fetch origin "$HEAD_BRANCH":refs/remotes/origin/"$HEAD_BRANCH"
 
               # ==================================================
               # CHECKOUT JULES BRANCH
@@ -370,7 +370,7 @@ jobs:
                   echo "Resolving conflict:"
                   echo "  $FILE"
 
-                  git checkout --theirs -- "$FILE"
+                  git checkout --theirs -- "$FILE" || git rm -- "$FILE"
 
                   git add -- "$FILE"
 
