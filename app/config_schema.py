@@ -51,6 +51,30 @@ DEFAULT_CONFIG = {
     "fallback_provider": "ollama",
     "fallback_model": "llama3"
   },
+  "profiles": [
+    {
+      "name": "Production",
+      "env": {
+        "ENV": "production",
+        "LOG_LEVEL": "warn"
+      }
+    },
+    {
+      "name": "Staging",
+      "env": {
+        "ENV": "staging",
+        "LOG_LEVEL": "info"
+      }
+    },
+    {
+      "name": "Development",
+      "env": {
+        "ENV": "development",
+        "LOG_LEVEL": "debug"
+      }
+    }
+  ],
+  "active_profile": "Development",
   "categories": [
     {
       "name": "System Utilities",
@@ -303,3 +327,101 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
         # We can also append the list format to be 100% explicit
         array_preview += f"\nArgs List: {json.dumps(resolved_parts)}"
         return array_preview, errors
+
+def get_profiles(config):
+    """
+    Normalizes profiles section from config into a list of profile dicts.
+    :visibility: public
+    """
+    if not isinstance(config, dict) or "profiles" not in config:
+        return []
+    profiles_raw = config["profiles"]
+    if isinstance(profiles_raw, list):
+        result = []
+        for p in profiles_raw:
+            if isinstance(p, str):
+                result.append({"name": p, "env": {}})
+            elif isinstance(p, dict):
+                p_name = p.get("name", "Default")
+                p_env = p.get("env") or p.get("envVars") or p.get("environment") or {}
+                result.append({"name": p_name, "env": p_env})
+        return result
+    elif isinstance(profiles_raw, dict):
+        result = []
+        for name, val in profiles_raw.items():
+            env_obj = {}
+            if isinstance(val, dict):
+                env_obj = val.get("env") or val.get("envVars") or val.get("environment") or val
+            result.append({"name": name, "env": env_obj})
+        return result
+    return []
+
+def get_active_profile_name(config):
+    """
+    Resolves active profile name from config.
+    :visibility: public
+    """
+    if not isinstance(config, dict):
+        return None
+    if isinstance(config.get("active_profile"), str):
+        return config["active_profile"]
+    if isinstance(config.get("activeProfile"), str):
+        return config["activeProfile"]
+    profiles = get_profiles(config)
+    return profiles[0]["name"] if profiles else None
+
+def get_profile_env(config, profile_name=None):
+    """
+    Gets environment variables dict for specified profile name.
+    :visibility: public
+    """
+    target_name = profile_name or get_active_profile_name(config)
+    if not target_name:
+        return {}
+    profiles = get_profiles(config)
+    target_lower = target_name.lower()
+    for p in profiles:
+        if p["name"].lower() == target_lower:
+            return p.get("env", {})
+    return {}
+
+def is_command_visible_in_profile(cmd, active_profile):
+    """
+    Determines whether a command is visible in active profile context.
+    :visibility: public
+    """
+    if not isinstance(cmd, dict):
+        return True
+    allowed_profiles = None
+    if isinstance(cmd.get("profiles"), list):
+        allowed_profiles = cmd["profiles"]
+    elif isinstance(cmd.get("profiles"), str):
+        allowed_profiles = [cmd["profiles"]]
+    elif isinstance(cmd.get("profile"), str):
+        allowed_profiles = [cmd["profile"]]
+
+    if not allowed_profiles:
+        return True
+    if not active_profile:
+        return True
+
+    active_lower = active_profile.lower()
+    for p in allowed_profiles:
+        if isinstance(p, str):
+            p_lower = p.lower()
+            if p_lower in ("*", "all", active_lower):
+                return True
+    return False
+
+def merge_environment(base_env, config, profile_name=None):
+    """
+    Merges profile env vars into base environment dict.
+    :visibility: public
+    """
+    merged = dict(base_env or {})
+    profile_env = get_profile_env(config, profile_name)
+    for k, v in profile_env.items():
+        if v is not None:
+            merged[str(k)] = str(v)
+    return merged
+

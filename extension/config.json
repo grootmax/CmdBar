@@ -1,4 +1,28 @@
 {
+  "profiles": [
+    {
+      "name": "Production",
+      "env": {
+        "ENV": "production",
+        "LOG_LEVEL": "warn"
+      }
+    },
+    {
+      "name": "Staging",
+      "env": {
+        "ENV": "staging",
+        "LOG_LEVEL": "info"
+      }
+    },
+    {
+      "name": "Development",
+      "env": {
+        "ENV": "development",
+        "LOG_LEVEL": "debug"
+      }
+    }
+  ],
+  "active_profile": "Development",
   "categories": [
     {
       "name": "Projects",

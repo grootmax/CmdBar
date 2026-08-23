@@ -12,6 +12,30 @@ export const DEFAULT_CONFIG = {
     fallback_provider: "ollama",
     fallback_model: "llama3",
   },
+  profiles: [
+    {
+      name: "Production",
+      env: {
+        ENV: "production",
+        LOG_LEVEL: "warn",
+      },
+    },
+    {
+      name: "Staging",
+      env: {
+        ENV: "staging",
+        LOG_LEVEL: "info",
+      },
+    },
+    {
+      name: "Development",
+      env: {
+        ENV: "development",
+        LOG_LEVEL: "debug",
+      },
+    },
+  ],
+  active_profile: "Development",
   categories: [
     {
       name: "AI Assistant",
@@ -104,6 +128,23 @@ function sleep(ms) {
 export function validateConfigSchema(config) {
   if (!config || typeof config !== "object") return false;
   if (!Array.isArray(config.categories)) return false;
+  if (config.profiles !== undefined) {
+    if (!Array.isArray(config.profiles) && typeof config.profiles !== "object") {
+      return false;
+    }
+  }
+  if (
+    config.active_profile !== undefined &&
+    typeof config.active_profile !== "string"
+  ) {
+    return false;
+  }
+  if (
+    config.activeProfile !== undefined &&
+    typeof config.activeProfile !== "string"
+  ) {
+    return false;
+  }
   for (const category of config.categories) {
     if (!category || typeof category !== "object") return false;
     if (typeof category.name !== "string" || category.name.trim() === "")

@@ -11,6 +11,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
+- **Environment Variable Profiles** – Named sets of environment variables ("Production", "Staging", "Development") that can be switched between from the top bar indicator menu or the command confirmation dialog. Commands can also be restricted to specific profiles using the `profiles` array property.
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
 - **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences.
@@ -188,13 +189,29 @@ Used directly by the GNOME Shell extension to load top-bar menus dynamically.
 
 ```json
 {
+  "profiles": [
+    {
+      "name": "Production",
+      "env": { "ENV": "production", "API_URL": "https://api.example.com" }
+    },
+    {
+      "name": "Staging",
+      "env": { "ENV": "staging", "API_URL": "https://staging.example.com" }
+    },
+    {
+      "name": "Development",
+      "env": { "ENV": "development", "API_URL": "http://localhost:3000" }
+    }
+  ],
+  "active_profile": "Development",
   "categories": [
     {
       "name": "Projects",
       "commands": [
         {
           "name": "Build Current Project",
-          "command": "make build"
+          "command": "make build",
+          "profiles": ["Development", "Staging"]
         },
         {
           "name": "Start Task",

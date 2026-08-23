@@ -10,6 +10,17 @@ import hmac
 import hashlib
 import secrets
 from companion.ai_translator import is_ai_command, translate_natural_language_to_command
+try:
+    from app.config_schema import get_profiles, get_active_profile_name, get_profile_env, is_command_visible_in_profile, merge_environment
+except ImportError:
+    try:
+        from config_schema import get_profiles, get_active_profile_name, get_profile_env, is_command_visible_in_profile, merge_environment
+    except ImportError:
+        def get_profiles(cfg): return []
+        def get_active_profile_name(cfg): return None
+        def get_profile_env(cfg, name=None): return {}
+        def is_command_visible_in_profile(cmd, name): return True
+        def merge_environment(base, cfg, name=None): return dict(base or {})
 
 def canonical_json(obj):
     if isinstance(obj, dict):
@@ -719,6 +730,26 @@ if GUI_AVAILABLE:
                 
                 entry.connect("changed", self.validate_all)
                 
+            # Profile Selector
+            self.profile_combo = None
+            cfg = parent.config_data if hasattr(parent, 'config_data') and parent.config_data else {}
+            profiles = get_profiles(cfg)
+            if profiles:
+                prof_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+                prof_lbl = Gtk.Label(label="Environment Profile:", xalign=0)
+                prof_box.append(prof_lbl)
+                self.profile_combo = Gtk.ComboBoxText()
+                profile_names = [p['name'] for p in profiles]
+                active_prof = get_active_profile_name(cfg)
+                for p_name in profile_names:
+                    self.profile_combo.append_text(p_name)
+                if active_prof and active_prof in profile_names:
+                    self.profile_combo.set_active(profile_names.index(active_prof))
+                else:
+                    self.profile_combo.set_active(0)
+                prof_box.append(self.profile_combo)
+                main_box.append(prof_box)
+
             # Action Buttons
             btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             btn_box.set_halign(Gtk.Align.END)
@@ -818,16 +849,30 @@ if GUI_AVAILABLE:
             
             try:
                 self.cancellable = Gio.Cancellable()
-                try:
-                    self.proc = Gio.Subprocess.new(
-                        ['setsid', 'sh', '-c', final_cmd],
-                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-                    )
-                except Exception:
-                    self.proc = Gio.Subprocess.new(
-                        ['sh', '-c', final_cmd],
-                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-                    )
+                cfg = self.parent.config_data if hasattr(self, 'parent') and hasattr(self.parent, 'config_data') and self.parent.config_data else {}
+                selected_profile = self.profile_combo.get_active_text() if self.profile_combo else None
+                profile_env = get_profile_env(cfg, selected_profile)
+
+                if profile_env and hasattr(Gio, 'SubprocessLauncher'):
+                    launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE)
+                    for k, v in profile_env.items():
+                        if k and v is not None:
+                            launcher.setenv(str(k), str(v), True)
+                    try:
+                        self.proc = launcher.spawnv(['setsid', 'sh', '-c', final_cmd])
+                    except Exception:
+                        self.proc = launcher.spawnv(['sh', '-c', final_cmd])
+                else:
+                    try:
+                        self.proc = Gio.Subprocess.new(
+                            ['setsid', 'sh', '-c', final_cmd],
+                            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                        )
+                    except Exception:
+                        self.proc = Gio.Subprocess.new(
+                            ['sh', '-c', final_cmd],
+                            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                        )
                 
                 self.run_btn.set_visible(False)
                 self.cancel_test_btn.set_visible(True)

@@ -476,3 +476,357 @@ export function parseAccel(text) {
   return [`${modifiers}${baseKey}`];
 }
 
+/**
+ * Escapes special XML/Pango markup characters.
+ * @param {string} str
+ * @returns {string}
+ */
+export function escapeMarkup(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Checks if pattern fuzzy-matches text and calculates relevance score.
+ * @param {string} pattern Search query
+ * @param {string} text Text to match against
+ * @param {number} [usageCount=0] Frequency of command usage
+ * @returns {{ match: boolean, score: number, matches: number[] }}
+ */
+export function fuzzyMatch(pattern, text, usageCount = 0) {
+  if (text === null || text === undefined) {
+    return { match: false, score: 0, matches: [] };
+  }
+  const textStr = String(text);
+
+  if (!pattern || typeof pattern !== "string" || pattern.trim() === "") {
+    return {
+      match: true,
+      score: (usageCount || 0) * 10,
+      matches: [],
+    };
+  }
+
+  const cleanPattern = pattern.trim();
+  const patternLower = cleanPattern.toLowerCase();
+  const textLower = textStr.toLowerCase();
+
+  let matchedIndices = [];
+
+  // 1. Check if text includes cleanPattern as a contiguous substring
+  const subIdx = textLower.indexOf(patternLower);
+  if (subIdx !== -1) {
+    for (let i = 0; i < patternLower.length; i++) {
+      matchedIndices.push(subIdx + i);
+    }
+  } else {
+    // 2. Perform sequential subsequence fuzzy match
+    let patternIdx = 0;
+    for (let i = 0; i < textLower.length && patternIdx < patternLower.length; i++) {
+      if (textLower[i] === patternLower[patternIdx]) {
+        matchedIndices.push(i);
+        patternIdx++;
+      }
+    }
+    if (patternIdx < patternLower.length) {
+      return { match: false, score: 0, matches: [] };
+    }
+  }
+
+  // Calculate relevance score
+  let score = 100;
+
+  if (textLower === patternLower) {
+    score += 1000;
+  } else if (textLower.startsWith(patternLower)) {
+    score += 500;
+  } else if (subIdx !== -1) {
+    score += 300;
+  }
+
+  // Word boundary bonus
+  for (const idx of matchedIndices) {
+    if (idx === 0) {
+      score += 50;
+    } else {
+      const prevChar = textStr[idx - 1];
+      if (/[\s\-_.\/:;=,]/.test(prevChar)) {
+        score += 50;
+      } else if (
+        /[a-z]/.test(textStr[idx - 1]) &&
+        /[A-Z]/.test(textStr[idx])
+      ) {
+        score += 50;
+      }
+    }
+  }
+
+  // Consecutive bonus
+  for (let i = 1; i < matchedIndices.length; i++) {
+    if (matchedIndices[i] === matchedIndices[i - 1] + 1) {
+      score += 20;
+    }
+  }
+
+  // Compactness bonus
+  const span =
+    matchedIndices[matchedIndices.length - 1] - matchedIndices[0] + 1;
+  score += Math.max(0, 100 - (span - patternLower.length) * 10);
+
+  // Early match bonus
+  score += Math.max(0, 50 - matchedIndices[0] * 5);
+
+  // Usage frequency bonus
+  score += (usageCount || 0) * 10;
+
+  return {
+    match: true,
+    score,
+    matches: matchedIndices,
+  };
+}
+
+/**
+ * Highlights matched character indices in text using HTML/Pango markup tags.
+ * @param {string} text
+ * @param {number[]} matchedIndices
+ * @param {string} [openTag="<b>"]
+ * @param {string} [closeTag="</b>"]
+ * @returns {string}
+ */
+export function highlightMatches(
+  text,
+  matchedIndices,
+  openTag = "<b>",
+  closeTag = "</b>"
+) {
+  if (text === null || text === undefined) {
+    return "";
+  }
+  const str = String(text);
+  if (!matchedIndices || !Array.isArray(matchedIndices) || matchedIndices.length === 0) {
+    return escapeMarkup(str);
+  }
+
+  const indexSet = new Set(matchedIndices);
+  let result = "";
+  let inHighlight = false;
+
+  for (let i = 0; i < str.length; i++) {
+    const isMatched = indexSet.has(i);
+    if (isMatched && !inHighlight) {
+      result += openTag;
+      inHighlight = true;
+    } else if (!isMatched && inHighlight) {
+      result += closeTag;
+      inHighlight = false;
+    }
+    result += escapeMarkup(str[i]);
+  }
+
+  if (inHighlight) {
+    result += closeTag;
+  }
+
+  return result;
+}
+
+/**
+ * Ranks and filters commands based on search pattern and usage frequency.
+ * @param {Array<object>} commands List of command objects ({ name, command, ... })
+ * @param {string} pattern Search query
+ * @param {Object.<string, number>} [usageMap={}]
+ * @returns {Array<{ command: object, score: number, matchName: object, matchCmd: object }>}
+ */
+export function rankCommands(commands, pattern, usageMap = {}) {
+  if (!commands || !Array.isArray(commands)) {
+    return [];
+  }
+
+  const cleanPattern = (pattern || "").trim();
+  const results = [];
+
+  for (const cmd of commands) {
+    const cmdName = cmd.name || "";
+    const cmdCommand =
+      typeof cmd.command === "string"
+        ? cmd.command
+        : Array.isArray(cmd.command)
+        ? cmd.command.join(" ")
+        : String(cmd.command || "");
+    const cmdKey = cmdCommand || cmdName;
+    const usageCount = usageMap[cmdKey] || 0;
+
+    const matchName = fuzzyMatch(cleanPattern, cmdName, usageCount);
+    const matchCmd = fuzzyMatch(cleanPattern, cmdCommand, usageCount);
+
+    if (matchName.match || matchCmd.match) {
+      const score = Math.max(
+        matchName.match ? matchName.score : 0,
+        matchCmd.match ? matchCmd.score : 0
+      );
+      results.push({
+        command: cmd,
+        score,
+        matchName,
+        matchCmd,
+      });
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results;
+}
+
+/**
+ * Normalizes profiles section from config into a standardized array of profile objects.
+ * @param {object} config
+ * @returns {Array<{ name: string, env: Object.<string, string> }>}
+ */
+export function getProfiles(config) {
+  if (!config || typeof config !== "object" || !config.profiles) {
+    return [];
+  }
+  if (Array.isArray(config.profiles)) {
+    return config.profiles.map((p) => {
+      if (typeof p === "string") {
+        return { name: p, env: {} };
+      }
+      return {
+        name: p.name || "Default",
+        env: p.env || p.envVars || p.environment || {},
+      };
+    });
+  } else if (typeof config.profiles === "object") {
+    return Object.entries(config.profiles).map(([name, val]) => {
+      let envObj = {};
+      if (val && typeof val === "object") {
+        envObj = val.env || val.envVars || val.environment || val;
+      }
+      return { name, env: envObj };
+    });
+  }
+  return [];
+}
+
+/**
+ * Resolves active profile name from config.
+ * @param {object} config
+ * @returns {string|null}
+ */
+export function getActiveProfileName(config) {
+  if (!config || typeof config !== "object") return null;
+  if (config.active_profile && typeof config.active_profile === "string") {
+    return config.active_profile;
+  }
+  if (config.activeProfile && typeof config.activeProfile === "string") {
+    return config.activeProfile;
+  }
+  const profiles = getProfiles(config);
+  return profiles.length > 0 ? profiles[0].name : null;
+}
+
+/**
+ * Gets environment variables object for specified profile name.
+ * @param {object} config
+ * @param {string} [profileName]
+ * @returns {Object.<string, string>}
+ */
+export function getProfileEnv(config, profileName) {
+  const targetName = profileName || getActiveProfileName(config);
+  if (!targetName) return {};
+  const profiles = getProfiles(config);
+  const found = profiles.find((p) => p.name.toLowerCase() === targetName.toLowerCase());
+  return found && found.env ? found.env : {};
+}
+
+/**
+ * Determines whether a command is visible in the active profile context.
+ * @param {object} cmd Command object
+ * @param {string} activeProfile Active profile name
+ * @returns {boolean}
+ */
+export function isCommandVisibleInProfile(cmd, activeProfile) {
+  if (!cmd || typeof cmd !== "object") return true;
+  let allowedProfiles = null;
+  if (Array.isArray(cmd.profiles)) {
+    allowedProfiles = cmd.profiles;
+  } else if (typeof cmd.profiles === "string") {
+    allowedProfiles = [cmd.profiles];
+  } else if (typeof cmd.profile === "string") {
+    allowedProfiles = [cmd.profile];
+  }
+
+  if (!allowedProfiles || allowedProfiles.length === 0) {
+    return true;
+  }
+
+  if (!activeProfile) {
+    return true;
+  }
+
+  const activeLower = activeProfile.toLowerCase();
+  for (const p of allowedProfiles) {
+    if (typeof p === "string") {
+      const pLower = p.toLowerCase();
+      if (pLower === "*" || pLower === "all" || pLower === activeLower) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Merges profile environment variables into base environment map.
+ * @param {Object.<string, string>} baseEnv Base environment variables
+ * @param {object} config Config object containing profiles
+ * @param {string} [profileName] Profile name override
+ * @returns {Object.<string, string>}
+ */
+export function getMergedEnvironment(baseEnv, config, profileName) {
+  const merged = Object.assign({}, baseEnv || {});
+  const profileEnv = getProfileEnv(config, profileName);
+  for (const [key, val] of Object.entries(profileEnv)) {
+    if (val !== undefined && val !== null) {
+      merged[key] = String(val);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Spawns a subprocess with merged profile environment variables using Gio.SubprocessLauncher.
+ * @param {string[]} argv Command argument array
+ * @param {number} flags Subprocess flags
+ * @param {object} [config] Configuration object containing profiles
+ * @param {string} [profileName] Active profile name
+ * @returns {Gio.Subprocess}
+ */
+export function spawnSubprocess(argv, flags, config, profileName) {
+  let profileEnv = getProfileEnv(config, profileName);
+  let envEntries = Object.entries(profileEnv);
+
+  if (typeof Gio !== "undefined" && Gio && Gio.SubprocessLauncher && envEntries.length > 0) {
+    try {
+      let launcher = new Gio.SubprocessLauncher({ flags: flags });
+      for (let [key, val] of envEntries) {
+        if (val !== undefined && val !== null) {
+          launcher.setenv(key, String(val), true);
+        }
+      }
+      return launcher.spawnv(argv);
+    } catch (e) {
+      // Fallback to Gio.Subprocess.new if launcher fails
+    }
+  }
+
+  return Gio.Subprocess.new(argv, flags);
+}
+

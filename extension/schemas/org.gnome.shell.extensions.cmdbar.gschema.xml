@@ -21,5 +21,10 @@
       <summary>Global Shortcut</summary>
       <description>Global keyboard shortcut to trigger CmdBar menu from anywhere.</description>
     </key>
+    <key name="active-profile" type="s">
+      <default>'Development'</default>
+      <summary>Active Environment Profile</summary>
+      <description>Name of the active environment variable profile.</description>
+    </key>
   </schema>
 </schemalist>
