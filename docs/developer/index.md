@@ -14,3 +14,5 @@ CmdBar targets GNOME Shell 46 and 47 directly without legacy runtime fallback br
 - **Widget Layout & Alignment**: All UI widgets (`St.BoxLayout`, `St.Label`, menu items) use standard GNOME Shell 46 layout properties (`style_class`, `orientation`, `y_align: Clutter.ActorAlign.CENTER`, `x_expand: true`).
 - **Symbolic System Icons**: All indicators, category headers, command menu items, and confirmation dialogs instantiate symbolic icons using standard `St.Icon` with `icon_name` property.
 - **Path Resolution**: Installation root path resolution uses native `Gio.File` handle methods (`Extension.dir.get_path()`) to load initial configuration templates.
+- **Clipboard Manager**: Continuously monitors clipboard history, maintains up to 50 unique entries in `~/.config/cmdbar/clipboard.json`, supports pinning, live searching, clearing history, and simulates typing/pasting across X11 (`xdotool`/`xte`) and Wayland (`wtype`/`ydotool`).
+- **GSettings Clipboard Keys**: `enable-clipboard-history`, `clipboard-history-limit`, and `persist-clipboard-history`.

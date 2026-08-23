@@ -13,6 +13,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
 - **Dynamic menu** – Fully driven by a simple JSON file
+- **Clipboard History** – Command palette clipboard manager with search, pin/unpin, clear history, and click-to-paste across Wayland and X11
 - **Categories** – Group commands (Projects, Infrastructure, ECS, Tickets, etc.)
 - **Copy to clipboard** – Each command menu item includes a copy button (`wl-copy` on Wayland / `xclip` on X11) to copy command strings without executing
 - **Argument support** – Commands that need input (e.g. `prod <task-id>`, `feature TFG-877`) open a clean dialog

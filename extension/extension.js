@@ -14,7 +14,11 @@ import {
   getPlaceholders,
   getPreviewTokens,
 } from "./commandProcessor.js";
-import { loadConfig } from "./configSync.js";
+import {
+  loadConfig,
+  loadClipboardHistory,
+  saveClipboardHistory,
+} from "./configSync.js";
 
 // Native GNOME Shell Modal Dialog for command execution confirmation
 const ExecutionConfirmationDialog = GObject.registerClass(
@@ -573,6 +577,59 @@ export function copyToClipboard(text) {
   return success;
 }
 
+/**
+ * Helper function supporting wl-copy/wtype/ydotool (Wayland) and xclip/xdotool/xte (X11) to paste/type text.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function pasteClipboardText(text) {
+  copyToClipboard(text);
+
+  let isWayland = false;
+  try {
+    let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
+    let sessionType = GLib.getenv("XDG_SESSION_TYPE");
+    if (
+      waylandDisplay ||
+      (sessionType && sessionType.toLowerCase() === "wayland")
+    ) {
+      isWayland = true;
+    }
+  } catch (e) {}
+
+  let commands = isWayland
+    ? [
+        ["wtype", "-M", "ctrl", "v"],
+        ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
+        ["xdotool", "key", "ctrl+v"],
+      ]
+    : [
+        ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
+        ["xdotool", "type", text],
+        ["xte", "kd Control_L", "k v", "ku Control_L"],
+      ];
+
+  let success = false;
+  for (let argv of commands) {
+    try {
+      let proc = Gio.Subprocess.new(
+        argv,
+        Gio.SubprocessFlags.NONE,
+      );
+      proc.communicate_utf8_async(null, null, (subprocess, result) => {
+        try {
+          subprocess.communicate_utf8_finish(result);
+        } catch (err) {}
+      });
+      success = true;
+      break;
+    } catch (e) {
+      continue;
+    }
+  }
+  return success;
+}
+
 // Standard menu item for parameterless or parameter-prompting commands
 const CommandMenuItem = GObject.registerClass(
   class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
@@ -773,6 +830,208 @@ const CategoryHeaderMenuItem = GObject.registerClass(
   },
 );
 
+// Menu item for Clipboard History category header with Clear History action
+const ClipboardHeaderMenuItem = GObject.registerClass(
+  class ClipboardHeaderMenuItem extends PopupMenu.PopupBaseMenuItem {
+    _init(categoryName, onClear) {
+      super._init({
+        reactive: false,
+        activate: false,
+      });
+
+      this.box = new St.BoxLayout({
+        orientation: Clutter.Orientation.HORIZONTAL,
+        style_class: "cmdbar-category-header",
+        x_expand: true,
+      });
+
+      this.icon = new St.Icon({
+        icon_name: "edit-paste-symbolic",
+        style_class: "popup-menu-icon",
+        style: "margin-right: 8px; margin-top: 6px; margin-bottom: 2px;",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      this.box.add_child(this.icon);
+
+      this.label = new St.Label({
+        text: categoryName,
+        style:
+          "font-weight: bold; color: #888888; font-size: 0.95em; margin-top: 6px; margin-bottom: 2px;",
+        y_align: Clutter.ActorAlign.CENTER,
+        x_expand: true,
+      });
+      this.box.add_child(this.label);
+
+      if (typeof onClear === "function") {
+        this.clearButton = new St.Button({
+          child: new St.Icon({
+            icon_name: "edit-clear-all-symbolic",
+            style_class: "popup-menu-icon",
+            style: "color: #e01b24;",
+          }),
+          style: "padding: 2px 6px; border-radius: 4px; margin-top: 4px;",
+          track_hover: true,
+          can_focus: true,
+          reactive: true,
+        });
+        this.clearButton.connect("clicked", () => {
+          onClear();
+        });
+        this.box.add_child(this.clearButton);
+      }
+
+      this.add_child(this.box);
+    }
+  },
+);
+
+// Search entry item for filtering clipboard history
+const ClipboardSearchMenuItem = GObject.registerClass(
+  class ClipboardSearchMenuItem extends PopupMenu.PopupBaseMenuItem {
+    _init(onSearchChanged, initialQuery = "") {
+      super._init({
+        reactive: false,
+        activate: false,
+      });
+
+      this.box = new St.BoxLayout({
+        orientation: Clutter.Orientation.HORIZONTAL,
+        x_expand: true,
+        style: "padding: 2px 4px;",
+      });
+
+      this.icon = new St.Icon({
+        icon_name: "edit-find-symbolic",
+        style_class: "popup-menu-icon",
+        style: "margin-right: 8px;",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      this.box.add_child(this.icon);
+
+      this.entry = new St.Entry({
+        text: initialQuery || "",
+        hint_text: "Search clipboard history...",
+        track_hover: true,
+        can_focus: true,
+        x_expand: true,
+      });
+
+      let clutterText = this.entry.clutter_text || this.entry;
+      if (clutterText && typeof clutterText.connect === "function") {
+        clutterText.connect("text-changed", () => {
+          let text = typeof this.entry.get_text === "function" ? this.entry.get_text() : (this.entry.text || "");
+          if (typeof onSearchChanged === "function") {
+            onSearchChanged(text);
+          }
+        });
+      }
+
+      this.box.add_child(this.entry);
+      this.add_child(this.box);
+    }
+  },
+);
+
+// Menu item representing an entry in clipboard history
+const ClipboardMenuItem = GObject.registerClass(
+  class ClipboardMenuItem extends PopupMenu.PopupBaseMenuItem {
+    _init(indicator, item, onPaste, onTogglePin, onDelete) {
+      super._init({
+        reactive: true,
+        activate: false,
+      });
+
+      this._indicator = indicator;
+      this._item = item;
+
+      this.box = new St.BoxLayout({
+        orientation: Clutter.Orientation.HORIZONTAL,
+        x_expand: true,
+      });
+
+      let clipIconName = item.pinned
+        ? "emblem-favorite-symbolic"
+        : "edit-paste-symbolic";
+      this.icon = new St.Icon({
+        icon_name: clipIconName,
+        style_class: "popup-menu-icon",
+        style: item.pinned
+          ? "margin-right: 8px; color: #f5c211;"
+          : "margin-right: 8px;",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      this.box.add_child(this.icon);
+
+      let displayText = (item.text || "").replace(/\r?\n|\r/g, " ");
+      if (displayText.length > 50) {
+        displayText = displayText.substring(0, 47) + "...";
+      }
+
+      this.label = new St.Label({
+        text: displayText,
+        y_align: Clutter.ActorAlign.CENTER,
+        x_expand: true,
+      });
+      this.box.add_child(this.label);
+
+      // Pin Button
+      this.pinButton = new St.Button({
+        child: new St.Icon({
+          icon_name: item.pinned
+            ? "emblem-favorite-symbolic"
+            : "bookmark-new-symbolic",
+          style_class: "popup-menu-icon",
+          style: item.pinned ? "color: #f5c211;" : "",
+        }),
+        style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
+        track_hover: true,
+        can_focus: true,
+      });
+
+      this.pinButton.connect("clicked", () => {
+        if (typeof onTogglePin === "function") {
+          onTogglePin();
+        }
+      });
+      this.box.add_child(this.pinButton);
+
+      // Delete Button
+      if (typeof onDelete === "function") {
+        this.deleteButton = new St.Button({
+          child: new St.Icon({
+            icon_name: "user-trash-symbolic",
+            style_class: "popup-menu-icon",
+            style: "color: #e01b24;",
+          }),
+          style: "padding: 4px 6px; border-radius: 4px;",
+          track_hover: true,
+          can_focus: true,
+        });
+        this.deleteButton.connect("clicked", () => {
+          onDelete();
+        });
+        this.box.add_child(this.deleteButton);
+      }
+
+      this.add_child(this.box);
+
+      this._activateId = this.connect("activate", () => {
+        if (typeof onPaste === "function") {
+          onPaste();
+        }
+      });
+    }
+
+    destroy() {
+      if (this._activateId) {
+        this.disconnect(this._activateId);
+        this._activateId = 0;
+      }
+      super.destroy();
+    }
+  },
+);
+
 // The top bar status area panel indicator
 const CmdBarIndicator = GObject.registerClass(
   class CmdBarIndicator extends PanelMenu.Button {
@@ -783,6 +1042,22 @@ const CmdBarIndicator = GObject.registerClass(
       this._monitor = null;
       this._cachedConfig = null;
       this._timeoutId = 0;
+
+      this._clipboardHistory = [];
+      this._clipboardSearchQuery = "";
+      this._lastClipboardText = "";
+      this._clipboardPollTimer = 0;
+      this._enableClipboard = true;
+      this._clipboardLimit = 50;
+      this._persistClipboard = true;
+
+      if (extension && extension._settings) {
+        try {
+          this._enableClipboard = extension._settings.get_boolean("enable-clipboard-history");
+          this._clipboardLimit = extension._settings.get_int("clipboard-history-limit");
+          this._persistClipboard = extension._settings.get_boolean("persist-clipboard-history");
+        } catch (e) {}
+      }
 
       // Container box to support text and icon side-by-side
       this._box = new St.BoxLayout({
@@ -809,11 +1084,250 @@ const CmdBarIndicator = GObject.registerClass(
       // Harvest environment asynchronously on startup
       harvestEnvironment();
 
+      // Load initial clipboard history asynchronously
+      this._initClipboardHistory();
+
       // Load configuration and construct the dynamic menu
       this._reloadMenu();
 
       // Setup File Monitor for Live Reloading of JSON configuration
       this._setupFileMonitor();
+    }
+
+    async _initClipboardHistory() {
+      try {
+        if (this._persistClipboard) {
+          this._clipboardHistory = await loadClipboardHistory();
+        } else {
+          this._clipboardHistory = [];
+        }
+      } catch (e) {
+        this._clipboardHistory = [];
+      }
+      if (this._clipboardHistory && this._clipboardHistory.length > 0) {
+        this._lastClipboardText = this._clipboardHistory[0].text;
+      }
+      this._startClipboardPolling();
+    }
+
+    _pollClipboard() {
+      if (!this._enableClipboard) return;
+
+      try {
+        if (typeof St !== "undefined" && St && St.Clipboard && St.ClipboardType) {
+          let clipboard = St.Clipboard.get_default();
+          if (clipboard && typeof clipboard.get_text === "function") {
+            clipboard.get_text(St.ClipboardType.CLIPBOARD, (cb, text) => {
+              if (text !== null && text !== undefined) {
+                this.addClipboardItem(text);
+              }
+            });
+            return;
+          }
+        }
+      } catch (e) {}
+
+      let isWayland = false;
+      try {
+        let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
+        let sessionType = GLib.getenv("XDG_SESSION_TYPE");
+        if (
+          waylandDisplay ||
+          (sessionType && sessionType.toLowerCase() === "wayland")
+        ) {
+          isWayland = true;
+        }
+      } catch (e) {}
+
+      let tool = isWayland
+        ? ["wl-paste", "--no-newline"]
+        : ["xclip", "-selection", "clipboard", "-o"];
+
+      try {
+        let proc = Gio.Subprocess.new(
+          tool,
+          Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+        );
+        proc.communicate_utf8_async(null, null, (subprocess, res) => {
+          try {
+            let [stdout] = subprocess.communicate_utf8_finish(res);
+            if (subprocess.get_successful() && stdout) {
+              this.addClipboardItem(stdout);
+            }
+          } catch (err) {}
+        });
+      } catch (err) {}
+    }
+
+    _startClipboardPolling() {
+      this._stopClipboardPolling();
+      if (!this._enableClipboard) return;
+
+      this._clipboardPollTimer = GLib.timeout_add(
+        GLib.PRIORITY_DEFAULT,
+        1000,
+        () => {
+          this._pollClipboard();
+          return GLib.SOURCE_CONTINUE !== undefined
+            ? GLib.SOURCE_CONTINUE
+            : true;
+        },
+      );
+    }
+
+    _stopClipboardPolling() {
+      if (this._clipboardPollTimer) {
+        GLib.Source.remove(this._clipboardPollTimer);
+        this._clipboardPollTimer = 0;
+      }
+    }
+
+    addClipboardItem(text) {
+      if (typeof text !== "string") {
+        if (text === null || text === undefined) return;
+        text = String(text);
+      }
+      if (text === "" || text.length === 0) return;
+
+      // Deduplicate consecutive copies
+      if (text === this._lastClipboardText) return;
+      if (
+        this._clipboardHistory.length > 0 &&
+        this._clipboardHistory[0].text === text
+      ) {
+        this._lastClipboardText = text;
+        return;
+      }
+
+      this._lastClipboardText = text;
+
+      let existingIndex = this._clipboardHistory.findIndex(
+        (item) => item.text === text,
+      );
+      let isPinned = false;
+      if (existingIndex !== -1) {
+        isPinned = this._clipboardHistory[existingIndex].pinned;
+        this._clipboardHistory.splice(existingIndex, 1);
+      }
+
+      let newItem = {
+        text: text,
+        pinned: isPinned,
+        timestamp: Date.now(),
+      };
+      this._clipboardHistory.unshift(newItem);
+
+      let limit = this._clipboardLimit || 50;
+      while (this._clipboardHistory.length > limit) {
+        let lastUnpinnedIdx = -1;
+        for (let i = this._clipboardHistory.length - 1; i >= 0; i--) {
+          if (!this._clipboardHistory[i].pinned) {
+            lastUnpinnedIdx = i;
+            break;
+          }
+        }
+        if (lastUnpinnedIdx !== -1) {
+          this._clipboardHistory.splice(lastUnpinnedIdx, 1);
+        } else {
+          this._clipboardHistory.pop();
+        }
+      }
+
+      if (this._persistClipboard) {
+        saveClipboardHistory(this._clipboardHistory).catch(() => {});
+      }
+
+      this._updateClipboardSection();
+    }
+
+    clearClipboardHistory() {
+      this._clipboardHistory = this._clipboardHistory.filter(
+        (item) => item.pinned,
+      );
+      if (this._persistClipboard) {
+        saveClipboardHistory(this._clipboardHistory).catch(() => {});
+      }
+      this._updateClipboardSection();
+    }
+
+    togglePinClipboardItem(text) {
+      let item = this._clipboardHistory.find((i) => i.text === text);
+      if (item) {
+        item.pinned = !item.pinned;
+        if (this._persistClipboard) {
+          saveClipboardHistory(this._clipboardHistory).catch(() => {});
+        }
+        this._updateClipboardSection();
+      }
+    }
+
+    removeClipboardItem(text) {
+      let idx = this._clipboardHistory.findIndex((i) => i.text === text);
+      if (idx !== -1) {
+        this._clipboardHistory.splice(idx, 1);
+        if (this._persistClipboard) {
+          saveClipboardHistory(this._clipboardHistory).catch(() => {});
+        }
+        this._updateClipboardSection();
+      }
+    }
+
+    _updateClipboardSection() {
+      if (!this._clipboardSection) return;
+      this._clipboardSection.removeAll();
+
+      if (!this._clipboardHistory || this._clipboardHistory.length === 0) {
+        let emptyItem = new PopupMenu.PopupMenuItem(
+          "Clipboard history is empty",
+          { reactive: false },
+        );
+        this._clipboardSection.addMenuItem(emptyItem);
+        return;
+      }
+
+      let query = (this._clipboardSearchQuery || "").trim().toLowerCase();
+      let items = this._clipboardHistory;
+      if (query) {
+        items = items.filter((item) =>
+          item.text.toLowerCase().includes(query),
+        );
+      }
+
+      if (items.length === 0) {
+        let noMatchItem = new PopupMenu.PopupMenuItem(
+          "No matching clipboard items",
+          { reactive: false },
+        );
+        this._clipboardSection.addMenuItem(noMatchItem);
+        return;
+      }
+
+      let pinned = items.filter((item) => item.pinned);
+      let unpinned = items.filter((item) => !item.pinned);
+      let sortedItems = [...pinned, ...unpinned];
+
+      let limit = this._clipboardLimit || 50;
+      sortedItems = sortedItems.slice(0, limit);
+
+      sortedItems.forEach((item) => {
+        let menuItem = new ClipboardMenuItem(
+          this,
+          item,
+          () => {
+            pasteClipboardText(item.text);
+            if (this.menu && typeof this.menu.close === "function") {
+              this.menu.close();
+            }
+          },
+          () => {
+            this.togglePinClipboardItem(item.text);
+          },
+          () => {
+            this.removeClipboardItem(item.text);
+          },
+        );
+        this._clipboardSection.addMenuItem(menuItem);
+      });
     }
 
     setButtonLabel(labelText) {
@@ -850,9 +1364,35 @@ const CmdBarIndicator = GObject.registerClass(
         // Clear all current items in menu
         this.menu.removeAll();
 
+        if (this._enableClipboard) {
+          this.menu.addMenuItem(
+            new ClipboardHeaderMenuItem("Clipboard History", () =>
+              this.clearClipboardHistory(),
+            ),
+          );
+          this.menu.addMenuItem(
+            new ClipboardSearchMenuItem(
+              (query) => {
+                this._clipboardSearchQuery = query;
+                this._updateClipboardSection();
+              },
+              this._clipboardSearchQuery,
+            ),
+          );
+          this._clipboardSection = new PopupMenu.PopupMenuSection();
+          this.menu.addMenuItem(this._clipboardSection);
+          this._updateClipboardSection();
+
+          if (config && config.categories && config.categories.length > 0) {
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+          }
+        }
+
         if (!config || !config.categories || config.categories.length === 0) {
-          let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
-          this.menu.addMenuItem(infoItem);
+          if (!this._enableClipboard) {
+            let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
+            this.menu.addMenuItem(infoItem);
+          }
           return;
         }
 
@@ -1122,6 +1662,7 @@ const CmdBarIndicator = GObject.registerClass(
     }
 
     destroy() {
+      this._stopClipboardPolling();
       if (this._timeoutId) {
         GLib.Source.remove(this._timeoutId);
         this._timeoutId = 0;
@@ -1178,6 +1719,40 @@ export default class CmdBarExtension extends Extension {
         }
       },
     );
+
+    this._enableClipboardId = this._settings.connect(
+      "changed::enable-clipboard-history",
+      (settings, key) => {
+        if (this._indicator) {
+          this._indicator._enableClipboard = settings.get_boolean(key);
+          if (this._indicator._enableClipboard) {
+            this._indicator._startClipboardPolling();
+          } else {
+            this._indicator._stopClipboardPolling();
+          }
+          this._indicator._reloadMenu();
+        }
+      },
+    );
+
+    this._clipboardLimitId = this._settings.connect(
+      "changed::clipboard-history-limit",
+      (settings, key) => {
+        if (this._indicator) {
+          this._indicator._clipboardLimit = settings.get_int(key);
+          this._indicator._updateClipboardSection();
+        }
+      },
+    );
+
+    this._persistClipboardId = this._settings.connect(
+      "changed::persist-clipboard-history",
+      (settings, key) => {
+        if (this._indicator) {
+          this._indicator._persistClipboard = settings.get_boolean(key);
+        }
+      },
+    );
   }
 
   _updateIndicatorVisibility(visible) {
@@ -1206,6 +1781,18 @@ export default class CmdBarExtension extends Extension {
       if (this._placeholderTextId) {
         this._settings.disconnect(this._placeholderTextId);
         this._placeholderTextId = 0;
+      }
+      if (this._enableClipboardId) {
+        this._settings.disconnect(this._enableClipboardId);
+        this._enableClipboardId = 0;
+      }
+      if (this._clipboardLimitId) {
+        this._settings.disconnect(this._clipboardLimitId);
+        this._clipboardLimitId = 0;
+      }
+      if (this._persistClipboardId) {
+        this._settings.disconnect(this._persistClipboardId);
+        this._persistClipboardId = 0;
       }
       this._settings = null;
     }

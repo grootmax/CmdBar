@@ -16,5 +16,20 @@
       <summary>Button Label</summary>
       <description>Customize the text displayed next to the icon in the top-bar button.</description>
     </key>
+    <key name="enable-clipboard-history" type="b">
+      <default>true</default>
+      <summary>Enable Clipboard History</summary>
+      <description>Toggle automatic tracking of system clipboard history.</description>
+    </key>
+    <key name="clipboard-history-limit" type="i">
+      <default>50</default>
+      <summary>Clipboard History Limit</summary>
+      <description>Maximum number of unique items stored in clipboard history.</description>
+    </key>
+    <key name="persist-clipboard-history" type="b">
+      <default>true</default>
+      <summary>Persist Clipboard History</summary>
+      <description>Persist clipboard history across GNOME Shell restarts/reboots.</description>
+    </key>
   </schema>
 </schemalist>

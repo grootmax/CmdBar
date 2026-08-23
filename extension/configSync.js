@@ -812,3 +812,77 @@ export async function saveConfig(config, configPath) {
     await releaseLock(lockPath);
   }
 }
+
+export async function getDefaultClipboardPath() {
+  if (isNode) {
+    const pathModule = await import("path");
+    return pathModule.join(getNodeUserConfigDir(), "cmdbar", "clipboard.json");
+  } else {
+    return GLib.build_filenamev([
+      GLib.get_user_config_dir(),
+      "cmdbar",
+      "clipboard.json",
+    ]);
+  }
+}
+
+export async function loadClipboardHistory(clipboardPath) {
+  if (!clipboardPath) {
+    clipboardPath = await getDefaultClipboardPath();
+  }
+  await ensureConfigDir(clipboardPath);
+  const exists = await fileExists(clipboardPath);
+  if (!exists) {
+    return [];
+  }
+  let content;
+  try {
+    if (isNode) {
+      content = await node_readFile(clipboardPath);
+    } else {
+      content = await gjs_readFile(clipboardPath);
+    }
+  } catch (e) {
+    return [];
+  }
+  try {
+    let parsed = JSON.parse(content);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item) => item && (typeof item === "string" || typeof item.text === "string"))
+      .map((item) => {
+        if (typeof item === "string") {
+          return { text: item, pinned: false, timestamp: Date.now() };
+        }
+        return {
+          text: item.text,
+          pinned: Boolean(item.pinned),
+          timestamp: typeof item.timestamp === "number" ? item.timestamp : Date.now(),
+        };
+      });
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function saveClipboardHistory(history, clipboardPath) {
+  if (!Array.isArray(history)) {
+    throw new Error("Invalid clipboard history schema");
+  }
+  if (!clipboardPath) {
+    clipboardPath = await getDefaultClipboardPath();
+  }
+  await ensureConfigDir(clipboardPath);
+  const lockPath = clipboardPath + ".lock";
+  await acquireLock(lockPath, 180);
+  try {
+    const content = JSON.stringify(history, null, 2);
+    if (isNode) {
+      await node_writeFileAtomic(clipboardPath, content);
+    } else {
+      await gjs_writeFileAtomic(clipboardPath, content);
+    }
+  } finally {
+    await releaseLock(lockPath);
+  }
+}
