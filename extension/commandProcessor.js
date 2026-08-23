@@ -260,6 +260,9 @@ export const DEFAULT_ALLOWED_BINARIES = [
   "env",
   "sh",
   "bash",
+  "bwrap",
+  "flatpak-spawn",
+  "firejail",
 ];
 
 /**
@@ -475,4 +478,156 @@ export function parseAccel(text) {
 
   return [`${modifiers}${baseKey}`];
 }
+
+/**
+ * Escapes special XML/HTML markup characters.
+ * @param {string} text
+ * @returns {string}
+ */
+export function escapeMarkup(text) {
+  if (!text || typeof text !== "string") return "";
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/**
+ * Fuzzy matches pattern against text.
+ * @param {string} pattern
+ * @param {string} text
+ * @param {number} [usageCount=0]
+ * @returns {{match: boolean, matches: number[], score: number}}
+ */
+export function fuzzyMatch(pattern, text, usageCount = 0) {
+  if (!text || typeof text !== "string") {
+    return { match: false, matches: [], score: 0 };
+  }
+  const cleanPattern = (pattern || "").trim().toLowerCase();
+  const lowerText = text.toLowerCase();
+
+  if (!cleanPattern) {
+    return {
+      match: true,
+      matches: [],
+      score: (usageCount || 0) * 10,
+    };
+  }
+
+  const matches = [];
+  let patternIdx = 0;
+  let score = 0;
+  let consecutiveBonus = 0;
+
+  for (let i = 0; i < lowerText.length && patternIdx < cleanPattern.length; i++) {
+    if (lowerText[i] === cleanPattern[patternIdx]) {
+      matches.push(i);
+      patternIdx++;
+      score += 10 + consecutiveBonus;
+      consecutiveBonus += 5;
+    } else {
+      consecutiveBonus = 0;
+    }
+  }
+
+  if (patternIdx < cleanPattern.length) {
+    return { match: false, matches: [], score: 0 };
+  }
+
+  if (lowerText === cleanPattern) {
+    score += 100;
+  } else if (lowerText.startsWith(cleanPattern)) {
+    score += 50;
+  }
+
+  score += (usageCount || 0) * 10;
+
+  return { match: true, matches, score };
+}
+
+/**
+ * Highlights matched characters in text using <b> tags.
+ * @param {string} text
+ * @param {number[]} matches
+ * @returns {string}
+ */
+export function highlightMatches(text, matches) {
+  if (!text || typeof text !== "string") return "";
+  if (!matches || !Array.isArray(matches) || matches.length === 0) {
+    return escapeMarkup(text);
+  }
+
+  const isMatched = new Array(text.length).fill(false);
+  for (const idx of matches) {
+    if (idx >= 0 && idx < text.length) {
+      isMatched[idx] = true;
+    }
+  }
+
+  let result = "";
+  let inBold = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = escapeMarkup(text[i]);
+    if (isMatched[i]) {
+      if (!inBold) {
+        result += "<b>";
+        inBold = true;
+      }
+      result += char;
+    } else {
+      if (inBold) {
+        result += "</b>";
+        inBold = false;
+      }
+      result += char;
+    }
+  }
+
+  if (inBold) {
+    result += "</b>";
+  }
+
+  return result;
+}
+
+/**
+ * Ranks list of commands by matching query.
+ * @param {Array<object>} commands
+ * @param {string} query
+ * @param {object} [usageMap={}]
+ * @returns {Array<object>}
+ */
+export function rankCommands(commands, query, usageMap = {}) {
+  if (!commands || !Array.isArray(commands)) return [];
+  const results = [];
+
+  for (const cmd of commands) {
+    const cmdStr = cmd.command
+      ? Array.isArray(cmd.command)
+        ? cmd.command.join(" ")
+        : String(cmd.command)
+      : "";
+    const nameStr = cmd.name || "";
+    const usageCount = (usageMap && (usageMap[cmdStr] || usageMap[nameStr])) || 0;
+
+    const nameMatch = fuzzyMatch(query, nameStr, usageCount);
+    const cmdMatch = fuzzyMatch(query, cmdStr, usageCount);
+
+    if (nameMatch.match || cmdMatch.match) {
+      const bestScore = Math.max(nameMatch.score, cmdMatch.score);
+      const bestMatches = nameMatch.score >= cmdMatch.score ? nameMatch.matches : cmdMatch.matches;
+      results.push({
+        command: cmd,
+        score: bestScore,
+        matches: bestMatches,
+      });
+    }
+  }
+
+  return results.sort((a, b) => b.score - a.score);
+}
+
 

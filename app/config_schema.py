@@ -231,7 +231,12 @@ def validate_parameter_value(value, parameter_schema):
             
     return True, None
 
-def resolve_command_preview(command_template, mode, parameter_values, parameters_schema):
+from app.sandbox_wrapper import (
+    is_sandbox_enabled,
+    wrap_command_in_sandbox,
+)
+
+def resolve_command_preview(command_template, mode, parameter_values, parameters_schema, sandbox_config=None):
     """
     Resolves a command template for dry-run preview.
     Returns (resolved_string, errors_dict)
@@ -279,6 +284,13 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
             return match.group(0)
 
         resolved = re.sub(pattern, replacer, command_template)
+        if sandbox_config and is_sandbox_enabled(sandbox_config):
+            try:
+                tokens = shlex.split(resolved)
+            except Exception:
+                tokens = resolved.split()
+            sandboxed_tokens = wrap_command_in_sandbox(tokens, sandbox_config)
+            resolved = " ".join(shlex.quote(t) for t in sandboxed_tokens)
         return resolved, errors
     else:
         # direct-array mode
@@ -297,7 +309,10 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
 
             resolved_part = re.sub(pattern, replacer_part, part)
             resolved_parts.append(resolved_part)
-            
+
+        if sandbox_config and is_sandbox_enabled(sandbox_config):
+            resolved_parts = wrap_command_in_sandbox(resolved_parts, sandbox_config)
+
         # Preview representation for direct-array is the list of individual args
         array_preview = "Direct Array: " + " ".join(shlex.quote(p) for p in resolved_parts)
         # We can also append the list format to be 100% explicit

@@ -12,6 +12,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 ## Features
 
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
+- **Sandboxed Execution Mode** – Option to execute commands in a sandbox container using `bwrap` (Bubblewrap), `flatpak-spawn`, or `firejail` with configurable security profiles (`strict`, `permissive`, `custom`), filesystem isolation, and network isolation toggles
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
 - **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences.
 - **Dynamic menu** – Fully driven by a simple JSON file
@@ -170,6 +171,13 @@ Used by `app/main.py` and `companion/companion_app.py`. This schema supports dee
           "name": "Direct Exec",
           "command": "/usr/bin/echo \"Hello\" <arg>",
           "mode": "direct-array",
+          "sandbox": {
+            "enabled": true,
+            "engine": "bwrap",
+            "profile": "strict",
+            "filesystem": "read-only",
+            "network": false
+          },
           "parameters": {
             "arg": {
               "regex": "^[a-zA-Z0-9_]+$",

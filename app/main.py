@@ -34,6 +34,12 @@ set_margin_all = set_uniform_margin
 if not hasattr(Gtk.Widget, "set_margin_all"):
     Gtk.Widget.set_margin_all = set_uniform_margin
 
+from app.sandbox_wrapper import (
+    is_sandbox_enabled,
+    get_sandbox_config,
+    AVAILABLE_ENGINES,
+    SECURITY_PROFILES,
+)
 from app.config_schema import (
     load_config,
     save_config,
@@ -310,6 +316,84 @@ class CmdBarWindow(Adw.ApplicationWindow):
         pref_row.set_child(mode_box)
         pref_group.add(pref_row)
 
+        # --- Sandboxed Execution Mode Section ---
+        sb_group = Adw.PreferencesGroup()
+        sb_group.set_title("Sandboxed Execution Mode")
+        fields_box.append(sb_group)
+
+        sb_config = get_sandbox_config(shortcut)
+
+        sb_enable_row = Adw.SwitchRow()
+        sb_enable_row.set_title("Enable Sandbox")
+        sb_enable_row.set_subtitle("Isolate command execution using bwrap, flatpak-spawn, or firejail")
+        sb_enable_row.set_active(sb_config.get("enabled", False))
+        sb_enable_row.connect("notify::active", self._on_sandbox_toggled)
+        sb_group.add(sb_enable_row)
+
+        # Sandbox Engine Dropdown
+        engine_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        engine_box.set_margin_top(8)
+        engine_box.set_margin_bottom(8)
+        engine_box.set_margin_start(12)
+        engine_box.set_margin_end(12)
+
+        engine_label = Gtk.Label(label="Sandbox Engine")
+        engine_label.set_hexpand(True)
+        engine_label.set_xalign(0)
+        engine_box.append(engine_label)
+
+        engine_list = Gtk.StringList.new(["bwrap", "flatpak-spawn", "firejail"])
+        self.engine_dropdown = Gtk.DropDown(model=engine_list)
+        cur_engine = sb_config.get("engine", "bwrap")
+        if cur_engine == "flatpak-spawn":
+            self.engine_dropdown.set_selected(1)
+        elif cur_engine == "firejail":
+            self.engine_dropdown.set_selected(2)
+        else:
+            self.engine_dropdown.set_selected(0)
+        self.engine_dropdown.connect("notify::selected", self._on_sandbox_engine_changed)
+        engine_box.append(self.engine_dropdown)
+
+        engine_row = Adw.PreferencesRow()
+        engine_row.set_child(engine_box)
+        sb_group.add(engine_row)
+
+        # Security Profile Dropdown
+        profile_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        profile_box.set_margin_top(8)
+        profile_box.set_margin_bottom(8)
+        profile_box.set_margin_start(12)
+        profile_box.set_margin_end(12)
+
+        profile_label = Gtk.Label(label="Security Profile")
+        profile_label.set_hexpand(True)
+        profile_label.set_xalign(0)
+        profile_box.append(profile_label)
+
+        profile_list = Gtk.StringList.new(["strict", "permissive", "custom"])
+        self.profile_dropdown = Gtk.DropDown(model=profile_list)
+        cur_profile = sb_config.get("profile", "strict")
+        if cur_profile == "permissive":
+            self.profile_dropdown.set_selected(1)
+        elif cur_profile == "custom":
+            self.profile_dropdown.set_selected(2)
+        else:
+            self.profile_dropdown.set_selected(0)
+        self.profile_dropdown.connect("notify::selected", self._on_sandbox_profile_changed)
+        profile_box.append(self.profile_dropdown)
+
+        profile_row = Adw.PreferencesRow()
+        profile_row.set_child(profile_box)
+        sb_group.add(profile_row)
+
+        # Network Isolation Switch
+        net_row = Adw.SwitchRow()
+        net_row.set_title("Allow Network Access")
+        net_row.set_subtitle("Grant network access inside sandbox")
+        net_row.set_active(bool(sb_config.get("network", False)))
+        net_row.connect("notify::active", self._on_sandbox_network_toggled)
+        sb_group.add(net_row)
+
         # --- Parameters Section ---
         self.params_group = Adw.PreferencesGroup()
         self.params_group.set_title("Parameters Defined")
@@ -487,7 +571,8 @@ class CmdBarWindow(Adw.ApplicationWindow):
             command_template,
             mode,
             vals,
-            parameters_schema
+            parameters_schema,
+            sandbox_config=shortcut
         )
 
         # Highlight input error borders if any
@@ -539,6 +624,40 @@ class CmdBarWindow(Adw.ApplicationWindow):
         selected = dropdown.get_selected()
         mode_str = "shell-quoted" if selected == 0 else "direct-array"
         self.app.config["categories"][c_idx]["commands"][s_idx]["mode"] = mode_str
+        self._update_live_preview()
+
+    def _ensure_sandbox_dict(self):
+        c_idx = self.app.selected_category_idx
+        s_idx = self.app.selected_shortcut_idx
+        cmd = self.app.config["categories"][c_idx]["commands"][s_idx]
+        sb = cmd.get("sandbox")
+        if not isinstance(sb, dict):
+            sb = get_sandbox_config(cmd)
+            cmd["sandbox"] = sb
+        return sb
+
+    def _on_sandbox_toggled(self, row, pspec):
+        sb = self._ensure_sandbox_dict()
+        sb["enabled"] = row.get_active()
+        self._update_live_preview()
+
+    def _on_sandbox_engine_changed(self, dropdown, pspec):
+        sb = self._ensure_sandbox_dict()
+        engines = ["bwrap", "flatpak-spawn", "firejail"]
+        idx = dropdown.get_selected()
+        sb["engine"] = engines[idx] if idx < len(engines) else "bwrap"
+        self._update_live_preview()
+
+    def _on_sandbox_profile_changed(self, dropdown, pspec):
+        sb = self._ensure_sandbox_dict()
+        profiles = ["strict", "permissive", "custom"]
+        idx = dropdown.get_selected()
+        sb["profile"] = profiles[idx] if idx < len(profiles) else "strict"
+        self._update_live_preview()
+
+    def _on_sandbox_network_toggled(self, row, pspec):
+        sb = self._ensure_sandbox_dict()
+        sb["network"] = row.get_active()
         self._update_live_preview()
 
     def _on_sample_input_changed(self, row, param_name):

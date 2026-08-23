@@ -21,5 +21,15 @@
       <summary>Global Shortcut</summary>
       <description>Global keyboard shortcut to trigger CmdBar menu from anywhere.</description>
     </key>
+    <key name="sandbox-engine" type="s">
+      <default>'bwrap'</default>
+      <summary>Default Sandbox Engine</summary>
+      <description>Default sandbox engine used for isolated execution (bwrap, flatpak-spawn, or firejail).</description>
+    </key>
+    <key name="enable-sandbox" type="b">
+      <default>false</default>
+      <summary>Enable Sandboxing by Default</summary>
+      <description>Toggle default sandboxed execution for all commands.</description>
+    </key>
   </schema>
 </schemalist>
