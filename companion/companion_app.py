@@ -10,6 +10,16 @@ import hmac
 import hashlib
 import secrets
 from companion.ai_translator import is_ai_command, translate_natural_language_to_command
+from companion.notes import (
+    create_note,
+    update_note,
+    delete_note,
+    search_notes,
+    organize_by_tag,
+    render_markdown,
+    generate_share_link,
+    parse_share_link,
+)
 
 def canonical_json(obj):
     if isinstance(obj, dict):
@@ -126,7 +136,8 @@ def init_config():
                         }
                     ]
                 }
-            ]
+            ],
+            "notes": []
         }
         save_config(default_config)
     return config_path
@@ -378,9 +389,10 @@ def run_cli_mode():
         print("4. Edit Command")
         print("5. Delete Command/Category")
         print("6. Test-Run Command Template")
-        print("7. Exit")
+        print("7. Quick Notes & Scratchpad")
+        print("8. Exit")
         
-        choice = input("\nEnter choice [1-7]: ").strip()
+        choice = input("\nEnter choice [1-8]: ").strip()
         if choice == "1":
             list_categories_and_commands(config_data)
         elif choice == "2":
@@ -394,10 +406,78 @@ def run_cli_mode():
         elif choice == "6":
             test_run_command_flow(config_data)
         elif choice == "7":
+            manage_notes_cli(config_data)
+        elif choice == "8":
             print("Goodbye!")
             break
         else:
             print("Invalid choice, please try again.")
+
+
+def manage_notes_cli(config_data):
+    notes = config_data.setdefault("notes", [])
+    print("\n--- Quick Notes & Scratchpad ---")
+    print("1. List / Search Notes")
+    print("2. Add Note")
+    print("3. Edit Note")
+    print("4. Delete Note")
+    print("5. Share Note Link")
+    print("6. Import Note Link")
+    
+    choice = input("\nEnter choice [1-6]: ").strip()
+    if choice == "1":
+        q = input("Enter search query or tag filter (e.g. tag:work or blank for all): ").strip()
+        results = search_notes(notes, q)
+        if not results:
+            print("No notes found.")
+            return
+        for i, n in enumerate(results, 1):
+            tags_str = f" [{', '.join(n.get('tags', []))}]" if n.get('tags') else ""
+            cmd_str = f" (Cmd: {n.get('attachedCommand')})" if n.get('attachedCommand') else ""
+            print(f"[{i}] {n.get('title')}{tags_str}{cmd_str}")
+            print(f"    Content: {n.get('content')[:100]}...")
+    elif choice == "2":
+        title = input("Note Title: ").strip()
+        content = input("Note Content (Markdown): ").strip()
+        tags_raw = input("Tags (comma separated): ").strip()
+        cmd = input("Attached Command (optional): ").strip()
+        tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+        new_note = create_note(title=title, content=content, tags=tags, attached_command=cmd)
+        notes.append(new_note)
+        save_config(config_data)
+        print("Note created successfully!")
+    elif choice == "3":
+        note_id = input("Enter Note ID to edit: ").strip()
+        title = input("New Title (leave blank to keep): ").strip()
+        content = input("New Content (leave blank to keep): ").strip()
+        updates = {}
+        if title: updates["title"] = title
+        if content: updates["content"] = content
+        config_data["notes"] = update_note(notes, note_id, updates)
+        save_config(config_data)
+        print("Note updated!")
+    elif choice == "4":
+        note_id = input("Enter Note ID to delete: ").strip()
+        config_data["notes"] = delete_note(notes, note_id)
+        save_config(config_data)
+        print("Note deleted!")
+    elif choice == "5":
+        note_id = input("Enter Note ID to share: ").strip()
+        for n in notes:
+            if n.get("id") == note_id:
+                link = generate_share_link(n)
+                print(f"Share Link: {link}")
+                return
+        print("Note not found.")
+    elif choice == "6":
+        link = input("Enter share link: ").strip()
+        imported = parse_share_link(link)
+        if imported:
+            notes.append(imported)
+            save_config(config_data)
+            print("Note imported successfully!")
+        else:
+            print("Invalid share link.")
 
 
 def list_categories_and_commands(config_data):

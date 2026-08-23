@@ -12,6 +12,7 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 ## Core Features
 
 - **Dynamic Menu**: Fully driven by JSON config files.
+- **Quick Notes & Scratchpad**: Quick plain-text notes with Markdown support (Pango & HTML rendering), tag organization, fast search, attached executable commands, share links (`cmdbar://note/share?data=...`), and cross-device atomic sync.
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
 - **Local Live Reload**: Configuration changes sync instantly.

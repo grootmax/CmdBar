@@ -23,6 +23,10 @@ import {
   isAICommand,
   cleanAIPrompt,
 } from "./aiTranslator.js";
+import {
+  renderMarkdown,
+  executeAttachedCommand,
+} from "./notesManager.js";
 
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
@@ -1064,6 +1068,33 @@ const CmdBarIndicator = GObject.registerClass(
             });
           }
         });
+
+        if (config.notes && Array.isArray(config.notes) && config.notes.length > 0) {
+          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+          this.menu.addMenuItem(new CategoryHeaderMenuItem("Quick Notes & Scratchpad"));
+          config.notes.forEach((note) => {
+            const label = (note.title || "Untitled") + (note.tags && note.tags.length ? ` [${note.tags.join(", ")}]` : "");
+            let item = new PopupMenu.PopupMenuItem(label);
+            item.connect("activate", () => {
+              if (note.attachedCommand) {
+                try {
+                  const execData = executeAttachedCommand(note);
+                  this.executeCommand(note.title, execData.command, {}, note);
+                } catch (err) {
+                  if (Main && typeof Main.notify === "function") {
+                    Main.notify("Attached Command Error", err.message);
+                  }
+                }
+              } else {
+                const rendered = renderMarkdown(note.content || "");
+                if (Main && typeof Main.notify === "function") {
+                  Main.notify(`Note: ${note.title}`, rendered.raw || note.content || "");
+                }
+              }
+            });
+            this.menu.addMenuItem(item);
+          });
+        }
       } catch (e) {
         console.error(`CmdBar: error reloading menu: ${e.message}`);
       }
