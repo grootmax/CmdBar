@@ -476,3 +476,137 @@ export function parseAccel(text) {
   return [`${modifiers}${baseKey}`];
 }
 
+/**
+ * Safely escapes HTML/XML markup characters in a string.
+ * @param {string} str
+ * @returns {string}
+ */
+export function escapeMarkup(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Fuzzy matches a query string against a target string.
+ * @param {string} query
+ * @param {string} str
+ * @param {number} [usageCount=0]
+ * @returns {{match: boolean, matches: number[], score: number}}
+ */
+export function fuzzyMatch(query, str, usageCount = 0) {
+  if (str === null || str === undefined) str = "";
+  const target = String(str);
+  if (!query || typeof query !== "string" || query.trim() === "") {
+    return { match: true, matches: [], score: (usageCount || 0) * 10 };
+  }
+
+  const cleanQuery = query.trim().toLowerCase();
+  const cleanTarget = target.toLowerCase();
+
+  if (cleanQuery === cleanTarget) {
+    const matches = Array.from({ length: target.length }, (_, i) => i);
+    return { match: true, matches, score: 1000 + (usageCount || 0) * 10 };
+  }
+
+  let queryIdx = 0;
+  const matches = [];
+
+  for (let i = 0; i < target.length; i++) {
+    if (cleanTarget[i] === cleanQuery[queryIdx]) {
+      matches.push(i);
+      queryIdx++;
+      if (queryIdx === cleanQuery.length) break;
+    }
+  }
+
+  if (queryIdx < cleanQuery.length) {
+    return { match: false, matches: [], score: 0 };
+  }
+
+  let score = 100 - (target.length - cleanQuery.length);
+  if (matches[0] === 0) score += 20;
+  score += (usageCount || 0) * 5;
+
+  return { match: true, matches, score };
+}
+
+/**
+ * Highlights fuzzy match indices in a target string with HTML <b> tags.
+ * @param {string} str
+ * @param {number[]} matches
+ * @returns {string}
+ */
+export function highlightMatches(str, matches) {
+  if (!str) return "";
+  if (!matches || matches.length === 0) return escapeMarkup(str);
+
+  const matchSet = new Set(matches);
+  let result = "";
+  let inMatch = false;
+
+  for (let i = 0; i < str.length; i++) {
+    const isMatched = matchSet.has(i);
+    if (isMatched && !inMatch) {
+      result += "<b>";
+      inMatch = true;
+    } else if (!isMatched && inMatch) {
+      result += "</b>";
+      inMatch = false;
+    }
+    result += escapeMarkup(str[i]);
+  }
+  if (inMatch) {
+    result += "</b>";
+  }
+
+  return result;
+}
+
+/**
+ * Filters and ranks commands based on a search query and usage statistics.
+ * @param {Array<object>} commands
+ * @param {string} query
+ * @param {Object.<string, number>} [usageMap={}]
+ * @returns {Array<{command: object, matchResult: object, score: number}>}
+ */
+export function rankCommands(commands, query, usageMap = {}) {
+  if (!Array.isArray(commands)) return [];
+
+  const results = [];
+  for (const cmd of commands) {
+    if (!cmd) continue;
+    const nameStr = cmd.name || "";
+    const cmdStr = cmd.command || cmd.template || "";
+    const usageKey = cmdStr || nameStr;
+    const usageCount = usageMap[usageKey] || usageMap[nameStr] || 0;
+
+    const matchName = fuzzyMatch(query, nameStr, usageCount);
+    const matchCmd = fuzzyMatch(query, cmdStr, usageCount);
+
+    let bestMatch = null;
+    if (matchName.match && matchCmd.match) {
+      bestMatch = matchName.score >= matchCmd.score ? matchName : matchCmd;
+    } else if (matchName.match) {
+      bestMatch = matchName;
+    } else if (matchCmd.match) {
+      bestMatch = matchCmd;
+    }
+
+    if (bestMatch && bestMatch.match) {
+      results.push({
+        command: cmd,
+        matchResult: bestMatch,
+        score: bestMatch.score,
+      });
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results;
+}
+
