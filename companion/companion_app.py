@@ -19,10 +19,34 @@ from app.template_manager import (
 )
 from companion.audit_logger import log_command, read_audit_logs, clear_audit_log, get_audit_log_path
 try:
-    from app.config_schema import get_profiles, get_active_profile_name, get_profile_env, is_command_visible_in_profile, merge_environment
+    from app.config_schema import (
+        get_profiles,
+        get_active_profile_name,
+        get_profile_env,
+        is_command_visible_in_profile,
+        merge_environment,
+        match_pattern,
+        is_user_in_context,
+        create_approval_token,
+        validate_approval_token,
+        grant_approval_override,
+        evaluate_command_policy,
+    )
 except ImportError:
     try:
-        from config_schema import get_profiles, get_active_profile_name, get_profile_env, is_command_visible_in_profile, merge_environment
+        from config_schema import (
+            get_profiles,
+            get_active_profile_name,
+            get_profile_env,
+            is_command_visible_in_profile,
+            merge_environment,
+            match_pattern,
+            is_user_in_context,
+            create_approval_token,
+            validate_approval_token,
+            grant_approval_override,
+            evaluate_command_policy,
+        )
     except ImportError:
         def get_profiles(cfg): return []
         def get_active_profile_name(cfg): return None
