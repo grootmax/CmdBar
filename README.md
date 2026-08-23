@@ -55,7 +55,7 @@ sudo apt install -y \
   npm
 ```
 
-- **GNOME Shell (46+)**: The extension leverages modern GNOME APIs compatible with GNOME 46 and 47.
+- **GNOME Shell (46+)**: The extension leverages modern GNOME Shell 46 and 47 native APIs, including symbolic icon instantiation, standard widget layout properties, and native file handle path resolution.
 - **PyGObject (`gi`) & Gtk4 / Libadwaita**: Power the beautiful Libadwaita management application (`app/main.py`).
 - **Node.js & npm**: Required to run Jest unit tests (`npm run test`) and code-quality tools (ESLint, Prettier).
 - **Zenity**: Used by the GNOME extension to prompt for user parameter inputs in pop-up dialogs.
