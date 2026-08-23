@@ -37,6 +37,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          git config --global --add safe.directory '*' || true
+
           echo "=========================================="
           echo "        Auto Jules PR Manager"
           echo "=========================================="
@@ -566,6 +568,10 @@ jobs:
                 [
                   .[]
                   | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      ((.name | ascii_downcase | contains("jules")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("jules")) | not)
+                    )
                 ]
                 | length
               ')
@@ -574,6 +580,10 @@ jobs:
                 [
                   .[]
                   | select(.bucket == "pending")
+                  | select(
+                      ((.name | ascii_downcase | contains("jules")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("jules")) | not)
+                    )
                 ]
                 | length
               ')
