@@ -11,6 +11,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
+- **System Resource Monitors** – Live CPU, Memory, Disk, and Network monitoring with mini sparkline graphs in the top-bar menu, configurable alert thresholds, desktop notifications on high resource usage, CSV export, and full D-Bus integration
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Pre-built Snippet & Template Library** – Includes pre-built, ready-to-use command templates for Git workflows, Docker operations, Kubernetes (`kubectl`), AWS CLI, `npm`/`pnpm`, and System utilities.
 - **Import Wizard & Community Template Sharing** – Easily import templates from the built-in library, local JSON files, or remote URLs, and export custom commands into template schema JSON files.
@@ -229,6 +230,9 @@ CmdBar exposes a full D-Bus API on the Session Bus under bus name `org.gnome.Cmd
 | `RemoveCommand` | `string name` | `boolean` | Remove a command by name |
 | `ExecuteCommand` | `string name` | `boolean` | Execute a command by name or direct command string |
 | `GetCommands` | *None* | `string` (JSON) | Get all registered commands as a JSON array |
+| `GetSystemMetrics` | *None* | `string` (JSON) | Get live CPU, memory, disk, network metrics and mini graphs |
+| `GetResourceMonitorCSV` | *None* | `string` (CSV) | Get recorded metric history formatted as CSV |
+| `SetResourceThresholds` | `string json_thresholds` | `boolean` | Update alert thresholds for resources |
 
 ### Signals
 
@@ -236,6 +240,7 @@ CmdBar exposes a full D-Bus API on the Session Bus under bus name `org.gnome.Cmd
 |--------|------------|-------------|
 | `CommandExecuted` | `string name, int32 exit_code, boolean success` | Emitted when a command finishes execution |
 | `CommandOutput` | `string name, string stdout, string stderr` | Emitted with command output streams |
+| `HighResourceUsageAlert` | `string resource, double value, double threshold` | Emitted when resource usage breaches threshold |
 
 ### CLI Example (`gdbus`)
 ```bash

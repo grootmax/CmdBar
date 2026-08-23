@@ -48,12 +48,12 @@ jobs:
 
           echo "Checking for open pull requests..."
 
-          gh pr list \
+          (gh pr list \
             --repo "$GH_REPO" \
             --state open \
             --json number,title,headRefName,baseRefName,isDraft,createdAt \
-            --limit 100 |
-            jq 'sort_by(.number)' > /tmp/all-prs.json
+            --limit 100 2>/dev/null || echo "[]") |
+            jq 'sort_by(.number)' > /tmp/all-prs.json 2>/dev/null || echo "[]" > /tmp/all-prs.json
 
           TOTAL_PR_COUNT=$(jq 'length' /tmp/all-prs.json)
 
@@ -196,10 +196,17 @@ jobs:
 
             for ATTEMPT in 1 2 3 4 5; do
 
-              MERGEABLE=$(gh pr view "$PR_NUMBER" \
-                --repo "$GH_REPO" \
-                --json mergeable \
-                --jq '.mergeable')
+              MERGEABLE=$(
+                gh pr view "$PR_NUMBER" \
+                  --repo "$GH_REPO" \
+                  --json mergeable \
+                  --jq '.mergeable' \
+                  2>/dev/null || echo "UNKNOWN"
+              )
+
+              if [ -z "$MERGEABLE" ] || [ "$MERGEABLE" = "null" ]; then
+                MERGEABLE="UNKNOWN"
+              fi
 
               echo "Attempt $ATTEMPT: mergeable=$MERGEABLE"
 
@@ -263,9 +270,13 @@ jobs:
               echo ""
               echo "Cloning repository..."
 
-              git clone \
+              if ! git clone \
                 "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" \
-                "$WORKDIR"
+                "$WORKDIR"; then
+                echo "Warning: Failed to clone repository."
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               cd "$WORKDIR"
 
@@ -273,13 +284,8 @@ jobs:
               # CONFIGURE GIT
               # ==================================================
 
-              git config \
-                user.name \
-                "github-actions[bot]"
-
-              git config \
-                user.email \
-                "41898282+github-actions[bot]@users.noreply.github.com"
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
               # ==================================================
               # FETCH BRANCHES
@@ -288,11 +294,21 @@ jobs:
               echo ""
               echo "Fetching base branch..."
 
-              git fetch origin "$BASE_BRANCH"
+              if ! git fetch origin "$BASE_BRANCH"; then
+                echo "Warning: Failed to fetch base branch."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               echo "Fetching Jules branch..."
 
-              git fetch origin "$HEAD_BRANCH"
+              if ! git fetch origin "$HEAD_BRANCH"; then
+                echo "Warning: Failed to fetch Jules branch."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               # ==================================================
               # CHECKOUT JULES BRANCH
@@ -301,9 +317,12 @@ jobs:
               echo ""
               echo "Checking out Jules branch..."
 
-              git checkout -B \
-                "$HEAD_BRANCH" \
-                "origin/$HEAD_BRANCH"
+              if ! git checkout -B "$HEAD_BRANCH" "origin/$HEAD_BRANCH"; then
+                echo "Warning: Failed to checkout Jules branch."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               # ==================================================
               # MERGE BASE INTO JULES BRANCH
@@ -347,7 +366,7 @@ jobs:
 
                 git diff \
                   --name-only \
-                  --diff-filter=U
+                  --diff-filter=U || true
 
                 echo ""
 
@@ -370,9 +389,9 @@ jobs:
                   echo "Resolving conflict:"
                   echo "  $FILE"
 
-                  git checkout --theirs -- "$FILE"
+                  git checkout --theirs -- "$FILE" || true
 
-                  git add -- "$FILE"
+                  git add -- "$FILE" || true
 
                 done
 
@@ -380,9 +399,9 @@ jobs:
                 # VERIFY NO CONFLICTS REMAIN
                 # ==================================================
 
-                REMAINING_CONFLICTS=$(git diff \
+                REMAINING_CONFLICTS=$( (git diff \
                   --name-only \
-                  --diff-filter=U |
+                  --diff-filter=U 2>/dev/null || true) |
                   wc -l)
 
                 if [ "$REMAINING_CONFLICTS" -ne 0 ]; then
@@ -415,8 +434,16 @@ jobs:
                 echo ""
                 echo "Committing conflict resolution..."
 
-                git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                if ! git diff --cached --quiet; then
+                  if ! git commit -m "chore: auto-resolve merge conflicts"; then
+                    echo "Warning: Failed to commit conflict resolution."
+                    cd /
+                    rm -rf "$WORKDIR"
+                    break
+                  fi
+                else
+                  echo "No staged changes to commit."
+                fi
 
               fi
 
@@ -427,7 +454,12 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo "Warning: Failed to push updated Jules branch."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               cd /
 
@@ -478,13 +510,14 @@ jobs:
               echo "Checking status checks for PR #$PR_NUMBER..."
 
               CHECK_OUTPUT=$(
-                gh pr checks "$PR_NUMBER" \
+                gh pr view "$PR_NUMBER" \
                   --repo "$GH_REPO" \
-                  --json name,state,bucket,workflow \
-                  2>/dev/null || true
+                  --json statusCheckRollup \
+                  --jq '.statusCheckRollup' \
+                  2>/dev/null || echo "[]"
               )
 
-              if [ -z "$CHECK_OUTPUT" ]; then
+              if [ -z "$CHECK_OUTPUT" ] || [ "$CHECK_OUTPUT" = "null" ]; then
                 CHECK_OUTPUT="[]"
               fi
 
@@ -494,18 +527,19 @@ jobs:
 
               # Filter for dedicated accessibility check
               A11Y_CHECK=$(echo "$CHECK_OUTPUT" | jq '
-                [
-                  .[]
-                  | select(
-                      (.name | ascii_downcase | contains("accessibility"))
-                      or (.name | ascii_downcase | contains("a11y"))
-                      or (((.workflow // "") | ascii_downcase) | contains("accessibility"))
-                      or (((.workflow // "") | ascii_downcase) | contains("a11y"))
-                    )
-                ]
-              ')
+                (. // [])
+                | [
+                    .[]?
+                    | select(
+                        ((.name // .context // "") | ascii_downcase | contains("accessibility"))
+                        or ((.name // .context // "") | ascii_downcase | contains("a11y"))
+                        or (((.workflowName // .workflow // "") | ascii_downcase) | contains("accessibility"))
+                        or (((.workflowName // .workflow // "") | ascii_downcase) | contains("a11y"))
+                      )
+                  ]
+              ' 2>/dev/null || echo "[]")
 
-              A11Y_COUNT=$(echo "$A11Y_CHECK" | jq 'length')
+              A11Y_COUNT=$(echo "$A11Y_CHECK" | jq '(. // []) | length' 2>/dev/null || echo "0")
 
               # --------------------------------------------------
               # ACCESSIBILITY CHECK MISSING (NOT REPORTED YET)
@@ -523,12 +557,22 @@ jobs:
               # ACCESSIBILITY CHECK FAILED
               # --------------------------------------------------
               A11Y_FAILED=$(echo "$A11Y_CHECK" | jq '
-                [
-                  .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
-                ]
+                (. // [])
+                | [
+                    .[]?
+                    | select(
+                        .conclusion == "FAILURE"
+                        or .conclusion == "CANCELLED"
+                        or .conclusion == "TIMED_OUT"
+                        or .conclusion == "ACTION_REQUIRED"
+                        or .state == "FAILURE"
+                        or .state == "ERROR"
+                        or .bucket == "fail"
+                        or .bucket == "cancel"
+                      )
+                  ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               if [ "$A11Y_FAILED" -gt 0 ]; then
                 echo ""
@@ -543,12 +587,19 @@ jobs:
               # ACCESSIBILITY CHECK PENDING
               # --------------------------------------------------
               A11Y_PENDING=$(echo "$A11Y_CHECK" | jq '
-                [
-                  .[]
-                  | select(.bucket == "pending")
-                ]
+                (. // [])
+                | [
+                    .[]?
+                    | select(
+                        .status == "IN_PROGRESS"
+                        or .status == "QUEUED"
+                        or .status == "PENDING"
+                        or .state == "PENDING"
+                        or .bucket == "pending"
+                      )
+                  ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               if [ "$A11Y_PENDING" -gt 0 ]; then
                 echo ""
@@ -561,22 +612,48 @@ jobs:
 
               # --------------------------------------------------
               # CHECK OTHER CHECKS FOR FAILURE / PENDING
+              # Exclude current Auto Jules PR Manager workflow
               # --------------------------------------------------
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
-                [
-                  .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
-                ]
+                (. // [])
+                | [
+                    .[]?
+                    | select(
+                        ((.name // .context // "") | ascii_downcase | contains("process jules prs") | not)
+                        and (((.workflowName // .workflow // "") | ascii_downcase) | contains("auto jules pr manager") | not)
+                      )
+                    | select(
+                        .conclusion == "FAILURE"
+                        or .conclusion == "CANCELLED"
+                        or .conclusion == "TIMED_OUT"
+                        or .conclusion == "ACTION_REQUIRED"
+                        or .state == "FAILURE"
+                        or .state == "ERROR"
+                        or .bucket == "fail"
+                        or .bucket == "cancel"
+                      )
+                  ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
-                [
-                  .[]
-                  | select(.bucket == "pending")
-                ]
+                (. // [])
+                | [
+                    .[]?
+                    | select(
+                        ((.name // .context // "") | ascii_downcase | contains("process jules prs") | not)
+                        and (((.workflowName // .workflow // "") | ascii_downcase) | contains("auto jules pr manager") | not)
+                      )
+                    | select(
+                        .status == "IN_PROGRESS"
+                        or .status == "QUEUED"
+                        or .status == "PENDING"
+                        or .state == "PENDING"
+                        or .bucket == "pending"
+                      )
+                  ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               if [ "$OTHER_FAILED" -gt 0 ]; then
                 echo ""

@@ -4,23 +4,29 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.system_monitor import SystemMonitor, collect_system_metrics
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
-    and manages signals for CommandExecuted and CommandOutput.
+    GetSystemMetrics, GetResourceMonitorCSV, SetResourceThresholds,
+    and manages signals for CommandExecuted, CommandOutput, and HighResourceUsageAlert.
     """
     def __init__(self, config_path=None):
         self.config_path = config_path
         self._executed_listeners = []
         self._output_listeners = []
+        self._alert_listeners = []
+        self._system_monitor = SystemMonitor()
 
-    def add_listener(self, on_executed=None, on_output=None):
+    def add_listener(self, on_executed=None, on_output=None, on_alert=None):
         if on_executed:
             self._executed_listeners.append(on_executed)
         if on_output:
             self._output_listeners.append(on_output)
+        if on_alert:
+            self._alert_listeners.append(on_alert)
 
     def add_command(self, name: str, command: str, category: str = "External") -> bool:
         if not name or not str(name).strip():
@@ -131,3 +137,44 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def get_system_metrics(self) -> dict:
+        sample = collect_system_metrics()
+        self._system_monitor.record_sample(sample)
+        summary = self._system_monitor.format_menu_summary(sample)
+        history = self._system_monitor.get_history()
+
+        def notify_alert(title, msg, alert):
+            for listener in self._alert_listeners:
+                try:
+                    listener(alert["resource"], alert["value"], alert["threshold"])
+                except Exception:
+                    pass
+
+        alerts = self._system_monitor.check_and_notify(sample, notify_alert)
+        return {
+            "current": sample,
+            "summary": summary,
+            "history": history,
+            "alerts": alerts
+        }
+
+    def get_system_metrics_json(self) -> str:
+        return json.dumps(self.get_system_metrics())
+
+    def get_resource_monitor_csv(self) -> str:
+        if not self._system_monitor.get_history():
+            self._system_monitor.record_sample()
+        return self._system_monitor.export_to_csv()
+
+    def set_resource_thresholds(self, json_or_dict) -> bool:
+        try:
+            if isinstance(json_or_dict, str):
+                thresholds = json.loads(json_or_dict)
+            else:
+                thresholds = json_or_dict
+            self._system_monitor.set_thresholds(thresholds)
+            return True
+        except Exception:
+            return False
+
