@@ -26,5 +26,6 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 - **Role-Based Access Control (RBAC)**: Enterprise granular permissions, command visibility filtering, multi-step approval chains, temporary delegation, and audit trail logging.
 - **Local Live Reload**: Configuration changes sync instantly.
 - **Mobile Companion App**: iOS and Android companion integration featuring Push Notifications (APNs & FCM), Quick Actions, Home Screen & Lock Screen Widget support, Challenge-Response Biometric Auth, and Persistent Offline Queue.
+- **Elgato Stream Deck Integration**: Hardware support for Elgato Stream Deck devices (Mini, Original, XL, Plus) with visual buttons, feedback LEDs (Idle, Running, Success, Error), dynamic label templates (`{name}`, `{status}`, `{time}`, `{last_output}`), profile switching, and render caching.
 - **Enterprise White Label & Custom Branding**: Rebrand the top panel indicator with custom enterprise logo, application name, primary brand colors, domain alias endpoints, and custom SSL certificate bundles.
 - **Live Terminal Sharing**: Real-time collaborative terminal sessions with WebRTC streaming, cursor tracking, permission control, session recording, and E2E encryption.

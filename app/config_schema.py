@@ -319,6 +319,17 @@ DEFAULT_CONFIG = {
         "sensor_triggers": [],
     },
     "triggers": [],
+    "stream_deck": {
+        "active_profile": "Default",
+        "profiles": {
+            "Default": {
+                "name": "Default",
+                "device_model": "ORIGINAL",
+                "bg_color": "#0D1117",
+                "keys": {},
+            }
+        },
+    },
 }
 
 

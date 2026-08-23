@@ -207,6 +207,17 @@ export const DEFAULT_CONFIG = {
   ],
   triggers: [],
   rbac: DEFAULT_RBAC_CONFIG,
+  stream_deck: {
+    active_profile: "Default",
+    profiles: {
+      Default: {
+        name: "Default",
+        device_model: "ORIGINAL",
+        bg_color: "#0D1117",
+        keys: {},
+      },
+    },
+  },
 };
 
 const isNode =

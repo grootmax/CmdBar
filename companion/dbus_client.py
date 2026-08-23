@@ -175,6 +175,60 @@ class CmdBarDBusClient:
                 return []
         return []
 
+    def stream_deck_press_key(self, key_index: int) -> bool:
+        """Trigger key press on active Stream Deck profile by key index."""
+        res = self._call_method("StreamDeckPressKey", key_index)
+        return bool(res)
+
+    def stream_deck_set_active_profile(self, profile_name: str) -> bool:
+        """Set active Stream Deck profile by name."""
+        res = self._call_method("StreamDeckSetActiveProfile", profile_name)
+        return bool(res)
+
+    def stream_deck_get_profile_grid(self) -> list:
+        """Retrieve full active Stream Deck profile button grid as list of key visuals."""
+        res = self._call_method("StreamDeckGetProfileGrid")
+        if isinstance(res, list):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return []
+        return []
+
+    def get_stream_deck_profiles(self) -> dict:
+        """Get stream deck profiles dictionary."""
+        if self.service and hasattr(self.service, "stream_deck"):
+            mgr = self.service.stream_deck
+            return {
+                "active_profile": mgr.active_profile_name,
+                "profiles": {k: v.to_dict() for k, v in mgr.profiles.items()},
+            }
+        return {"active_profile": "Default", "profiles": {}}
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Set active stream deck profile."""
+        if self.service and hasattr(self.service, "stream_deck"):
+            return self.service.stream_deck.switch_profile(profile_name)
+        return self.stream_deck_set_active_profile(profile_name)
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Trigger stream deck button by index."""
+        if self.service and hasattr(self.service, "stream_deck"):
+            r = self.service.stream_deck.handle_key_down("client", key_index)
+            return r.get("status") in ("executed", "profile_switched")
+        return self.stream_deck_press_key(key_index)
+
+    def get_stream_deck_status(self) -> dict:
+        """Get stream deck status summary."""
+        if self.service and hasattr(self.service, "stream_deck"):
+            return self.service.stream_deck.get_status_summary()
+        return {}
+
     def verify_emergency_code(self, code: str) -> bool:
         """Verifies and consumes a single-use emergency recovery code."""
         res = self._call_method("VerifyEmergencyCode", code)

@@ -70,7 +70,6 @@
       <annotation name="org.freedesktop.DBus.Description" value="Get effective brand application name"/>
       <arg name="app_name" type="s" direction="out"/>
     </method>
-
     <method name="RegisterMobileDevice">
       <annotation name="org.freedesktop.DBus.Description" value="Register mobile companion device"/>
       <arg name="device_id" type="s" direction="in"/>
@@ -104,6 +103,24 @@
     <method name="ProcessMobileOfflineQueue">
       <annotation name="org.freedesktop.DBus.Description" value="Process all pending requests in offline queue"/>
       <arg name="json_results" type="s" direction="out"/>
+    </method>
+
+    <method name="StreamDeckPressKey">
+      <annotation name="org.freedesktop.DBus.Description" value="Trigger key press on active Stream Deck profile by key index"/>
+      <arg name="key_index" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="StreamDeckSetActiveProfile">
+      <annotation name="org.freedesktop.DBus.Description" value="Set active Stream Deck profile by name"/>
+      <arg name="profile_name" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="StreamDeckGetProfileGrid">
+      <annotation name="org.freedesktop.DBus.Description" value="Get active Stream Deck profile button grid as JSON string"/>
+      <arg name="json_grid" type="s" direction="out"/>
+    </method>
     </method>
     
     <signal name="CommandExecuted">
