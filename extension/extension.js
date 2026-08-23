@@ -42,6 +42,8 @@ import {
 export const globalCacheStore = new CommandCacheStore();
 globalCacheStore.init().catch(() => {});
 
+import { MidiControllerManager } from "./midiController.js";
+
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
     if (Main && typeof Main.notify === "function") {
@@ -1547,6 +1549,21 @@ const CmdBarIndicator = GObject.registerClass(
 
       this.add_child(this._box);
 
+      // Initialize MIDI Controller Manager
+      this._midiController = new MidiControllerManager();
+      this._midiController.setCallbacks({
+        onExecute: (name, cmdStr, metadata) => {
+          this.executeCommand(name, cmdStr, metadata || {});
+        },
+        onPerformanceModeChanged: (enabled) => {
+          if (enabled) {
+            this.setButtonLabel("[PERF]");
+          } else {
+            this.setButtonLabel("");
+          }
+        },
+      });
+
       // Harvest environment asynchronously on startup
       harvestEnvironment();
 
@@ -1697,6 +1714,9 @@ const CmdBarIndicator = GObject.registerClass(
         }
 
         this._cachedConfig = config;
+        if (config && this._midiController) {
+          this._midiController.updateConfig(config);
+        }
 
         // Clear all current items in menu
         this.menu.removeAll();
@@ -1922,6 +1942,11 @@ const CmdBarIndicator = GObject.registerClass(
           "Security Policy Violation",
           policyEval.reason || "Command execution blocked by security policy."
         );
+        return;
+      }
+
+      if (this._midiController && this._midiController.getConfig().performance_mode) {
+        _executeDirectTokens(argv, commandName);
         return;
       }
 

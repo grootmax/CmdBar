@@ -21,6 +21,7 @@ from app.workspace_config import (
     detect_project_type,
     PROJECT_TEMPLATES,
 )
+from companion.midi_controller import MidiControllerManager
 from companion.stream_deck import get_stream_deck_manager
 
 
@@ -29,7 +30,7 @@ class CmdBarDBusService:
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
+    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, MIDI controller support, and manages signals for CommandExecuted,
     CommandOutput, and EventTriggered.
     :visibility: public
     """
@@ -45,6 +46,8 @@ class CmdBarDBusService:
         self._event_triggered_listeners = []
         self.trigger_engine = EventTriggerEngine()
         self.workspace_manager = WorkspaceManager()
+        self.midi_controller = MidiControllerManager(config)
+        self.midi_controller.set_callbacks(on_execute=self._on_midi_execute)
         self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
         self.active_terminal_sessions = {}
 
@@ -119,6 +122,20 @@ class CmdBarDBusService:
 
     is_yubi_key_required = is_yubikey_required
     authenticate_yubi_key = authenticate_yubikey
+
+    def _on_midi_execute(self, name, command_str, metadata):
+        code, stdout, stderr = run_command_in_shell(command_str)
+        success = (code == 0)
+        for listener in self._output_listeners:
+            try:
+                listener(name, stdout, stderr)
+            except Exception:
+                pass
+        for listener in self._executed_listeners:
+            try:
+                listener(name, code, success)
+            except Exception:
+                pass
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
@@ -459,6 +476,28 @@ class CmdBarDBusService:
 
     def get_workspace_templates(self) -> dict:
         return PROJECT_TEMPLATES
+
+    def process_midi_message(self, msg_type: str, channel: int, number: int, value: int) -> str:
+        res = self.midi_controller.process_midi_message(msg_type, channel, number, value)
+        return json.dumps(res)
+
+    def set_midi_performance_mode(self, enabled: bool) -> bool:
+        return self.midi_controller.set_performance_mode(enabled)
+
+    def switch_midi_bank(self, bank: str) -> bool:
+        return self.midi_controller.switch_bank(bank)
+
+    def get_midi_mappings(self) -> str:
+        cfg = self.midi_controller.get_config()
+        return json.dumps(cfg.get("mappings", []))
+
+    def set_midi_led_feedback(self, enabled: bool) -> bool:
+        config = load_config(self.config_path) if self.config_path else load_config()
+        midi_cfg = config.setdefault("midi", {})
+        midi_cfg["led_feedback"] = bool(enabled)
+        ok = save_config(config, self.config_path) if self.config_path else save_config(config)
+        self.midi_controller.update_config(config)
+        return ok
 
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""

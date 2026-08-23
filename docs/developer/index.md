@@ -108,3 +108,11 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 
 The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
 For full details, see [Team Command Sharing Specification](team_command_sharing.md).
+
+### MIDI Controller Support Architecture
+
+The MIDI controller architecture consists of JavaScript (`extension/midiController.js`) and Python (`companion/midi_controller.py`) modules:
+- **Event Dispatch & Parsing**: Parses MIDI status bytes (`note_on`, `note_off`, `cc`, `program_change`, `pitch_bend`) and matches against channel, number, and bank mappings.
+- **Trigger Modes & LED Feedback**: Supports `trigger`, `momentary`, and `toggle` button modes, emitting outgoing MIDI messages for LED feedback and bank state dumps.
+- **Continuous Value Sliders**: Scales raw 0-127 values to target range with template substitution (`<value>`, `{val}`) and intelligent throttling.
+- **Low-Latency Performance Mode**: Reduces throttle windows to 15ms and bypasses modal dialogs for live DJ/producer performance workflows.
