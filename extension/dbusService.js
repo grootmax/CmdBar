@@ -8,6 +8,11 @@ import {
   verifyAndConsumeEmergencyCode,
 } from "./yubikeyAuth.js";
 import { EventTriggerManager } from "./eventTriggers.js";
+import {
+  WorkspaceManager,
+  findWorkspaceConfigPath,
+  initWorkspaceConfig,
+} from "./workspaceConfig.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -139,6 +144,7 @@ export class CmdBarDBusService {
     this._busNameId = 0;
     this._ssoManager = new SSOManager();
     this._triggerManager = new EventTriggerManager();
+    this.workspaceManager = new WorkspaceManager();
   }
 
   export() {
@@ -593,6 +599,47 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetResourceMetrics error: ${e.message}`);
       return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async DetectWorkspace(cwd) {
+    try {
+      const wsPath = findWorkspaceConfigPath(cwd);
+      return [Boolean(wsPath), wsPath || ""];
+    } catch (e) {
+      return [false, ""];
+    }
+  }
+
+  async InitWorkspace(cwd, templateName) {
+    try {
+      const res = initWorkspaceConfig(cwd, templateName);
+      this.workspaceManager.registerWorkspace(cwd);
+      return [true, res.configPath];
+    } catch (e) {
+      return [false, ""];
+    }
+  }
+
+  async SwitchWorkspace(cwd) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const globalCfg = await loadConfig(configPath);
+      this.workspaceManager.setGlobalConfig(globalCfg);
+      const wsCfg = this.workspaceManager.switchWorkspace(cwd);
+      return Boolean(wsCfg);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async ListWorkspaces() {
+    try {
+      return JSON.stringify(this.workspaceManager.listWorkspaces());
+    } catch (e) {
+      return JSON.stringify([]);
     }
   }
 
