@@ -153,8 +153,22 @@ export function saveConfigAtomically(configData, customPath) {
     try {
         const jsonString = JSON.stringify(configData, null, 2);
 
+        // Preserve target file mode/permissions if it exists
+        let mode;
+        if (fs.existsSync(targetPath)) {
+            try {
+                mode = fs.statSync(targetPath).mode;
+            } catch (e) {}
+        }
+
         // 3. Write JSON content to temporary file
         fs.writeFileSync(tempPath, jsonString, 'utf8');
+        if (mode !== undefined) {
+            try {
+                fs.chmodSync(tempPath, mode);
+            } catch (e) {}
+        }
+
         if (mode !== undefined) {
             try {
                 fs.chmodSync(tempPath, mode);

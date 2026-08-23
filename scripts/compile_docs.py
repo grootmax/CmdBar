@@ -12,11 +12,30 @@ def ensure_dependencies():
         import jinja2
     except ImportError:
         print("Installing documentation dependencies (markdown, jinja2)...")
-        # Try installing to user package directory, or system wide if possible
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "markdown", "jinja2"])
-        except subprocess.CalledProcessError:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", "markdown", "jinja2"])
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        vendor_candidates = [
+            os.path.join(root_dir, "vendor", "python"),
+            os.path.join(root_dir, "vendor", "cache", "python"),
+            os.path.join(root_dir, "vendor", "wheels"),
+        ]
+        vendor_dir = None
+        for candidate in vendor_candidates:
+            if os.path.exists(candidate):
+                vendor_dir = candidate
+                break
+
+        if vendor_dir:
+            print(f"Installing dependencies offline from local package cache: {vendor_dir}")
+            cmd = [sys.executable, "-m", "pip", "install", "--no-index", "--find-links", vendor_dir, "markdown", "jinja2"]
+            try:
+                subprocess.check_call(cmd)
+            except subprocess.CalledProcessError:
+                subprocess.check_call(cmd + ["--user"])
+        else:
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "markdown", "jinja2"])
+            except subprocess.CalledProcessError:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", "markdown", "jinja2"])
 
 ensure_dependencies()
 
