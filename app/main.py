@@ -61,6 +61,13 @@ from app.cron_scheduler import (
     get_next_run_time,
     CronScheduler
 )
+from app.template_manager import (
+    load_all_templates,
+    load_template_file,
+    import_templates_to_config,
+    export_command_as_template,
+    export_templates_to_file,
+)
 
 class CmdBarApp(Adw.Application):
     def __init__(self):
@@ -130,6 +137,18 @@ class CmdBarWindow(Adw.ApplicationWindow):
         add_sc_btn.set_tooltip_text("Add Shortcut to Category")
         add_sc_btn.connect("clicked", self._on_add_shortcut_clicked)
         header_bar.pack_start(add_sc_btn)
+
+        # Import Template Button
+        import_tmpl_btn = Gtk.Button(icon_name="document-open-symbolic")
+        import_tmpl_btn.set_tooltip_text("Import from Template Library")
+        import_tmpl_btn.connect("clicked", self._on_import_template_clicked)
+        header_bar.pack_start(import_tmpl_btn)
+
+        # Export Template Button
+        export_tmpl_btn = Gtk.Button(icon_name="document-save-as-symbolic")
+        export_tmpl_btn.set_tooltip_text("Export Custom Commands as Template")
+        export_tmpl_btn.connect("clicked", self._on_export_template_clicked)
+        header_bar.pack_start(export_tmpl_btn)
 
         # Save Button
         save_btn = Gtk.Button(label="Save")
@@ -1061,9 +1080,229 @@ class CmdBarWindow(Adw.ApplicationWindow):
         except Exception as e:
             self._show_toast(f"Error saving: {e}")
 
+    def _on_import_template_clicked(self, btn):
+        wizard = TemplateImportWizardWindow(self)
+        wizard.present()
+
+    def _on_export_template_clicked(self, btn):
+        c_idx = self.app.selected_category_idx
+        s_idx = self.app.selected_shortcut_idx
+
+        if c_idx is not None and s_idx is not None:
+            sc = self.app.config["categories"][c_idx]["commands"][s_idx]
+            cat_name = self.app.config["categories"][c_idx]["name"]
+            tmpl = export_command_as_template(sc, category_name=cat_name)
+            
+            config_dir = os.path.dirname(get_config_path())
+            export_path = os.path.join(config_dir, "exported_templates.json")
+            
+            existing = []
+            if os.path.exists(export_path):
+                try:
+                    with open(export_path, "r", encoding="utf-8") as f:
+                        existing = json.load(f)
+                except Exception:
+                    existing = []
+            if not isinstance(existing, list):
+                existing = [existing]
+            
+            existing.append(tmpl)
+            export_templates_to_file(existing, export_path)
+            self._show_toast(f"Exported '{tmpl['name']}' template to {os.path.basename(export_path)}")
+        else:
+            self._show_toast("Select a shortcut from sidebar first to export it as a template.")
+
     def _show_toast(self, text):
         toast = Adw.Toast.new(text)
         self.toast_overlay.add_toast(toast)
+
+
+class TemplateImportWizardWindow(Adw.Window):
+    def __init__(self, parent_win):
+        super().__init__(transient_for=parent_win, modal=True)
+        self.parent_win = parent_win
+        self.set_title("Import Command Templates")
+        self.set_default_size(720, 520)
+
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.set_content(main_box)
+
+        # Header Bar
+        header_bar = Adw.HeaderBar()
+        title_label = Gtk.Label(label="Template Library Wizard")
+        title_label.add_css_class("title")
+        title_label.add_css_class("bold")
+        header_bar.set_title_widget(title_label)
+
+        import_btn = Gtk.Button(label="Import Selected")
+        import_btn.add_css_class("suggested-action")
+        import_btn.connect("clicked", self._on_import_clicked)
+        header_bar.pack_end(import_btn)
+
+        main_box.append(header_bar)
+
+        # Content Box
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        set_uniform_margin(content_box, 15)
+        main_box.append(content_box)
+
+        # Source Selection (Library vs File/URL)
+        source_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        source_box.append(Gtk.Label(label="Source:", xalign=0))
+        
+        self.source_dropdown = Gtk.DropDown.new_from_strings([
+            "Pre-built Template Library",
+            "Custom File / URL (Community Template)"
+        ])
+        self.source_dropdown.connect("notify::selected", self._on_source_changed)
+        source_box.append(self.source_dropdown)
+        content_box.append(source_box)
+
+        # File/URL Custom Input Box (hidden initially)
+        self.custom_input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.custom_input_box.set_visible(False)
+        self.custom_path_entry = Gtk.Entry(placeholder_text="Enter file path or HTTPS URL...")
+        self.custom_path_entry.set_hexpand(True)
+        self.custom_input_box.append(self.custom_path_entry)
+
+        load_custom_btn = Gtk.Button(label="Load File/URL")
+        load_custom_btn.connect("clicked", self._on_load_custom_clicked)
+        self.custom_input_box.append(load_custom_btn)
+        content_box.append(self.custom_input_box)
+
+        # Search Bar
+        search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.search_entry = Gtk.SearchEntry(placeholder_text="Search templates...")
+        self.search_entry.set_hexpand(True)
+        self.search_entry.connect("search-changed", self._on_search_changed)
+        search_box.append(self.search_entry)
+        content_box.append(search_box)
+
+        # Template List Scrolled Window
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_vexpand(True)
+        scrolled.set_hexpand(True)
+
+        self.template_listbox = Gtk.ListBox()
+        self.template_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        scrolled.set_child(self.template_listbox)
+        content_box.append(scrolled)
+
+        self.all_templates = []
+        self._load_library_templates()
+
+    def _load_library_templates(self):
+        self.all_templates = load_all_templates()
+        self._render_templates(self.all_templates)
+
+    def _render_templates(self, templates):
+        child = self.template_listbox.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self.template_listbox.remove(child)
+            child = nxt
+
+        for tmpl in templates:
+            row = Gtk.ListBoxRow()
+            row._template_data = tmpl
+
+            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            set_uniform_margin(hbox, 8)
+
+            chk = Gtk.CheckButton()
+            row._check = chk
+            hbox.append(chk)
+
+            icon = Gtk.Image.new_from_icon_name(tmpl.get("icon", "utilities-terminal-symbolic"))
+            hbox.append(icon)
+
+            vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            vbox.set_hexpand(True)
+
+            title_lbl = Gtk.Label()
+            cat = GLib.markup_escape_text(tmpl.get('category', 'General'))
+            name = GLib.markup_escape_text(tmpl.get('name', ''))
+            title_lbl.set_markup(f"<b>{name}</b> <span foreground='#888888'>[{cat}]</span>")
+            title_lbl.set_xalign(0)
+            vbox.append(title_lbl)
+
+            cmd_lbl = Gtk.Label(label=tmpl.get('command', ''))
+            cmd_lbl.set_xalign(0)
+            cmd_lbl.add_css_class("dim-label")
+            vbox.append(cmd_lbl)
+
+            desc = tmpl.get('description')
+            if desc:
+                desc_lbl = Gtk.Label(label=desc)
+                desc_lbl.set_xalign(0)
+                desc_lbl.add_css_class("dim-label")
+                vbox.append(desc_lbl)
+
+            hbox.append(vbox)
+            row.set_child(hbox)
+            self.template_listbox.append(row)
+
+    def _on_source_changed(self, dropdown, param):
+        selected = dropdown.get_selected()
+        if selected == 0:
+            self.custom_input_box.set_visible(False)
+            self._load_library_templates()
+        else:
+            self.custom_input_box.set_visible(True)
+            self._render_templates([])
+
+    def _on_load_custom_clicked(self, btn):
+        path_str = self.custom_path_entry.get_text().strip()
+        if not path_str:
+            return
+        try:
+            custom_tmpls = load_template_file(path_str)
+            self.all_templates = custom_tmpls
+            self._render_templates(custom_tmpls)
+        except Exception as e:
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                modal=True,
+                message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.OK,
+                text=f"Failed to load templates: {e}"
+            )
+            dialog.connect("response", lambda d, r: d.destroy())
+            dialog.present()
+
+    def _on_search_changed(self, entry):
+        q = entry.get_text().strip().lower()
+        if not q:
+            self._render_templates(self.all_templates)
+            return
+
+        filtered = [
+            t for t in self.all_templates
+            if q in t.get("name", "").lower()
+            or q in t.get("command", "").lower()
+            or q in t.get("description", "").lower()
+            or q in t.get("category", "").lower()
+        ]
+        self._render_templates(filtered)
+
+    def _on_import_clicked(self, btn):
+        selected = []
+        child = self.template_listbox.get_first_child()
+        while child is not None:
+            if hasattr(child, "_check") and child._check.get_active():
+                selected.append(child._template_data)
+            child = child.get_next_sibling()
+
+        if not selected:
+            return
+
+        config, count = import_templates_to_config(self.parent_win.app.config, selected)
+        save_config(config)
+        self.parent_win.app.config = config
+        self.parent_win._refresh_sidebar()
+        self.parent_win._show_toast(f"Imported {count} command template(s) successfully!")
+        self.close()
+
 
 
 if __name__ == "__main__":
