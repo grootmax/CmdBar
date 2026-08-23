@@ -37,7 +37,10 @@ import os from 'os';
 import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands, detectFormat, formatOutput } from './extension/commandProcessor.js';
 import { saveConfigAtomically, saveConfigAtomicallyAsync } from './companion/configStore.js';
 import { TerminalSession, E2EEncryptor, PermissionManager } from './extension/liveTerminalSharing.js';
+<<<<<<< HEAD
 >>>>>>> 7f4e4a3 (feat: implement live terminal sharing with E2E encryption and WebRTC)
+=======
+>>>>>>> e8390bd (feat: implement live terminal sharing with E2E encryption and WebRTC)
 
 console.log("Running standalone verification tests...");
 
