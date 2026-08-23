@@ -132,13 +132,20 @@ jobs:
           # We process them strictly in this order.
           # ==================================================
 
-          jq -c '.[]' /tmp/jules-prs.json | while read -r PR; do
+          jq -c '.[]' /tmp/jules-prs.json > /tmp/jules-prs-lines.json || true
 
-            PR_NUMBER=$(echo "$PR" | jq -r '.number')
-            TITLE=$(echo "$PR" | jq -r '.title')
-            HEAD_BRANCH=$(echo "$PR" | jq -r '.headRefName')
-            BASE_BRANCH=$(echo "$PR" | jq -r '.baseRefName')
-            IS_DRAFT=$(echo "$PR" | jq -r '.isDraft')
+          while read -r PR; do
+            [ -z "$PR" ] && continue
+
+            PR_NUMBER=$(echo "$PR" | jq -r '.number' 2>/dev/null || echo "")
+            TITLE=$(echo "$PR" | jq -r '.title' 2>/dev/null || echo "")
+            HEAD_BRANCH=$(echo "$PR" | jq -r '.headRefName' 2>/dev/null || echo "")
+            BASE_BRANCH=$(echo "$PR" | jq -r '.baseRefName' 2>/dev/null || echo "")
+            IS_DRAFT=$(echo "$PR" | jq -r '.isDraft' 2>/dev/null || echo "false")
+
+            if [ -z "$PR_NUMBER" ] || [ -z "$HEAD_BRANCH" ]; then
+              continue
+            fi
 
             echo ""
             echo "=========================================="
@@ -545,15 +552,15 @@ jobs:
                 .statusCheckRollup // [] | [
                   .[]
                   | select(
-                      (.name | ascii_downcase | contains("accessibility"))
-                      or (.name | ascii_downcase | contains("a11y"))
-                      or (((.workflowName // .workflow // "") | ascii_downcase) | contains("accessibility"))
-                      or (((.workflowName // .workflow // "") | ascii_downcase) | contains("a11y"))
+                      (((.name // .context // "") | tostring | ascii_downcase) | contains("accessibility"))
+                      or (((.name // .context // "") | tostring | ascii_downcase) | contains("a11y"))
+                      or (((.workflowName // .workflow // "") | tostring | ascii_downcase) | contains("accessibility"))
+                      or (((.workflowName // .workflow // "") | tostring | ascii_downcase) | contains("a11y"))
                     )
                 ]
-              ')
+              ' 2>/dev/null || echo "[]")
 
-              A11Y_COUNT=$(echo "$A11Y_CHECK" | jq 'length')
+              A11Y_COUNT=$(echo "$A11Y_CHECK" | jq 'length' 2>/dev/null || echo "0")
 
               # --------------------------------------------------
               # ACCESSIBILITY CHECK MISSING (NOT REPORTED YET)
@@ -573,10 +580,19 @@ jobs:
               A11Y_FAILED=$(echo "$A11Y_CHECK" | jq '
                 [
                   .[]
-                  | select(.conclusion == "FAILURE" or .conclusion == "CANCELLED" or .conclusion == "TIMED_OUT" or .conclusion == "ACTION_REQUIRED" or .bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      .conclusion == "FAILURE"
+                      or .conclusion == "CANCELLED"
+                      or .conclusion == "TIMED_OUT"
+                      or .conclusion == "ACTION_REQUIRED"
+                      or .bucket == "fail"
+                      or .bucket == "cancel"
+                      or .state == "FAILURE"
+                      or .state == "ERROR"
+                    )
                 ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               if [ "$A11Y_FAILED" -gt 0 ]; then
                 echo ""
@@ -593,10 +609,15 @@ jobs:
               A11Y_PENDING=$(echo "$A11Y_CHECK" | jq '
                 [
                   .[]
-                  | select((.status != "COMPLETED" and .status != null) or .bucket == "pending")
+                  | select(
+                      (.status != "COMPLETED" and .status != null)
+                      or .bucket == "pending"
+                      or .state == "PENDING"
+                      or .state == "EXPECTED"
+                    )
                 ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               if [ "$A11Y_PENDING" -gt 0 ]; then
                 echo ""
@@ -615,28 +636,45 @@ jobs:
                 .statusCheckRollup // [] | [
                   .[]
                   | select(
-                      ((.name | ascii_downcase | contains("process jules prs")) | not)
-                      and (((.workflowName // "") | ascii_downcase | contains("auto jules pr manager")) | not)
-                      and (((.name | ascii_downcase | contains("accessibility")) or (.name | ascii_downcase | contains("a11y"))) | not)
+                      ((((.name // .context // "") | tostring | ascii_downcase) | contains("process jules prs")) | not)
+                      and ((((.workflowName // .workflow // "") | tostring | ascii_downcase) | contains("auto jules pr manager")) | not)
+                      and ((((.name // .context // "") | tostring | ascii_downcase) | contains("accessibility")) | not)
+                      and ((((.name // .context // "") | tostring | ascii_downcase) | contains("a11y")) | not)
+                      and ((((.workflowName // .workflow // "") | tostring | ascii_downcase) | contains("accessibility")) | not)
+                      and ((((.workflowName // .workflow // "") | tostring | ascii_downcase) | contains("a11y")) | not)
                     )
                 ]
-              ')
+              ' 2>/dev/null || echo "[]")
 
               OTHER_FAILED=$(echo "$OTHER_CHECKS" | jq '
                 [
                   .[]
-                  | select(.conclusion == "FAILURE" or .conclusion == "CANCELLED" or .conclusion == "TIMED_OUT" or .conclusion == "ACTION_REQUIRED" or .bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      .conclusion == "FAILURE"
+                      or .conclusion == "CANCELLED"
+                      or .conclusion == "TIMED_OUT"
+                      or .conclusion == "ACTION_REQUIRED"
+                      or .bucket == "fail"
+                      or .bucket == "cancel"
+                      or .state == "FAILURE"
+                      or .state == "ERROR"
+                    )
                 ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               OTHER_PENDING=$(echo "$OTHER_CHECKS" | jq '
                 [
                   .[]
-                  | select((.status != "COMPLETED" and .status != null) or .bucket == "pending")
+                  | select(
+                      (.status != "COMPLETED" and .status != null)
+                      or .bucket == "pending"
+                      or .state == "PENDING"
+                      or .state == "EXPECTED"
+                    )
                 ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               if [ "$OTHER_FAILED" -gt 0 ]; then
                 echo ""
@@ -739,7 +777,7 @@ jobs:
 
             break
 
-          done
+          done < /tmp/jules-prs-lines.json
 
           echo ""
           echo "=========================================="
