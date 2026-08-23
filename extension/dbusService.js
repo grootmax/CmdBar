@@ -201,6 +201,7 @@ export class CmdBarDBusService {
     this.workspaceManager = new WorkspaceManager();
     this._teamSharingService = new TeamSharingService({ baseDir: "/tmp/cmdbar-dbus-team" });
     this._terminalSessions = new Map();
+    this.activeTerminalSessions = this._terminalSessions;
   }
 
   /**
@@ -986,6 +987,42 @@ export class CmdBarDBusService {
       } catch (e) {
         console.error(`CmdBar D-Bus emitEventTriggered error: ${e.message}`);
       }
+    }
+  }
+
+  async StartTerminalSharing(sessionId, title) {
+    try {
+      const session = new TerminalSharingSession({ sessionId, title });
+      session.start();
+      this.activeTerminalSessions = this.activeTerminalSessions || new Map();
+      this.activeTerminalSessions.set(session.sessionId, session);
+      return JSON.stringify(session.getMetrics());
+    } catch (e) {
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async StopTerminalSharing(sessionId) {
+    try {
+      if (this.activeTerminalSessions && this.activeTerminalSessions.has(sessionId)) {
+        const session = this.activeTerminalSessions.get(sessionId);
+        session.endSession();
+        this.activeTerminalSessions.delete(sessionId);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async GetTerminalSharingSessions() {
+    try {
+      if (!this.activeTerminalSessions) return JSON.stringify([]);
+      const sessions = Array.from(this.activeTerminalSessions.values()).map(s => s.getMetrics());
+      return JSON.stringify(sessions);
+    } catch (e) {
+      return JSON.stringify([]);
     }
   }
 }

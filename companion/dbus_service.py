@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import subprocess
+import time
 from companion.companion_app import load_config, save_config, run_command_in_shell
 from app.config_schema import validate_branding_config, get_effective_branding
 from companion.sso_manager import SSOManager, SSOProviderConfig
@@ -21,7 +22,7 @@ from app.workspace_config import (
     detect_project_type,
     PROJECT_TEMPLATES,
 )
-from companion.stream_deck import get_stream_deck_manager
+from companion.tiling_wm import TilingWMManager
 
 
 class CmdBarDBusService:
@@ -29,7 +30,8 @@ class CmdBarDBusService:
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
+    SSO authentication methods, YubiKey 2FA Methods, GetWMInfo, GetWMRules,
+    ExecuteCommandWithWMContext, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
     CommandOutput, and EventTriggered.
     :visibility: public
     """
@@ -45,6 +47,7 @@ class CmdBarDBusService:
         self._event_triggered_listeners = []
         self.trigger_engine = EventTriggerEngine()
         self.workspace_manager = WorkspaceManager()
+        self.wm_manager = TilingWMManager()
         self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
         self.active_terminal_sessions = {}
 
@@ -460,16 +463,64 @@ class CmdBarDBusService:
     def get_workspace_templates(self) -> dict:
         return PROJECT_TEMPLATES
 
+    def get_wm_info(self) -> str:
+        """
+        Returns JSON string of active window manager status and tiling info.
+        """
+        return json.dumps(self.wm_manager.get_wm_info())
+
+    def get_wm_rules(self) -> str:
+        """
+        Returns window rule configuration string for floating/centering CmdBar popups.
+        """
+        return json.dumps(self.wm_manager.get_window_rules())
+
+    def execute_command_with_wm_context(self, name: str) -> bool:
+        """
+        Executes named command injecting active WM tiling context variables.
+        """
+        if not name or not str(name).strip():
+            return False
+        clean_name = str(name).strip()
+        config = load_config()
+
+        found_cmd = None
+        for cat in config.get("categories", []):
+            for c in cat.get("commands", []):
+                if c.get("name") == clean_name or c.get("template") == clean_name or c.get("command") == clean_name:
+                    found_cmd = c
+                    break
+            if found_cmd:
+                break
+
+        cmd_name = found_cmd.get("name") if found_cmd else clean_name
+        cmd_str = found_cmd.get("template", found_cmd.get("command", clean_name)) if found_cmd else clean_name
+
+        code, stdout, stderr = self.wm_manager.execute_command_with_context(cmd_str)
+        success = (code == 0)
+
+        for listener in self._output_listeners:
+            try:
+                listener(cmd_name, stdout, stderr)
+            except Exception:
+                pass
+
+        for listener in self._executed_listeners:
+            try:
+                listener(cmd_name, code, success)
+            except Exception:
+                pass
+
+        return True
+
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
         if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             summary = self.stream_deck_manager.get_status_summary()
-            return json.dumps(
-                {
-                    "active_profile": summary["active_profile"],
-                    "profiles": summary["available_profiles"],
-                }
-            )
+            return json.dumps({
+                "active_profile": summary["active_profile"],
+                "profiles": summary["available_profiles"]
+            })
         return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
 
     def set_stream_deck_profile(self, profile_name: str) -> bool:

@@ -1472,6 +1472,7 @@ if GUI_AVAILABLE:
 
 
 def main():
+    from companion.tiling_wm import TilingWMManager
     parser = argparse.ArgumentParser(description="CmdBar Companion App")
     parser.add_argument(
         "--cli",
@@ -1491,10 +1492,47 @@ def main():
     parser.add_argument("--enable-white-label", action="store_true", help="Enable enterprise white labeling")
     parser.add_argument("--disable-white-label", action="store_true", help="Disable enterprise white labeling")
     parser.add_argument("--set-app-name", type=str, help="Set white label application name")
+    parser.add_argument("--wm-info", action="store_true", help="Output active window manager status and tiling JSON info")
+    parser.add_argument("--wm-rules", action="store_true", help="Output window rules snippet for Hyprland and Sway/i3")
+    parser.add_argument("--exec-wm", type=str, metavar="NAME", help="Execute command by name injecting tiling WM context")
     args = parser.parse_args()
 
     # Initialize config directory/file
     init_config()
+
+    if args.wm_info:
+        wm = TilingWMManager()
+        print(json.dumps(wm.get_wm_info(), indent=2))
+        sys.exit(0)
+
+    if args.wm_rules:
+        wm = TilingWMManager()
+        rules = wm.get_window_rules()
+        print("=== Hyprland Rules ===")
+        print(rules.get("hyprland", ""))
+        print("=== Sway / i3 Rules ===")
+        print(rules.get("sway", ""))
+        sys.exit(0)
+
+    if args.exec_wm:
+        wm = TilingWMManager()
+        cfg = load_config()
+        found_cmd = None
+        for cat in cfg.get("categories", []):
+            for c in cat.get("commands", []):
+                if c.get("name") == args.exec_wm or c.get("template") == args.exec_wm:
+                    found_cmd = c
+                    break
+            if found_cmd:
+                break
+        template = found_cmd.get("template", args.exec_wm) if found_cmd else args.exec_wm
+        code, stdout, stderr = wm.execute_command_with_context(template)
+        if stdout:
+            print(stdout, end="")
+        if stderr:
+            print(stderr, file=sys.stderr, end="")
+        sys.exit(code)
+
     if args.branding or args.enable_white_label or args.disable_white_label or args.set_app_name:
         from app.config_schema import get_effective_branding
         config = load_config()
