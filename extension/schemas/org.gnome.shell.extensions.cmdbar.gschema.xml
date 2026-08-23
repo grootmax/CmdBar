@@ -21,5 +21,30 @@
       <summary>Global Shortcut</summary>
       <description>Global keyboard shortcut to trigger CmdBar menu from anywhere.</description>
     </key>
+    <key name="aws-default-profile" type="s">
+      <default>'default'</default>
+      <summary>AWS Default Profile</summary>
+      <description>AWS profile name for resource discovery.</description>
+    </key>
+    <key name="aws-default-region" type="s">
+      <default>'us-east-1'</default>
+      <summary>AWS Default Region</summary>
+      <description>Default AWS region for resource discovery.</description>
+    </key>
+    <key name="gcp-default-project" type="s">
+      <default>''</default>
+      <summary>GCP Default Project</summary>
+      <description>GCP project ID for resource discovery.</description>
+    </key>
+    <key name="azure-default-subscription" type="s">
+      <default>''</default>
+      <summary>Azure Default Subscription</summary>
+      <description>Azure subscription ID for resource discovery.</description>
+    </key>
+    <key name="cloud-cache-ttl" type="i">
+      <default>300</default>
+      <summary>Cloud Cache TTL</summary>
+      <description>Cache time-to-live in seconds for discovered cloud resources.</description>
+    </key>
   </schema>
 </schemalist>

@@ -698,6 +698,59 @@ export function copyToClipboard(text) {
   return success;
 }
 
+/**
+ * Helper function supporting wl-copy/wtype/ydotool (Wayland) and xclip/xdotool/xte (X11) to paste/type text.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function pasteClipboardText(text) {
+  copyToClipboard(text);
+
+  let isWayland = false;
+  try {
+    let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
+    let sessionType = GLib.getenv("XDG_SESSION_TYPE");
+    if (
+      waylandDisplay ||
+      (sessionType && sessionType.toLowerCase() === "wayland")
+    ) {
+      isWayland = true;
+    }
+  } catch (e) {}
+
+  let commands = isWayland
+    ? [
+        ["wtype", "-M", "ctrl", "v"],
+        ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
+        ["xdotool", "key", "ctrl+v"],
+      ]
+    : [
+        ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
+        ["xdotool", "type", text],
+        ["xte", "kd Control_L", "k v", "ku Control_L"],
+      ];
+
+  let success = false;
+  for (let argv of commands) {
+    try {
+      let proc = Gio.Subprocess.new(
+        argv,
+        Gio.SubprocessFlags.NONE,
+      );
+      proc.communicate_utf8_async(null, null, (subprocess, result) => {
+        try {
+          subprocess.communicate_utf8_finish(result);
+        } catch (err) {}
+      });
+      success = true;
+      break;
+    } catch (e) {
+      continue;
+    }
+  }
+  return success;
+}
+
 // Standard menu item for parameterless or parameter-prompting commands
 const CommandMenuItem = GObject.registerClass(
   class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
