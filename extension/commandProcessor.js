@@ -476,3 +476,595 @@ export function parseAccel(text) {
   return [`${modifiers}${baseKey}`];
 }
 
+/**
+ * Escapes special XML/Pango markup characters.
+ * @param {string} str
+ * @returns {string}
+ */
+export function escapeMarkup(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Checks if pattern fuzzy-matches text and calculates relevance score.
+ * @param {string} pattern Search query
+ * @param {string} text Text to match against
+ * @param {number} [usageCount=0] Frequency of command usage
+ * @returns {{ match: boolean, score: number, matches: number[] }}
+ */
+export function fuzzyMatch(pattern, text, usageCount = 0) {
+  if (text === null || text === undefined) {
+    return { match: false, score: 0, matches: [] };
+  }
+  const textStr = String(text);
+
+  if (!pattern || typeof pattern !== "string" || pattern.trim() === "") {
+    return {
+      match: true,
+      score: (usageCount || 0) * 10,
+      matches: [],
+    };
+  }
+
+  const cleanPattern = pattern.trim();
+  const patternLower = cleanPattern.toLowerCase();
+  const textLower = textStr.toLowerCase();
+
+  let matchedIndices = [];
+
+  // 1. Check if text includes cleanPattern as a contiguous substring
+  const subIdx = textLower.indexOf(patternLower);
+  if (subIdx !== -1) {
+    for (let i = 0; i < patternLower.length; i++) {
+      matchedIndices.push(subIdx + i);
+    }
+  } else {
+    // 2. Perform sequential subsequence fuzzy match
+    let patternIdx = 0;
+    for (let i = 0; i < textLower.length && patternIdx < patternLower.length; i++) {
+      if (textLower[i] === patternLower[patternIdx]) {
+        matchedIndices.push(i);
+        patternIdx++;
+      }
+    }
+    if (patternIdx < patternLower.length) {
+      return { match: false, score: 0, matches: [] };
+    }
+  }
+
+  // Calculate relevance score
+  let score = 100;
+
+  if (textLower === patternLower) {
+    score += 1000;
+  } else if (textLower.startsWith(patternLower)) {
+    score += 500;
+  } else if (subIdx !== -1) {
+    score += 300;
+  }
+
+  // Word boundary bonus
+  for (const idx of matchedIndices) {
+    if (idx === 0) {
+      score += 50;
+    } else {
+      const prevChar = textStr[idx - 1];
+      if (/[\s\-_.\/:;=,]/.test(prevChar)) {
+        score += 50;
+      } else if (
+        /[a-z]/.test(textStr[idx - 1]) &&
+        /[A-Z]/.test(textStr[idx])
+      ) {
+        score += 50;
+      }
+    }
+  }
+
+  // Consecutive bonus
+  for (let i = 1; i < matchedIndices.length; i++) {
+    if (matchedIndices[i] === matchedIndices[i - 1] + 1) {
+      score += 20;
+    }
+  }
+
+  // Compactness bonus
+  const span =
+    matchedIndices[matchedIndices.length - 1] - matchedIndices[0] + 1;
+  score += Math.max(0, 100 - (span - patternLower.length) * 10);
+
+  // Early match bonus
+  score += Math.max(0, 50 - matchedIndices[0] * 5);
+
+  // Usage frequency bonus
+  score += (usageCount || 0) * 10;
+
+  return {
+    match: true,
+    score,
+    matches: matchedIndices,
+  };
+}
+
+/**
+ * Highlights matched character indices in text using HTML/Pango markup tags.
+ * @param {string} text
+ * @param {number[]} matchedIndices
+ * @param {string} [openTag="<b>"]
+ * @param {string} [closeTag="</b>"]
+ * @returns {string}
+ */
+export function highlightMatches(
+  text,
+  matchedIndices,
+  openTag = "<b>",
+  closeTag = "</b>"
+) {
+  if (text === null || text === undefined) {
+    return "";
+  }
+  const str = String(text);
+  if (!matchedIndices || !Array.isArray(matchedIndices) || matchedIndices.length === 0) {
+    return escapeMarkup(str);
+  }
+
+  const indexSet = new Set(matchedIndices);
+  let result = "";
+  let inHighlight = false;
+
+  for (let i = 0; i < str.length; i++) {
+    const isMatched = indexSet.has(i);
+    if (isMatched && !inHighlight) {
+      result += openTag;
+      inHighlight = true;
+    } else if (!isMatched && inHighlight) {
+      result += closeTag;
+      inHighlight = false;
+    }
+    result += escapeMarkup(str[i]);
+  }
+
+  if (inHighlight) {
+    result += closeTag;
+  }
+
+  return result;
+}
+
+/**
+ * Ranks and filters commands based on search pattern and usage frequency.
+ * @param {Array<object>} commands List of command objects ({ name, command, ... })
+ * @param {string} pattern Search query
+ * @param {Object.<string, number>} [usageMap={}]
+ * @returns {Array<{ command: object, score: number, matchName: object, matchCmd: object }>}
+ */
+export function rankCommands(commands, pattern, usageMap = {}) {
+  if (!commands || !Array.isArray(commands)) {
+    return [];
+  }
+
+  const cleanPattern = (pattern || "").trim();
+  const results = [];
+
+  for (const cmd of commands) {
+    const cmdName = cmd.name || "";
+    const cmdCommand =
+      typeof cmd.command === "string"
+        ? cmd.command
+        : Array.isArray(cmd.command)
+        ? cmd.command.join(" ")
+        : String(cmd.command || "");
+    const cmdKey = cmdCommand || cmdName;
+    const usageCount = usageMap[cmdKey] || 0;
+
+    const matchName = fuzzyMatch(cleanPattern, cmdName, usageCount);
+    const matchCmd = fuzzyMatch(cleanPattern, cmdCommand, usageCount);
+
+    if (matchName.match || matchCmd.match) {
+      const score = Math.max(
+        matchName.match ? matchName.score : 0,
+        matchCmd.match ? matchCmd.score : 0
+      );
+      results.push({
+        command: cmd,
+        score,
+        matchName,
+        matchCmd,
+      });
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results;
+}
+
+/**
+ * Checks if search text triggers calculator mode (> prefix, = prefix, or calc prefix).
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function isCalculatorQuery(text) {
+  if (text === null || text === undefined) return false;
+  const str = String(text).trim();
+  if (str.startsWith(">") || str.startsWith("=")) {
+    return true;
+  }
+  const lower = str.toLowerCase();
+  if (
+    lower === "calc" ||
+    lower.startsWith("calc ") ||
+    /^calc[\d\s+\-*\/%^().,]/.test(lower)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Extracts the math expression string from calculator search text.
+ * @param {string} text
+ * @returns {string}
+ */
+export function getCalculatorExpression(text) {
+  if (!text) return "";
+  let str = String(text).trim();
+  if (str.startsWith(">") || str.startsWith("=")) {
+    return str.slice(1).trim();
+  }
+  if (str.toLowerCase().startsWith("calc")) {
+    return str.slice(4).trim();
+  }
+  return str;
+}
+
+const MATH_CONSTANTS = {
+  pi: Math.PI,
+  PI: Math.PI,
+  e: Math.E,
+  E: Math.E,
+  tau: 2 * Math.PI,
+  TAU: 2 * Math.PI,
+  phi: (1 + Math.sqrt(5)) / 2,
+  PHI: (1 + Math.sqrt(5)) / 2,
+};
+
+const MATH_FUNCTIONS = {
+  sin: Math.sin,
+  cos: Math.cos,
+  tan: Math.tan,
+  asin: Math.asin,
+  acos: Math.acos,
+  atan: Math.atan,
+  atan2: Math.atan2,
+  sind: (x) => Math.sin((x * Math.PI) / 180),
+  cosd: (x) => Math.cos((x * Math.PI) / 180),
+  tand: (x) => Math.tan((x * Math.PI) / 180),
+  sqrt: Math.sqrt,
+  cbrt: Math.cbrt,
+  abs: Math.abs,
+  log: Math.log,
+  log10: Math.log10,
+  log2: Math.log2,
+  ln: Math.log,
+  exp: Math.exp,
+  floor: Math.floor,
+  ceil: Math.ceil,
+  round: Math.round,
+  min: Math.min,
+  max: Math.max,
+  pow: Math.pow,
+  rad: (x) => (x * Math.PI) / 180,
+  deg: (x) => (x * 180) / Math.PI,
+  fact: (n) => {
+    let r = 1;
+    for (let i = 2; i <= n; i++) r *= i;
+    return r;
+  },
+  factorial: (n) => {
+    let r = 1;
+    for (let i = 2; i <= n; i++) r *= i;
+    return r;
+  },
+};
+
+/**
+ * Safely evaluates a math expression without eval/Function vulnerabilities.
+ * @param {string} expr
+ * @returns {{ success: boolean, result: number|null, formatted: string, error?: string }}
+ */
+export function evaluateMathExpression(expr) {
+  if (!expr || typeof expr !== "string" || expr.trim() === "") {
+    return {
+      success: false,
+      result: null,
+      formatted: "",
+      error: "Empty expression",
+    };
+  }
+
+  const cleanExpr = expr.trim();
+
+  try {
+    const tokens = [];
+    let i = 0;
+
+    while (i < cleanExpr.length) {
+      const ch = cleanExpr[i];
+
+      if (/\s/.test(ch)) {
+        i++;
+        continue;
+      }
+
+      if (/[\d.]/.test(ch)) {
+        let numStr = "";
+        while (i < cleanExpr.length && /[\d.]/.test(cleanExpr[i])) {
+          numStr += cleanExpr[i];
+          i++;
+        }
+        if (i < cleanExpr.length && /[eE]/.test(cleanExpr[i])) {
+          if (i + 1 < cleanExpr.length && /[\d+-]/.test(cleanExpr[i + 1])) {
+            numStr += cleanExpr[i];
+            i++;
+            if (/[+-]/.test(cleanExpr[i])) {
+              numStr += cleanExpr[i];
+              i++;
+            }
+            while (i < cleanExpr.length && /\d/.test(cleanExpr[i])) {
+              numStr += cleanExpr[i];
+              i++;
+            }
+          }
+        }
+        const val = parseFloat(numStr);
+        if (isNaN(val)) {
+          throw new Error(`Invalid number: ${numStr}`);
+        }
+        tokens.push({ type: "NUMBER", value: val });
+        continue;
+      }
+
+      if (/[a-zA-Z_]/.test(ch)) {
+        let name = "";
+        while (i < cleanExpr.length && /[a-zA-Z0-9_]/.test(cleanExpr[i])) {
+          name += cleanExpr[i];
+          i++;
+        }
+        tokens.push({ type: "IDENT", value: name });
+        continue;
+      }
+
+      if (ch === "*" && i + 1 < cleanExpr.length && cleanExpr[i + 1] === "*") {
+        tokens.push({ type: "OP", value: "^" });
+        i += 2;
+        continue;
+      }
+
+      if ("+-*/%^".includes(ch)) {
+        tokens.push({ type: "OP", value: ch });
+        i++;
+        continue;
+      }
+
+      if (ch === "(" || ch === ")") {
+        tokens.push({ type: "PAREN", value: ch });
+        i++;
+        continue;
+      }
+
+      if (ch === ",") {
+        tokens.push({ type: "COMMA", value: "," });
+        i++;
+        continue;
+      }
+
+      throw new Error(`Unexpected character: ${ch}`);
+    }
+
+    if (tokens.length === 0) {
+      return {
+        success: false,
+        result: null,
+        formatted: "",
+        error: "Empty expression",
+      };
+    }
+
+    const processedTokens = [];
+    for (let t = 0; t < tokens.length; t++) {
+      const curr = tokens[t];
+      processedTokens.push(curr);
+
+      if (t < tokens.length - 1) {
+        const next = tokens[t + 1];
+        const isCurrValue =
+          curr.type === "NUMBER" ||
+          (curr.type === "PAREN" && curr.value === ")") ||
+          (curr.type === "IDENT" && MATH_CONSTANTS.hasOwnProperty(curr.value));
+        const isNextStart =
+          next.type === "NUMBER" ||
+          (next.type === "PAREN" && next.value === "(") ||
+          next.type === "IDENT";
+
+        if (isCurrValue && isNextStart) {
+          processedTokens.push({ type: "OP", value: "*" });
+        }
+      }
+    }
+
+    let pos = 0;
+
+    function peek() {
+      return processedTokens[pos];
+    }
+
+    function consume() {
+      return processedTokens[pos++];
+    }
+
+    function parseExpression() {
+      return parseAdditive();
+    }
+
+    function parseAdditive() {
+      let left = parseMultiplicative();
+      while (
+        peek() &&
+        peek().type === "OP" &&
+        ("+" === peek().value || "-" === peek().value)
+      ) {
+        const op = consume().value;
+        const right = parseMultiplicative();
+        if (op === "+") left += right;
+        else left -= right;
+      }
+      return left;
+    }
+
+    function parseMultiplicative() {
+      let left = parseExponent();
+      while (
+        peek() &&
+        peek().type === "OP" &&
+        ("*" === peek().value ||
+          "/" === peek().value ||
+          "%" === peek().value)
+      ) {
+        const op = consume().value;
+        const right = parseExponent();
+        if (op === "*") left *= right;
+        else if (op === "/") left /= right;
+        else if (op === "%") left %= right;
+      }
+      return left;
+    }
+
+    function parseExponent() {
+      let left = parseUnary();
+      while (peek() && peek().type === "OP" && peek().value === "^") {
+        consume();
+        const right = parseExponent();
+        left = Math.pow(left, right);
+      }
+      return left;
+    }
+
+    function parseUnary() {
+      if (
+        peek() &&
+        peek().type === "OP" &&
+        (peek().value === "+" || peek().value === "-")
+      ) {
+        const op = consume().value;
+        const operand = parseUnary();
+        return op === "-" ? -operand : operand;
+      }
+      return parsePrimary();
+    }
+
+    function parsePrimary() {
+      const token = peek();
+      if (!token) {
+        throw new Error("Unexpected end of expression");
+      }
+
+      if (token.type === "NUMBER") {
+        consume();
+        return token.value;
+      }
+
+      if (token.type === "PAREN" && token.value === "(") {
+        consume();
+        const val = parseExpression();
+        if (!peek() || peek().type !== "PAREN" || peek().value !== ")") {
+          throw new Error("Missing closing parenthesis");
+        }
+        consume();
+        return val;
+      }
+
+      if (token.type === "IDENT") {
+        const identToken = consume();
+        const name = identToken.value;
+
+        if (peek() && peek().type === "PAREN" && peek().value === "(") {
+          consume();
+          const fn =
+            MATH_FUNCTIONS[name.toLowerCase()] || MATH_FUNCTIONS[name];
+          if (!fn) {
+            throw new Error(`Unknown function: ${name}`);
+          }
+          const args = [];
+          if (peek() && !(peek().type === "PAREN" && peek().value === ")")) {
+            args.push(parseExpression());
+            while (peek() && peek().type === "COMMA") {
+              consume();
+              args.push(parseExpression());
+            }
+          }
+          if (!peek() || peek().type !== "PAREN" || peek().value !== ")") {
+            throw new Error(`Missing closing parenthesis for ${name}`);
+          }
+          consume();
+          return fn(...args);
+        }
+
+        if (MATH_CONSTANTS.hasOwnProperty(name)) {
+          return MATH_CONSTANTS[name];
+        }
+
+        const fn =
+          MATH_FUNCTIONS[name.toLowerCase()] || MATH_FUNCTIONS[name];
+        if (fn) {
+          const arg = parsePrimary();
+          return fn(arg);
+        }
+
+        throw new Error(`Unknown identifier: ${name}`);
+      }
+
+      throw new Error(`Unexpected token: ${token.value}`);
+    }
+
+    const val = parseExpression();
+
+    if (pos < processedTokens.length) {
+      throw new Error("Unexpected trailing tokens");
+    }
+
+    if (typeof val !== "number" || isNaN(val)) {
+      return {
+        success: false,
+        result: null,
+        formatted: "",
+        error: "Invalid numeric result",
+      };
+    }
+
+    let formattedStr = String(val);
+    if (isFinite(val)) {
+      const rounded = Number(Math.round(val + "e12") + "e-12");
+      formattedStr = String(rounded);
+    }
+
+    return {
+      success: true,
+      result: val,
+      formatted: formattedStr,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      result: null,
+      formatted: "",
+      error: err.message,
+    };
+  }
+}
+
+

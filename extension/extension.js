@@ -15,6 +15,14 @@ import {
   getPreviewTokens,
   formatShortcutHint,
   parseAccel,
+  fuzzyMatch,
+  highlightMatches,
+  escapeMarkup,
+  rankCommands,
+  writeConfigAtomically,
+  isCalculatorQuery,
+  getCalculatorExpression,
+  evaluateMathExpression,
 } from "./commandProcessor.js";
 import { loadConfig } from "./configSync.js";
 import {
@@ -698,6 +706,59 @@ export function copyToClipboard(text) {
   return success;
 }
 
+/**
+ * Helper function supporting wl-copy/wtype/ydotool (Wayland) and xclip/xdotool/xte (X11) to paste/type text.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function pasteClipboardText(text) {
+  copyToClipboard(text);
+
+  let isWayland = false;
+  try {
+    let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
+    let sessionType = GLib.getenv("XDG_SESSION_TYPE");
+    if (
+      waylandDisplay ||
+      (sessionType && sessionType.toLowerCase() === "wayland")
+    ) {
+      isWayland = true;
+    }
+  } catch (e) {}
+
+  let commands = isWayland
+    ? [
+        ["wtype", "-M", "ctrl", "v"],
+        ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
+        ["xdotool", "key", "ctrl+v"],
+      ]
+    : [
+        ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
+        ["xdotool", "type", text],
+        ["xte", "kd Control_L", "k v", "ku Control_L"],
+      ];
+
+  let success = false;
+  for (let argv of commands) {
+    try {
+      let proc = Gio.Subprocess.new(
+        argv,
+        Gio.SubprocessFlags.NONE,
+      );
+      proc.communicate_utf8_async(null, null, (subprocess, result) => {
+        try {
+          subprocess.communicate_utf8_finish(result);
+        } catch (err) {}
+      });
+      success = true;
+      break;
+    } catch (e) {
+      continue;
+    }
+  }
+  return success;
+}
+
 // Standard menu item for parameterless or parameter-prompting commands
 const CommandMenuItem = GObject.registerClass(
   class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
@@ -898,6 +959,117 @@ const CategoryHeaderMenuItem = GObject.registerClass(
   },
 );
 
+// Menu item representing Quick Calculator result
+const CalculatorMenuItem = GObject.registerClass(
+  class CalculatorMenuItem extends PopupMenu.PopupBaseMenuItem {
+    _init(indicator, queryText, calcResult) {
+      super._init({
+        reactive: true,
+        activate: true,
+      });
+
+      this._indicator = indicator;
+      this._queryText = queryText;
+      this._calcResult = calcResult;
+
+      this.box = new St.BoxLayout({
+        orientation: Clutter.Orientation.HORIZONTAL,
+        x_expand: true,
+        style: "padding: 6px 12px;",
+      });
+
+      this.icon = new St.Icon({
+        icon_name: "accessories-calculator-symbolic",
+        style_class: "popup-menu-icon",
+        style: "margin-right: 10px; color: #3584e4;",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      this.box.add_child(this.icon);
+
+      let contentBox = new St.BoxLayout({
+        orientation: Clutter.Orientation.VERTICAL,
+        x_expand: true,
+      });
+
+      let expr = getCalculatorExpression(queryText);
+
+      let mainText = "";
+      let subText = "";
+
+      if (!expr) {
+        mainText = "Calculator Mode";
+        subText = "Type a math expression (e.g. > 2+2, calc sin(45))";
+      } else if (calcResult && calcResult.success) {
+        mainText = `${expr} = ${calcResult.formatted}`;
+        subText = `Press Enter to copy result (${calcResult.formatted}) to clipboard`;
+      } else {
+        mainText = `Calculator: ${expr}`;
+        subText =
+          calcResult && calcResult.error
+            ? calcResult.error
+            : "Incomplete or invalid expression";
+      }
+
+      this.label = new St.Label({
+        text: mainText,
+        style: "font-weight: bold; font-size: 1.05em;",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      contentBox.add_child(this.label);
+
+      this.subLabel = new St.Label({
+        text: subText,
+        style: "color: #888888; font-size: 0.85em; margin-top: 2px;",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      contentBox.add_child(this.subLabel);
+
+      this.box.add_child(contentBox);
+      this.add_child(this.box);
+
+      this._activateId = this.connect("activate", () => {
+        this._executeCalc();
+      });
+    }
+
+    _executeCalc() {
+      if (this._calcResult && this._calcResult.success) {
+        const textToCopy = this._calcResult.formatted;
+        copyToClipboard(textToCopy);
+        if (
+          this._indicator &&
+          typeof this._indicator._showNotification === "function"
+        ) {
+          this._indicator._showNotification(
+            "CmdBar Calculator",
+            `Copied "${textToCopy}" to clipboard`,
+          );
+        } else if (Main && typeof Main.notify === "function") {
+          Main.notify(
+            "CmdBar Calculator",
+            `Copied "${textToCopy}" to clipboard`,
+          );
+        }
+      }
+      if (
+        this._indicator &&
+        this._indicator.menu &&
+        typeof this._indicator.menu.close === "function"
+      ) {
+        this._indicator.menu.close();
+      }
+    }
+
+    destroy() {
+      if (this._activateId) {
+        this.disconnect(this._activateId);
+        this._activateId = 0;
+      }
+      super.destroy();
+    }
+  },
+);
+
 // The top bar status area panel indicator
 const CmdBarIndicator = GObject.registerClass(
   class CmdBarIndicator extends PanelMenu.Button {
@@ -908,6 +1080,16 @@ const CmdBarIndicator = GObject.registerClass(
       this._monitor = null;
       this._cachedConfig = null;
       this._timeoutId = 0;
+
+      this._usageMap = this._loadUsageMap();
+      this._commandItems = [];
+      this._categoryHeaders = [];
+      this._categorySeparators = [];
+      this._visibleCommandItems = [];
+      this._selectedIndex = -1;
+      this._searchEntry = null;
+      this._searchHeaderItem = null;
+      this._calcItem = null;
 
       // Container box to support text and icon side-by-side
       this._box = new St.BoxLayout({
@@ -930,6 +1112,22 @@ const CmdBarIndicator = GObject.registerClass(
       this._box.add_child(this._label);
 
       this.add_child(this._box);
+
+      if (this.menu && typeof this.menu.connect === "function") {
+        this.menu.connect("open-state-changed", (menu, open) => {
+          if (open) {
+            this._selectedIndex = -1;
+            if (this._searchEntry) {
+              this._searchEntry.text = "";
+              let clutterText = this._searchEntry.clutter_text || this._searchEntry;
+              if (clutterText && typeof clutterText.grab_key_focus === "function") {
+                clutterText.grab_key_focus();
+              }
+            }
+            this._onSearchChanged();
+          }
+        });
+      }
 
       // Harvest environment asynchronously on startup
       harvestEnvironment();
@@ -972,6 +1170,39 @@ const CmdBarIndicator = GObject.registerClass(
       ]);
     }
 
+    _setupSearchBox() {
+      this._searchHeaderItem = new PopupMenu.PopupBaseMenuItem({
+        reactive: false,
+        activate: false,
+        hover: false,
+        can_focus: false,
+      });
+
+      this._searchEntry = new St.Entry({
+        hint_text: "Search commands or calculate (> 2+2)...",
+        track_hover: true,
+        can_focus: true,
+        style_class: "cmdbar-search-entry",
+        x_expand: true,
+        style: "margin: 4px 8px; min-width: 220px;",
+      });
+
+      this._searchHeaderItem.add_child(this._searchEntry);
+
+      let clutterText = this._searchEntry.clutter_text || this._searchEntry;
+      if (clutterText && typeof clutterText.connect === "function") {
+        clutterText.connect("text-changed", () => {
+          this._onSearchChanged();
+        });
+        clutterText.connect("key-press-event", (actor, event) => {
+          return this._onSearchKeyPress(event);
+        });
+      }
+
+      this.menu.addMenuItem(this._searchHeaderItem);
+      this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+    }
+
     async _reloadMenu() {
       try {
         let configPath = this._getConfigPath();
@@ -988,44 +1219,492 @@ const CmdBarIndicator = GObject.registerClass(
         // Clear all current items in menu
         this.menu.removeAll();
 
+        this._commandItems = [];
+        this._categoryHeaders = [];
+        this._categorySeparators = [];
+        this._calcItem = null;
+
+        if (this._enableClipboard) {
+          this.menu.addMenuItem(
+            new ClipboardHeaderMenuItem("Clipboard History", () =>
+              this.clearClipboardHistory(),
+            ),
+          );
+          this.menu.addMenuItem(
+            new ClipboardSearchMenuItem(
+              (query) => {
+                this._clipboardSearchQuery = query;
+                this._updateClipboardSection();
+              },
+              this._clipboardSearchQuery,
+            ),
+          );
+          this._clipboardSection = new PopupMenu.PopupMenuSection();
+          this.menu.addMenuItem(this._clipboardSection);
+          this._updateClipboardSection();
+
+          if (config && config.categories && config.categories.length > 0) {
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+          }
+        }
+
+        this._setupSearchBox();
+
         if (!config || !config.categories || config.categories.length === 0) {
-          let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
-          this.menu.addMenuItem(infoItem);
+          if (!this._enableClipboard) {
+            let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
+            this.menu.addMenuItem(infoItem);
+          }
           return;
         }
 
         config.categories.forEach((category, catIndex) => {
-          // Category header
+          // Category separator
           if (catIndex > 0) {
-            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+            let sep = new PopupMenu.PopupSeparatorMenuItem();
+            this.menu.addMenuItem(sep);
+            this._categorySeparators.push(sep);
           }
-          this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
+
+          // Category header
+          let header = new CategoryHeaderMenuItem(category.name);
+          this.menu.addMenuItem(header);
+          this._categoryHeaders.push(header);
 
           // Category commands
           if (category.commands && Array.isArray(category.commands)) {
             category.commands.forEach((cmd) => {
+              let item;
+              let cmdName = cmd.name || "";
+              let cmdCommand =
+                typeof cmd.command === "string"
+                  ? cmd.command
+                  : Array.isArray(cmd.command)
+                  ? cmd.command.join(" ")
+                  : String(cmd.command || "");
+
               if (hasPlaceholder(cmd.command)) {
-                // Commands requiring text inputs (Requirement 1 & 2)
-                this.menu.addMenuItem(
-                  new CommandInputMenuItem(
-                    this,
-                    cmd.name,
-                    cmd.command,
-                    cmd.placeholder,
-                    cmd,
-                  ),
+                item = new CommandInputMenuItem(
+                  this,
+                  cmd.name,
+                  cmd.command,
+                  cmd.placeholder,
+                  cmd,
                 );
               } else {
-                // Ordinary parameterless commands
-                this.menu.addMenuItem(
-                  new CommandMenuItem(this, cmd.name, cmd.command, cmd),
-                );
+                item = new CommandMenuItem(this, cmd.name, cmd.command, cmd);
               }
+
+              item._commandName = cmdName;
+              item._commandTemplate = cmdCommand;
+              item._cmdObj = cmd;
+
+              if (typeof item.connect === "function") {
+                try {
+                  item.connect("enter-event", () => {
+                    this._setSelectedItem(item);
+                  });
+                } catch (e) {}
+              }
+
+              this.menu.addMenuItem(item);
+              this._commandItems.push({
+                item,
+                cmdName,
+                cmdCommand,
+                cmdObj: cmd,
+              });
             });
           }
         });
+
+        this._onSearchChanged();
       } catch (e) {
         console.error(`CmdBar: error reloading menu: ${e.message}`);
+      }
+    }
+
+    _onSearchChanged() {
+      let searchText = this._searchEntry
+        ? typeof this._searchEntry.get_text === "function"
+          ? this._searchEntry.get_text()
+          : this._searchEntry.text || ""
+        : "";
+      let cleanQuery = searchText.trim();
+
+      if (isCalculatorQuery(cleanQuery)) {
+        for (let catHeader of this._categoryHeaders) catHeader.visible = false;
+        for (let sep of this._categorySeparators) sep.visible = false;
+        for (let entry of this._commandItems) entry.item.visible = false;
+
+        if (this._calcItem) {
+          try {
+            this.menu.box.remove_child(this._calcItem.actor || this._calcItem);
+            this._calcItem.destroy();
+          } catch (e) {}
+          this._calcItem = null;
+        }
+
+        const expr = getCalculatorExpression(cleanQuery);
+        const calcRes = evaluateMathExpression(expr);
+
+        this._calcItem = new CalculatorMenuItem(this, cleanQuery, calcRes);
+        this.menu.addMenuItem(this._calcItem);
+
+        if (this.menu && this.menu.box) {
+          let childActor = this._calcItem.actor || this._calcItem;
+          if (typeof this.menu.box.set_child_at_index === "function") {
+            this.menu.box.set_child_at_index(childActor, 2);
+          } else if (typeof this.menu.box.reorder_child === "function") {
+            this.menu.box.reorder_child(childActor, 2);
+          }
+        }
+
+        this._visibleCommandItems = [this._calcItem];
+        this._setSelectedIndex(0);
+        return;
+      }
+
+      if (this._calcItem) {
+        try {
+          this.menu.box.remove_child(this._calcItem.actor || this._calcItem);
+          this._calcItem.destroy();
+        } catch (e) {}
+        this._calcItem = null;
+      }
+
+      let visibleItems = [];
+
+      if (cleanQuery === "") {
+        for (let catHeader of this._categoryHeaders) {
+          catHeader.visible = true;
+        }
+        for (let sep of this._categorySeparators) {
+          sep.visible = true;
+        }
+
+        for (let entry of this._commandItems) {
+          entry.item.visible = true;
+          this._resetItemLabel(entry.item);
+          visibleItems.push(entry.item);
+        }
+      } else {
+        for (let catHeader of this._categoryHeaders) {
+          catHeader.visible = false;
+        }
+        for (let sep of this._categorySeparators) {
+          sep.visible = false;
+        }
+
+        let matches = [];
+
+        for (let entry of this._commandItems) {
+          let usageCount = this._getUsageCount(
+            entry.cmdCommand || entry.cmdName,
+          );
+          let matchName = fuzzyMatch(cleanQuery, entry.cmdName, usageCount);
+          let matchCmd = fuzzyMatch(cleanQuery, entry.cmdCommand, usageCount);
+
+          if (matchName.match || matchCmd.match) {
+            let score = Math.max(
+              matchName.match ? matchName.score : 0,
+              matchCmd.match ? matchCmd.score : 0,
+            );
+            matches.push({
+              entry,
+              score,
+              matchName,
+              matchCmd,
+            });
+          } else {
+            entry.item.visible = false;
+          }
+        }
+
+        matches.sort((a, b) => b.score - a.score);
+
+        matches.forEach((m, idx) => {
+          m.entry.item.visible = true;
+          this._updateItemLabelWithHighlight(
+            m.entry.item,
+            m.matchName,
+            m.matchCmd,
+            cleanQuery,
+          );
+          visibleItems.push(m.entry.item);
+
+          if (this.menu && this.menu.box) {
+            let childActor = m.entry.item.actor || m.entry.item;
+            if (typeof this.menu.box.set_child_at_index === "function") {
+              this.menu.box.set_child_at_index(childActor, 2 + idx);
+            } else if (typeof this.menu.box.reorder_child === "function") {
+              this.menu.box.reorder_child(childActor, 2 + idx);
+            }
+          }
+        });
+      }
+
+      this._visibleCommandItems = visibleItems;
+
+      if (visibleItems.length > 0) {
+        this._setSelectedIndex(0);
+      } else {
+        this._setSelectedIndex(-1);
+      }
+    }
+
+    _resetItemLabel(item) {
+      if (!item || !item.label) return;
+      let name = item._commandName || "";
+      let markup = escapeMarkup(name);
+
+      if (
+        item.label.clutter_text &&
+        typeof item.label.clutter_text.set_markup === "function"
+      ) {
+        try {
+          item.label.clutter_text.set_markup(markup);
+        } catch (e) {
+          item.label.text = name;
+        }
+      } else {
+        item.label.text = name;
+      }
+    }
+
+    _updateItemLabelWithHighlight(item, matchName, matchCmd, pattern) {
+      if (!item || !item.label) return;
+      let name = item._commandName || "";
+      let cmd = item._commandTemplate || "";
+      let markup = "";
+
+      if (matchName.match && matchName.matches && matchName.matches.length > 0) {
+        markup = highlightMatches(name, matchName.matches);
+      } else if (
+        matchCmd.match &&
+        matchCmd.matches &&
+        matchCmd.matches.length > 0
+      ) {
+        let highlightedCmd = highlightMatches(cmd, matchCmd.matches);
+        markup = `${escapeMarkup(name)} <span size="small" foreground="#888888">(${highlightedCmd})</span>`;
+      } else {
+        markup = escapeMarkup(name);
+      }
+
+      if (
+        item.label.clutter_text &&
+        typeof item.label.clutter_text.set_markup === "function"
+      ) {
+        try {
+          item.label.clutter_text.set_markup(markup);
+        } catch (e) {
+          item.label.text = name;
+        }
+      } else if (typeof item.label.set_markup === "function") {
+        try {
+          item.label.set_markup(markup);
+        } catch (e) {
+          item.label.text = name;
+        }
+      } else {
+        item.label.text = name;
+      }
+    }
+
+    _setSelectedIndex(index) {
+      let items = this._visibleCommandItems || [];
+
+      if (this._selectedIndex >= 0 && this._selectedIndex < items.length) {
+        let prevItem = items[this._selectedIndex];
+        this._setItemSelected(prevItem, false);
+      }
+
+      if (index >= 0 && index < items.length) {
+        this._selectedIndex = index;
+        let newItem = items[index];
+        this._setItemSelected(newItem, true);
+      } else {
+        this._selectedIndex = -1;
+      }
+    }
+
+    _setSelectedItem(item) {
+      let items = this._visibleCommandItems || [];
+      let idx = items.indexOf(item);
+      if (idx !== -1) {
+        this._setSelectedIndex(idx);
+      }
+    }
+
+    _setItemSelected(item, selected) {
+      if (!item) return;
+      if (typeof item.setActive === "function") {
+        item.setActive(selected);
+      }
+      if (selected) {
+        if (typeof item.add_style_pseudo_class === "function") {
+          item.add_style_pseudo_class("hover");
+          item.add_style_pseudo_class("active");
+        }
+        if (typeof item.add_style_class_name === "function") {
+          item.add_style_class_name("cmdbar-selected-item");
+        }
+      } else {
+        if (typeof item.remove_style_pseudo_class === "function") {
+          item.remove_style_pseudo_class("hover");
+          item.remove_style_pseudo_class("active");
+        }
+        if (typeof item.remove_style_class_name === "function") {
+          item.remove_style_class_name("cmdbar-selected-item");
+        }
+      }
+    }
+
+    _selectNextItem() {
+      let items = this._visibleCommandItems || [];
+      if (items.length === 0) return;
+      let nextIdx = (this._selectedIndex + 1) % items.length;
+      this._setSelectedIndex(nextIdx);
+    }
+
+    _selectPreviousItem() {
+      let items = this._visibleCommandItems || [];
+      if (items.length === 0) return;
+      let prevIdx =
+        this._selectedIndex <= 0 ? items.length - 1 : this._selectedIndex - 1;
+      this._setSelectedIndex(prevIdx);
+    }
+
+    _executeSelectedItem() {
+      let items = this._visibleCommandItems || [];
+      let itemToExecute = null;
+      if (this._selectedIndex >= 0 && this._selectedIndex < items.length) {
+        itemToExecute = items[this._selectedIndex];
+      } else if (items.length > 0) {
+        itemToExecute = items[0];
+      }
+
+      if (itemToExecute) {
+        this._executeItem(itemToExecute);
+      }
+    }
+
+    _executeItem(item) {
+      if (!item) return;
+      if (item instanceof CalculatorMenuItem) {
+        item._executeCalc();
+        return;
+      }
+      let cmdKey = item._commandTemplate || item._commandName;
+      this._incrementUsage(cmdKey);
+
+      if (item instanceof CommandInputMenuItem) {
+        item._onSubmit(item._commandName);
+      } else if (item instanceof CommandMenuItem) {
+        runCommandAsync(item._commandName, item._commandTemplate, item._cmdObj);
+        if (this.menu && typeof this.menu.close === "function") {
+          this.menu.close();
+        }
+      } else if (typeof item.activate === "function") {
+        item.activate();
+      }
+    }
+
+    _onSearchKeyPress(event) {
+      if (!event || typeof event.get_key_symbol !== "function") {
+        return Clutter.EVENT_PROPAGATE;
+      }
+      let symbol = event.get_key_symbol();
+
+      if (symbol === Clutter.KEY_Down) {
+        this._selectNextItem();
+        return Clutter.EVENT_STOP;
+      } else if (symbol === Clutter.KEY_Up) {
+        this._selectPreviousItem();
+        return Clutter.EVENT_STOP;
+      } else if (
+        symbol === Clutter.KEY_Return ||
+        symbol === Clutter.KEY_KP_Enter
+      ) {
+        this._executeSelectedItem();
+        return Clutter.EVENT_STOP;
+      } else if (symbol === Clutter.KEY_Escape) {
+        if (
+          this._searchEntry &&
+          this._searchEntry.text &&
+          this._searchEntry.text.length > 0
+        ) {
+          this._searchEntry.text = "";
+          return Clutter.EVENT_STOP;
+        } else {
+          if (this.menu && typeof this.menu.close === "function") {
+            this.menu.close();
+          }
+          return Clutter.EVENT_STOP;
+        }
+      }
+      return Clutter.EVENT_PROPAGATE;
+    }
+
+    _getUsageFilePath() {
+      return GLib.build_filenamev([
+        GLib.get_user_config_dir(),
+        "cmdbar",
+        "usage.json",
+      ]);
+    }
+
+    _loadUsageMap() {
+      try {
+        let usagePath = this._getUsageFilePath();
+        let isNode =
+          typeof process !== "undefined" &&
+          process.versions &&
+          process.versions.node;
+        if (isNode) {
+          const fs = globalThis._fs;
+          if (fs && fs.existsSync(usagePath)) {
+            return JSON.parse(fs.readFileSync(usagePath, "utf8"));
+          }
+        } else {
+          let file = Gio.File.new_for_path(usagePath);
+          if (file && file.query_exists(null)) {
+            let [success, contents] = file.load_contents(null);
+            if (success) {
+              let str =
+                typeof imports !== "undefined" && imports.byteArray
+                  ? imports.byteArray.toString(contents)
+                  : new TextDecoder().decode(contents);
+              return JSON.parse(str);
+            }
+          }
+        }
+      } catch (e) {}
+      return {};
+    }
+
+    _getUsageCount(cmdKey) {
+      if (!this._usageMap) {
+        this._usageMap = this._loadUsageMap();
+      }
+      return this._usageMap[cmdKey] || 0;
+    }
+
+    _incrementUsage(cmdKey) {
+      if (!cmdKey) return;
+      if (!this._usageMap) {
+        this._usageMap = this._loadUsageMap();
+      }
+      this._usageMap[cmdKey] = (this._usageMap[cmdKey] || 0) + 1;
+      this._saveUsageMap();
+    }
+
+    async _saveUsageMap() {
+      try {
+        let usagePath = this._getUsageFilePath();
+        await writeConfigAtomically(usagePath, this._usageMap);
+      } catch (e) {
+        console.warn(`CmdBar: could not save usage map: ${e.message}`);
       }
     }
 
