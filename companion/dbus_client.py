@@ -93,6 +93,43 @@ class CmdBarDBusClient:
                 return []
         return []
 
+    def get_stream_deck_profiles(self) -> dict:
+        """Retrieve Stream Deck active and available profiles."""
+        res = self._call_method("GetStreamDeckProfiles")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return {"active_profile": "Default", "profiles": ["Default"]}
+        return {"active_profile": "Default", "profiles": ["Default"]}
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Switch active Stream Deck profile by name."""
+        res = self._call_method("SetStreamDeckProfile", profile_name)
+        return bool(res)
+
+    def get_stream_deck_status(self) -> dict:
+        """Retrieve diagnostic status summary for Stream Deck integration."""
+        res = self._call_method("GetStreamDeckStatus")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Trigger simulated button press on Stream Deck key index."""
+        res = self._call_method("TriggerStreamDeckButton", key_index)
+        return bool(res)
+
+
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
         self._executed_callbacks.append(callback)

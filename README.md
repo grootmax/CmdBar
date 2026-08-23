@@ -12,6 +12,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 ## Features
 
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
+- **Elgato Stream Deck Integration** – Visual buttons for shortcuts with dynamic labels, real-time LED feedback status (Idle, Executing, Success, Error), one-touch profile switching across categories, and ultra-fast cached SVG rendering
 - **Output Formatters** – Automatically parse and nicely format command outputs: JSON pretty-printing with Pango markup & ANSI syntax highlighting, ASCII table rendering for CSV/TSV data, and monospaced boxed code blocks
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
 - **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences.
@@ -227,6 +228,10 @@ CmdBar exposes a full D-Bus API on the Session Bus under bus name `org.gnome.Cmd
 | `RemoveCommand` | `string name` | `boolean` | Remove a command by name |
 | `ExecuteCommand` | `string name` | `boolean` | Execute a command by name or direct command string |
 | `GetCommands` | *None* | `string` (JSON) | Get all registered commands as a JSON array |
+| `GetStreamDeckProfiles` | *None* | `string` (JSON) | Get active and available Stream Deck profiles |
+| `SetStreamDeckProfile` | `string profile_name` | `boolean` | Switch active Stream Deck profile by name |
+| `GetStreamDeckStatus` | *None* | `string` (JSON) | Get Stream Deck status summary & performance stats |
+| `TriggerStreamDeckButton` | `int32 key_index` | `boolean` | Trigger simulated button press on Stream Deck key index |
 
 ### Signals
 
