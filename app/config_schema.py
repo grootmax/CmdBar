@@ -51,6 +51,30 @@ DEFAULT_CONFIG = {
     "fallback_provider": "ollama",
     "fallback_model": "llama3"
   },
+  "branding": {
+    "enabled": False,
+    "app_name": "CmdBar",
+    "logo_path": "",
+    "brand_colors": {
+      "primary": "#3584e4",
+      "accent": "#1c71d8",
+      "background": "#2d2d2d",
+      "text": "#ffffff"
+    },
+    "domain_alias": "",
+    "custom_ssl": {
+      "cert_path": "",
+      "key_path": "",
+      "ca_path": "",
+      "verify_ssl": True
+    },
+    "enterprise_identity": {
+      "organization_name": "",
+      "support_url": "",
+      "support_email": "",
+      "footer_text": ""
+    }
+  },
   "categories": [
     {
       "name": "System Utilities",
@@ -150,6 +174,12 @@ def load_config(path=None):
 
         # Normalize and migrate loaded configuration
         migrated = False
+        if "branding" in config_data and not validate_branding_config(config_data["branding"]):
+            config_data["branding"] = json.loads(json.dumps(DEFAULT_CONFIG["branding"]))
+            migrated = True
+        if "white_label" in config_data and not validate_branding_config(config_data["white_label"]):
+            config_data["white_label"] = json.loads(json.dumps(DEFAULT_CONFIG["branding"]))
+            migrated = True
         for cat in config_data.get("categories", []):
             # Migrate shortcuts to commands
             if "shortcuts" in cat:
@@ -303,3 +333,135 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
         # We can also append the list format to be 100% explicit
         array_preview += f"\nArgs List: {json.dumps(resolved_parts)}"
         return array_preview, errors
+
+
+def validate_branding_config(branding):
+    """
+    Validates white label branding configuration structure.
+    :visibility: public
+    """
+    if branding is None:
+        return True
+    if not isinstance(branding, dict):
+        return False
+    
+    if "enabled" in branding and not isinstance(branding["enabled"], bool):
+        return False
+    if "app_name" in branding and not isinstance(branding["app_name"], str):
+        return False
+    if "logo_path" in branding and not isinstance(branding["logo_path"], str):
+        return False
+    
+    if "brand_colors" in branding and branding["brand_colors"] is not None:
+        if not isinstance(branding["brand_colors"], dict):
+            return False
+        hex_regex = r"^#(?:[0-9a-fA-F]{3,4}){1,2}$"
+        for key in ["primary", "accent", "background", "text"]:
+            val = branding["brand_colors"].get(key)
+            if val is not None and val != "":
+                if not isinstance(val, str):
+                    return False
+                if not re.match(hex_regex, val) and not re.match(r"^(rgb|hsl)a?\(", val) and not val.isalpha():
+                    return False
+
+    if "domain_alias" in branding and not isinstance(branding["domain_alias"], str):
+        return False
+    if branding.get("domain_alias") and isinstance(branding["domain_alias"], str) and branding["domain_alias"].strip():
+        domain_str = branding["domain_alias"].strip()
+        domain_regex = r"^(https?://)?([a-zA-Z0-9.-]+|\[[a-fA-F0-9:]+\])(:[0-9]+)?(/.*)?$"
+        if not re.match(domain_regex, domain_str):
+            return False
+
+    if "custom_ssl" in branding and branding["custom_ssl"] is not None:
+        if not isinstance(branding["custom_ssl"], dict):
+            return False
+        ssl_cfg = branding["custom_ssl"]
+        if "cert_path" in ssl_cfg and not isinstance(ssl_cfg["cert_path"], str):
+            return False
+        if "key_path" in ssl_cfg and not isinstance(ssl_cfg["key_path"], str):
+            return False
+        if "ca_path" in ssl_cfg and not isinstance(ssl_cfg["ca_path"], str):
+            return False
+        if "verify_ssl" in ssl_cfg and not isinstance(ssl_cfg["verify_ssl"], bool):
+            return False
+
+    if "enterprise_identity" in branding and branding["enterprise_identity"] is not None:
+        if not isinstance(branding["enterprise_identity"], dict):
+            return False
+        ent = branding["enterprise_identity"]
+        for k in ["organization_name", "support_url", "support_email", "footer_text"]:
+            if k in ent and not isinstance(ent[k], str):
+                return False
+
+    return True
+
+
+def get_effective_branding(config):
+    """
+    Returns merged effective branding configuration dictionary with defaults.
+    :visibility: public
+    """
+    default_branding = DEFAULT_CONFIG["branding"]
+    raw_branding = (config or {}).get("branding") or (config or {}).get("white_label") or {}
+    return {
+        "enabled": bool(raw_branding.get("enabled", default_branding["enabled"])),
+        "app_name": (raw_branding.get("app_name") or "").strip() or default_branding["app_name"],
+        "logo_path": raw_branding.get("logo_path", default_branding["logo_path"]),
+        "brand_colors": {
+            "primary": (raw_branding.get("brand_colors") or {}).get("primary") or default_branding["brand_colors"]["primary"],
+            "accent": (raw_branding.get("brand_colors") or {}).get("accent") or default_branding["brand_colors"]["accent"],
+            "background": (raw_branding.get("brand_colors") or {}).get("background") or default_branding["brand_colors"]["background"],
+            "text": (raw_branding.get("brand_colors") or {}).get("text") or default_branding["brand_colors"]["text"],
+        },
+        "domain_alias": raw_branding.get("domain_alias", default_branding["domain_alias"]),
+        "custom_ssl": {
+            "cert_path": (raw_branding.get("custom_ssl") or {}).get("cert_path") or default_branding["custom_ssl"]["cert_path"],
+            "key_path": (raw_branding.get("custom_ssl") or {}).get("key_path") or default_branding["custom_ssl"]["key_path"],
+            "ca_path": (raw_branding.get("custom_ssl") or {}).get("ca_path") or default_branding["custom_ssl"]["ca_path"],
+            "verify_ssl": (raw_branding.get("custom_ssl") or {}).get("verify_ssl", default_branding["custom_ssl"]["verify_ssl"]),
+        },
+        "enterprise_identity": {
+            "organization_name": (raw_branding.get("enterprise_identity") or {}).get("organization_name") or default_branding["enterprise_identity"]["organization_name"],
+            "support_url": (raw_branding.get("enterprise_identity") or {}).get("support_url") or default_branding["enterprise_identity"]["support_url"],
+            "support_email": (raw_branding.get("enterprise_identity") or {}).get("support_email") or default_branding["enterprise_identity"]["support_email"],
+            "footer_text": (raw_branding.get("enterprise_identity") or {}).get("footer_text") or default_branding["enterprise_identity"]["footer_text"],
+        }
+    }
+
+
+def get_effective_domain_url(branding_config, endpoint_path=""):
+    """
+    Resolves domain alias URL for enterprise server endpoints.
+    :visibility: public
+    """
+    domain = ((branding_config or {}).get("domain_alias") or "").strip()
+    if not domain:
+        return endpoint_path
+    if not domain.startswith("http://") and not domain.startswith("https://"):
+        domain = "https://" + domain
+    domain = domain.rstrip("/")
+    path = endpoint_path if endpoint_path.startswith("/") else "/" + endpoint_path
+    return domain + path
+
+
+def get_ssl_context(branding_config):
+    """
+    Creates an SSLContext configured with custom enterprise SSL certificates/CAs.
+    :visibility: public
+    """
+    import ssl
+    ssl_cfg = (branding_config or {}).get("custom_ssl") or {}
+    verify_ssl = ssl_cfg.get("verify_ssl", True)
+    ca_path = ssl_cfg.get("ca_path")
+    cert_path = ssl_cfg.get("cert_path")
+    key_path = ssl_cfg.get("key_path")
+
+    if not verify_ssl:
+        ctx = ssl._create_unverified_context()
+        return ctx
+
+    ctx = ssl.create_default_context(cafile=ca_path if ca_path and os.path.exists(ca_path) else None)
+    if cert_path and os.path.exists(cert_path):
+        ctx.load_cert_chain(certfile=cert_path, keyfile=key_path if key_path and os.path.exists(key_path) else None)
+    return ctx
+

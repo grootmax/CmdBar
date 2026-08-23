@@ -1,4 +1,4 @@
-import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
+import { loadConfig, saveConfig, getDefaultConfigPath, validateBrandingConfig, getEffectiveBranding } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
@@ -20,6 +20,16 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
+    </method>
+    <method name="GetBranding">
+      <arg name="json_branding" type="s" direction="out"/>
+    </method>
+    <method name="SetBranding">
+      <arg name="json_branding" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetEffectiveAppName">
+      <arg name="app_name" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -228,6 +238,58 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
+    }
+  }
+
+  async GetBranding() {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const branding = getEffectiveBranding(config);
+      return JSON.stringify(branding);
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetBranding error: ${e.message}`);
+      return JSON.stringify({});
+    }
+  }
+
+  async SetBranding(jsonBranding) {
+    if (!jsonBranding || typeof jsonBranding !== "string" || jsonBranding.trim() === "") {
+      return false;
+    }
+    try {
+      const parsed = JSON.parse(jsonBranding);
+      if (!validateBrandingConfig(parsed)) {
+        return false;
+      }
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      config.branding = parsed;
+      await saveConfig(config, configPath);
+      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        this._indicator._reloadMenu();
+      }
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus SetBranding error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async GetEffectiveAppName() {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const branding = getEffectiveBranding(config);
+      return branding.enabled ? branding.app_name : "CmdBar";
+    } catch (e) {
+      return "CmdBar";
     }
   }
 

@@ -17,7 +17,7 @@ import {
   parseAccel,
   formatOutput,
 } from "./commandProcessor.js";
-import { loadConfig } from "./configSync.js";
+import { loadConfig, getEffectiveBranding, getEffectiveDomainUrl } from "./configSync.js";
 import {
   translateNaturalLanguageToCommand,
   isAICommand,
@@ -992,12 +992,54 @@ const CmdBarIndicator = GObject.registerClass(
     }
 
     /**
+     * Apply custom white label branding options to top bar indicator and popup menu.
+     * @param {object} branding
+     */
+    _applyBranding(branding) {
+      if (!branding) return;
+      this._effectiveBranding = branding;
+
+      // Custom icon / logo
+      if (branding.enabled && branding.logo_path && branding.logo_path.trim()) {
+        const logo = branding.logo_path.trim();
+        if (logo.includes("/") && Gio.File && Gio.File.new_for_path(logo).query_exists(null)) {
+          try {
+            let gicon = new Gio.FileIcon({ file: Gio.File.new_for_path(logo) });
+            this._icon.gicon = gicon;
+          } catch (e) {
+            this._icon.icon_name = logo;
+          }
+        } else {
+          this._icon.icon_name = logo;
+        }
+      } else {
+        this._icon.icon_name = "system-run-symbolic";
+      }
+
+      // Custom brand color styling
+      if (branding.enabled && branding.brand_colors) {
+        const primary = branding.brand_colors.primary || "#3584e4";
+        const text = branding.brand_colors.text || "#ffffff";
+        this._box.style = `color: ${text};`;
+        if (this.menu && this.menu.actor) {
+          this.menu.actor.style = `border-top: 2px solid ${primary};`;
+        }
+      } else {
+        this._box.style = null;
+        if (this.menu && this.menu.actor) {
+          this.menu.actor.style = null;
+        }
+      }
+    }
+
+    /**
      * Update indicator button tooltip with shortcut hint.
      * @param {string|string[]} accelStr
      */
     updateShortcutTooltip(accelStr) {
       let hint = formatShortcutHint(accelStr);
-      let tooltipText = `CmdBar (${hint})`;
+      let appName = (this._effectiveBranding && this._effectiveBranding.enabled && this._effectiveBranding.app_name) || "CmdBar";
+      let tooltipText = `${appName} (${hint})`;
       if (typeof this.set_tooltip_text === "function") {
         this.set_tooltip_text(tooltipText);
       }
@@ -1018,9 +1060,12 @@ const CmdBarIndicator = GObject.registerClass(
         let extensionPath = this._extension.dir.get_path();
         let config = await loadConfig(configPath, extensionPath);
 
+        let branding = getEffectiveBranding(config);
+        this._applyBranding(branding);
+
         if (config && config._isInvalid) {
           this._showNotification(
-            "CmdBar Configuration Error",
+            `${branding.enabled ? branding.app_name : "CmdBar"} Configuration Error`,
             "Invalid configuration file detected. Using in-memory default settings without overwriting your file.",
           );
         }
@@ -1064,6 +1109,20 @@ const CmdBarIndicator = GObject.registerClass(
             });
           }
         });
+
+        // Add enterprise identity footer if configured
+        if (branding.enabled && branding.enterprise_identity) {
+          const ent = branding.enterprise_identity;
+          if (ent.organization_name || ent.footer_text) {
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+            const footerText = ent.footer_text || `Managed by ${ent.organization_name}`;
+            const footerItem = new PopupMenu.PopupMenuItem(footerText, { reactive: false });
+            if (footerItem.label) {
+              footerItem.label.style = "font-size: 0.8em; opacity: 0.7;";
+            }
+            this.menu.addMenuItem(footerItem);
+          }
+        }
       } catch (e) {
         console.error(`CmdBar: error reloading menu: ${e.message}`);
       }

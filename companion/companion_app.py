@@ -139,11 +139,11 @@ def init_config():
     return config_path
 
 
-def load_config():
+def load_config(path=None):
     """
     Loads and parses the configuration file, verifying its signature.
     """
-    config_path = init_config()
+    config_path = path if path else init_config()
     key_path = get_key_path(config_path)
     key = get_or_create_signing_key(key_path)
     try:
@@ -232,11 +232,11 @@ def load_config():
     return config_data
 
 
-def save_config(config_data):
+def save_config(config_data, path=None):
     """
     Saves the configuration to the file safely with a cryptographic signature.
     """
-    config_path = get_config_path()
+    config_path = path if path else get_config_path()
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
     if isinstance(config_data, dict):
         key_path = get_key_path(config_path)
@@ -387,9 +387,10 @@ def run_cli_mode():
         print("6. Test-Run Command Template")
         print("7. Import from Template Library")
         print("8. Export Custom Commands as Template")
-        print("9. Exit")
+        print("9. Custom Branding & White Label")
+        print("10. Exit")
         
-        choice = input("\nEnter choice [1-9]: ").strip()
+        choice = input("\nEnter choice [1-10]: ").strip()
         if choice == "1":
             list_categories_and_commands(config_data)
         elif choice == "2":
@@ -407,10 +408,64 @@ def run_cli_mode():
         elif choice == "8":
             export_templates_cli_flow(config_data)
         elif choice == "9":
+            manage_branding(config_data)
+        elif choice == "10":
             print("Goodbye!")
             break
         else:
             print("Invalid choice, please try again.")
+
+
+def manage_branding(config_data):
+    from app.config_schema import get_effective_branding
+    branding = get_effective_branding(config_data)
+    print("\n--- Custom Branding & White Label Options ---")
+    print(f"Enabled: {branding['enabled']}")
+    print(f"Brand Application Name: {branding['app_name']}")
+    print(f"Logo Path: {branding['logo_path']}")
+    print(f"Primary Color: {branding['brand_colors']['primary']}")
+    print(f"Domain Alias: {branding['domain_alias']}")
+    print(f"Organization Name: {branding['enterprise_identity']['organization_name']}")
+    
+    print("\n1. Toggle White Labeling (Enable/Disable)")
+    print("2. Set Application Name")
+    print("3. Set Logo Path")
+    print("4. Set Brand Primary Color")
+    print("5. Set Domain Alias")
+    print("6. Back to Main Menu")
+    
+    choice = input("\nEnter choice [1-6]: ").strip()
+    if choice == "1":
+        branding["enabled"] = not branding["enabled"]
+        config_data["branding"] = branding
+        save_config(config_data)
+        print(f"White labeling status set to: {branding['enabled']}")
+    elif choice == "2":
+        name = input("Enter custom app name: ").strip()
+        if name:
+            branding["app_name"] = name
+            config_data["branding"] = branding
+            save_config(config_data)
+            print(f"App name set to: {name}")
+    elif choice == "3":
+        logo = input("Enter logo path or icon name: ").strip()
+        branding["logo_path"] = logo
+        config_data["branding"] = branding
+        save_config(config_data)
+        print(f"Logo set to: {logo}")
+    elif choice == "4":
+        color = input("Enter primary color (e.g. #1e3a8a): ").strip()
+        if color:
+            branding["brand_colors"]["primary"] = color
+            config_data["branding"] = branding
+            save_config(config_data)
+            print(f"Primary color set to: {color}")
+    elif choice == "5":
+        domain = input("Enter domain alias (e.g. cmd.acme.corp): ").strip()
+        branding["domain_alias"] = domain
+        config_data["branding"] = branding
+        save_config(config_data)
+        print(f"Domain alias set to: {domain}")
 
 
 def import_templates_cli_flow(config_data):
@@ -494,7 +549,6 @@ def export_templates_cli_flow(config_data):
     
     export_templates_to_file([tmpl], out_path, author=author or None)
     print(f"Successfully exported template '{tmpl['name']}' to {out_path}!")
-
 
 
 def list_categories_and_commands(config_data):
@@ -1252,11 +1306,38 @@ if GUI_AVAILABLE:
 def main():
     parser = argparse.ArgumentParser(description="CmdBar Companion App")
     parser.add_argument("--cli", action="store_true", help="Force running in Command Line Interface mode")
+    parser.add_argument("--branding", action="store_true", help="Print current branding configuration")
+    parser.add_argument("--enable-white-label", action="store_true", help="Enable enterprise white labeling")
+    parser.add_argument("--disable-white-label", action="store_true", help="Disable enterprise white labeling")
+    parser.add_argument("--set-app-name", type=str, help="Set white label application name")
     args = parser.parse_args()
     
     # Initialize config directory/file
     init_config()
     
+    if args.branding or args.enable_white_label or args.disable_white_label or args.set_app_name:
+        from app.config_schema import get_effective_branding
+        config = load_config()
+        branding = get_effective_branding(config)
+        if args.enable_white_label:
+            branding["enabled"] = True
+            config["branding"] = branding
+            save_config(config)
+            print("Enterprise white labeling enabled.")
+        elif args.disable_white_label:
+            branding["enabled"] = False
+            config["branding"] = branding
+            save_config(config)
+            print("Enterprise white labeling disabled.")
+        if args.set_app_name:
+            branding["app_name"] = args.set_app_name
+            config["branding"] = branding
+            save_config(config)
+            print(f"White label application name set to '{args.set_app_name}'.")
+        if args.branding:
+            print(json.dumps(branding, indent=2))
+        return
+
     if args.cli or not GUI_AVAILABLE:
         if not GUI_AVAILABLE and not args.cli:
             print("GUI libraries (GTK4 / Libadwaita) are not available. Falling back to CLI mode.\n")
