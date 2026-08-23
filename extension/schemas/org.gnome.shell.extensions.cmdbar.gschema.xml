@@ -21,5 +21,10 @@
       <summary>Global Shortcut</summary>
       <description>Global keyboard shortcut to trigger CmdBar menu from anywhere.</description>
     </key>
+    <key name="history-shortcut" type="as">
+      <default>['&lt;Super&gt;&lt;Shift&gt;h']</default>
+      <summary>History Shortcut</summary>
+      <description>Global keyboard shortcut to open CmdBar menu focused on command history.</description>
+    </key>
   </schema>
 </schemalist>

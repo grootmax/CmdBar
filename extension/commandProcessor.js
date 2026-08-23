@@ -476,3 +476,311 @@ export function parseAccel(text) {
   return [`${modifiers}${baseKey}`];
 }
 
+/**
+ * Escapes special XML/Pango markup characters.
+ * @param {string} str
+ * @returns {string}
+ */
+export function escapeMarkup(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Checks if pattern fuzzy-matches text and calculates relevance score.
+ * @param {string} pattern Search query
+ * @param {string} text Text to match against
+ * @param {number} [usageCount=0] Frequency of command usage
+ * @returns {{ match: boolean, score: number, matches: number[] }}
+ */
+export function fuzzyMatch(pattern, text, usageCount = 0) {
+  if (text === null || text === undefined) {
+    return { match: false, score: 0, matches: [] };
+  }
+  const textStr = String(text);
+
+  if (!pattern || typeof pattern !== "string" || pattern.trim() === "") {
+    return {
+      match: true,
+      score: (usageCount || 0) * 10,
+      matches: [],
+    };
+  }
+
+  const cleanPattern = pattern.trim();
+  const patternLower = cleanPattern.toLowerCase();
+  const textLower = textStr.toLowerCase();
+
+  let matchedIndices = [];
+
+  // 1. Check if text includes cleanPattern as a contiguous substring
+  const subIdx = textLower.indexOf(patternLower);
+  if (subIdx !== -1) {
+    for (let i = 0; i < patternLower.length; i++) {
+      matchedIndices.push(subIdx + i);
+    }
+  } else {
+    // 2. Perform sequential subsequence fuzzy match
+    let patternIdx = 0;
+    for (let i = 0; i < textLower.length && patternIdx < patternLower.length; i++) {
+      if (textLower[i] === patternLower[patternIdx]) {
+        matchedIndices.push(i);
+        patternIdx++;
+      }
+    }
+    if (patternIdx < patternLower.length) {
+      return { match: false, score: 0, matches: [] };
+    }
+  }
+
+  // Calculate relevance score
+  let score = 100;
+
+  if (textLower === patternLower) {
+    score += 1000;
+  } else if (textLower.startsWith(patternLower)) {
+    score += 500;
+  } else if (subIdx !== -1) {
+    score += 300;
+  }
+
+  // Word boundary bonus
+  for (const idx of matchedIndices) {
+    if (idx === 0) {
+      score += 50;
+    } else {
+      const prevChar = textStr[idx - 1];
+      if (/[\s\-_.\/:;=,]/.test(prevChar)) {
+        score += 50;
+      } else if (
+        /[a-z]/.test(textStr[idx - 1]) &&
+        /[A-Z]/.test(textStr[idx])
+      ) {
+        score += 50;
+      }
+    }
+  }
+
+  // Consecutive bonus
+  for (let i = 1; i < matchedIndices.length; i++) {
+    if (matchedIndices[i] === matchedIndices[i - 1] + 1) {
+      score += 20;
+    }
+  }
+
+  // Compactness bonus
+  const span =
+    matchedIndices[matchedIndices.length - 1] - matchedIndices[0] + 1;
+  score += Math.max(0, 100 - (span - patternLower.length) * 10);
+
+  // Early match bonus
+  score += Math.max(0, 50 - matchedIndices[0] * 5);
+
+  // Usage frequency bonus
+  score += (usageCount || 0) * 10;
+
+  return {
+    match: true,
+    score,
+    matches: matchedIndices,
+  };
+}
+
+/**
+ * Highlights matched character indices in text using HTML/Pango markup tags.
+ * @param {string} text
+ * @param {number[]} matchedIndices
+ * @param {string} [openTag="<b>"]
+ * @param {string} [closeTag="</b>"]
+ * @returns {string}
+ */
+export function highlightMatches(
+  text,
+  matchedIndices,
+  openTag = "<b>",
+  closeTag = "</b>"
+) {
+  if (text === null || text === undefined) {
+    return "";
+  }
+  const str = String(text);
+  if (!matchedIndices || !Array.isArray(matchedIndices) || matchedIndices.length === 0) {
+    return escapeMarkup(str);
+  }
+
+  const indexSet = new Set(matchedIndices);
+  let result = "";
+  let inHighlight = false;
+
+  for (let i = 0; i < str.length; i++) {
+    const isMatched = indexSet.has(i);
+    if (isMatched && !inHighlight) {
+      result += openTag;
+      inHighlight = true;
+    } else if (!isMatched && inHighlight) {
+      result += closeTag;
+      inHighlight = false;
+    }
+    result += escapeMarkup(str[i]);
+  }
+
+  if (inHighlight) {
+    result += closeTag;
+  }
+
+  return result;
+}
+
+/**
+ * Ranks and filters commands based on search pattern and usage frequency.
+ * @param {Array<object>} commands List of command objects ({ name, command, ... })
+ * @param {string} pattern Search query
+ * @param {Object.<string, number>} [usageMap={}]
+ * @returns {Array<{ command: object, score: number, matchName: object, matchCmd: object }>}
+ */
+export function rankCommands(commands, pattern, usageMap = {}) {
+  if (!commands || !Array.isArray(commands)) {
+    return [];
+  }
+
+  const cleanPattern = (pattern || "").trim();
+  const results = [];
+
+  for (const cmd of commands) {
+    const cmdName = cmd.name || "";
+    const cmdCommand =
+      typeof cmd.command === "string"
+        ? cmd.command
+        : Array.isArray(cmd.command)
+        ? cmd.command.join(" ")
+        : String(cmd.command || "");
+    const cmdKey = cmdCommand || cmdName;
+    const usageCount = usageMap[cmdKey] || 0;
+
+    const matchName = fuzzyMatch(cleanPattern, cmdName, usageCount);
+    const matchCmd = fuzzyMatch(cleanPattern, cmdCommand, usageCount);
+
+    if (matchName.match || matchCmd.match) {
+      const score = Math.max(
+        matchName.match ? matchName.score : 0,
+        matchCmd.match ? matchCmd.score : 0
+      );
+      results.push({
+        command: cmd,
+        score,
+        matchName,
+        matchCmd,
+      });
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results;
+}
+
+/**
+ * Maximum history limit.
+ */
+export const MAX_HISTORY_ITEMS = 50;
+
+/**
+ * Sanitizes sensitive information (passwords, tokens, API keys) from string or parameters.
+ * @param {string} text
+ * @returns {string}
+ */
+export function sanitizeSensitiveData(text) {
+  if (text === null || text === undefined) return "";
+  let str = String(text);
+
+  // Redact password/token/secret flags like --password secret123, --token=xyz, -p secret123
+  str = str.replace(
+    /(--?(?:password|token|secret|api[_-]?key|auth[_-]?token|pass|pwd))(?:=|\s+)(\S+)/gi,
+    "$1=[REDACTED]"
+  );
+
+  // Redact key=value or key: value pairs where key contains password/secret/token/apikey
+  str = str.replace(
+    /((?:password|secret|token|api[_-]?key|access[_-]?key|auth[_-]?token|bearer)\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s&|;]+)/gi,
+    "$1[REDACTED]"
+  );
+
+  // Redact Bearer tokens
+  str = str.replace(/(Bearer\s+)([A-Za-z0-9._~+/-]+=*)/gi, "$1[REDACTED]");
+
+  return str;
+}
+
+/**
+ * Sanitizes a history item before persisting or logging.
+ * @param {object} item
+ * @returns {object}
+ */
+export function sanitizeHistoryItem(item) {
+  if (!item || typeof item !== "object") return item;
+
+  const sanitized = { ...item };
+
+  if (sanitized.resolvedCommand) {
+    sanitized.resolvedCommand = sanitizeSensitiveData(sanitized.resolvedCommand);
+  }
+  if (sanitized.command && typeof sanitized.command === "string") {
+    sanitized.command = sanitizeSensitiveData(sanitized.command);
+  }
+  if (sanitized.name) {
+    sanitized.name = sanitizeSensitiveData(sanitized.name);
+  }
+
+  if (sanitized.parameters && typeof sanitized.parameters === "object") {
+    const sanitizedParams = {};
+    for (const [key, val] of Object.entries(sanitized.parameters)) {
+      const lowerKey = key.toLowerCase();
+      const isSensitiveKey =
+        lowerKey.includes("password") ||
+        lowerKey.includes("secret") ||
+        lowerKey.includes("token") ||
+        lowerKey.includes("key") ||
+        lowerKey.includes("auth") ||
+        lowerKey.includes("credential");
+
+      if (isSensitiveKey) {
+        sanitizedParams[key] = "[REDACTED]";
+      } else {
+        sanitizedParams[key] = sanitizeSensitiveData(val);
+      }
+    }
+    sanitized.parameters = sanitizedParams;
+  }
+
+  return sanitized;
+}
+
+/**
+ * Adds or updates a command history item, maintaining a maximum of 50 items.
+ * @param {Array<object>} history
+ * @param {object} newItem
+ * @returns {Array<object>}
+ */
+export function addHistoryItem(history, newItem) {
+  if (!Array.isArray(history)) history = [];
+  const sanitized = sanitizeHistoryItem(newItem);
+  sanitized.timestamp = sanitized.timestamp || Date.now();
+
+  // Deduplicate if identical resolvedCommand or command name/parameters exist, move to top
+  const filtered = history.filter(item => {
+    if (!item) return false;
+    const sameResolved = Boolean(item.resolvedCommand && sanitized.resolvedCommand && item.resolvedCommand === sanitized.resolvedCommand);
+    const sameCmdAndParams = Boolean(item.command && sanitized.command && item.command === sanitized.command && JSON.stringify(item.parameters || {}) === JSON.stringify(sanitized.parameters || {}));
+    const sameNameAndResolved = Boolean(item.name && sanitized.name && item.name === sanitized.name && sameResolved);
+    return !(sameResolved || sameCmdAndParams || sameNameAndResolved);
+  });
+
+  const updated = [sanitized, ...filtered];
+  return updated.slice(0, MAX_HISTORY_ITEMS);
+}
+
+
