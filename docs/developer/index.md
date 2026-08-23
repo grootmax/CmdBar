@@ -22,3 +22,14 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Shared Audit Trail & Compliance Module
+
+The audit trail module (`extension/auditTrail.js`) provides security logging and enterprise compliance:
+- **Shared Audit Trail**: Tamper-evident SHA-256 hash chaining over JSON audit logs for team activity.
+- **GDPR Compliance**: Automatic PII scrubbing for emails, IP addresses, tokens, and API keys, plus data retention purging and user anonymization.
+- **Anomaly Detection Engine**: Rule-based detection for execution bursts, failure spikes, dangerous shell commands, AI prompt injections, and log tampering.
+- **Compliance Reports**: Generates compliance reports mapped to SOC2, ISO27001, GDPR, and HIPAA frameworks in JSON, HTML, Markdown, and CSV formats.
+- **SIEM Export**: Exports structured logs to Syslog (RFC 5424), Splunk HEC, Elastic ECS, Datadog, and CEF formats.
+- **Real-Time Alerts**: AlertManager with deduplication cooldown windows, system desktop notifications, and webhook dispatching.
+
