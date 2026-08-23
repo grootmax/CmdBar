@@ -427,7 +427,9 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo "Warning: git push origin $HEAD_BRANCH failed."
+              fi
 
               cd /
 
@@ -478,10 +480,25 @@ jobs:
               echo "Checking status checks for PR #$PR_NUMBER..."
 
               CHECK_OUTPUT=$(
-                gh pr checks "$PR_NUMBER" \
+                gh pr view "$PR_NUMBER" \
                   --repo "$GH_REPO" \
-                  --json name,state,bucket,workflow \
-                  2>/dev/null || true
+                  --json statusCheckRollup \
+                  --jq '
+                    [
+                      .statusCheckRollup[]?
+                      | {
+                          name: (.name // .context // ""),
+                          state: (.status // .state // .conclusion // ""),
+                          bucket: (
+                            if (.conclusion == "SUCCESS" or .state == "SUCCESS") then "pass"
+                            elif (.conclusion == "FAILURE" or .conclusion == "CANCELLED" or .state == "FAILURE" or .state == "ERROR") then "fail"
+                            else "pending"
+                            end
+                          ),
+                          workflow: (.workflowName // .workflow // "")
+                        }
+                    ]
+                  ' 2>/dev/null || echo "[]"
               )
 
               if [ -z "$CHECK_OUTPUT" ]; then
@@ -565,7 +582,12 @@ jobs:
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      ((.name | ascii_downcase | contains("process jules prs") | not)
+                       and (.name | ascii_downcase | contains("auto jules pr manager") | not)
+                       and ((.workflow // "") | ascii_downcase | contains("auto jules pr manager") | not))
+                      and (.bucket == "fail" or .bucket == "cancel")
+                    )
                 ]
                 | length
               ')
@@ -573,7 +595,12 @@ jobs:
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "pending")
+                  | select(
+                      ((.name | ascii_downcase | contains("process jules prs") | not)
+                       and (.name | ascii_downcase | contains("auto jules pr manager") | not)
+                       and ((.workflow // "") | ascii_downcase | contains("auto jules pr manager") | not))
+                      and (.bucket == "pending")
+                    )
                 ]
                 | length
               ')
