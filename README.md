@@ -15,6 +15,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 - **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences.
 - **Dynamic menu** – Fully driven by a simple JSON file
 - **Categories** – Group commands (Projects, Infrastructure, ECS, Tickets, etc.)
+- **Copy to clipboard** – Each command menu item includes a copy button (`wl-copy` on Wayland / `xclip` on X11) to copy command strings without executing
 - **Argument support** – Commands that need input (e.g. `prod <task-id>`, `feature TFG-877`) open a clean dialog
 - **Management App** – Beautiful Libadwaita app to add, edit, reorder and test shortcuts
 - **Live reload** – Changes in the JSON are reflected after a quick reload

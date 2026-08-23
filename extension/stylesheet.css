@@ -31,3 +31,37 @@
     font-size: 0.9em;
     padding: 4px 12px;
 }
+
+/* Status colors for inline command output (Executor-style) */
+.cmdbar-output-running {
+    color: #888888;
+    font-size: 0.85em;
+    font-family: monospace;
+    margin-left: 8px;
+    margin-right: 8px;
+}
+
+.cmdbar-output-success {
+    color: #2ec27e;
+    font-size: 0.85em;
+    font-family: monospace;
+    margin-left: 8px;
+    margin-right: 8px;
+}
+
+.cmdbar-output-error {
+    color: #e01b24;
+    font-size: 0.85em;
+    font-family: monospace;
+    margin-left: 8px;
+    margin-right: 8px;
+}
+
+.cmdbar-refresh-button {
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.cmdbar-refresh-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
