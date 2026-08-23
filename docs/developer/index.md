@@ -15,7 +15,12 @@ CmdBar targets GNOME Shell 46 and 47 directly without legacy runtime fallback br
 - **Symbolic System Icons**: All indicators, category headers, command menu items, and confirmation dialogs instantiate symbolic icons using standard `St.Icon` with `icon_name` property.
 - **Path Resolution & Filesystem Operations**: Installation root path resolution uses native `Gio.File` handle methods (`Extension.dir.get_path()`). Directory creation uses `make_directory_with_parents(null)` sync API, file moves use `move_finish(res)` without array destructuring, and `Gio` imports handle `giModule.default` for GNOME Shell 46+ compatibility.
 
-### Output Parser & Formatter Module
+### Quick Calculator & Eval Mode Engine
+
+The calculator engine (`extension/calculator.js` & `companion/calculator.py`) evaluates mathematical expressions, unit conversions, and currency conversions safely offline:
+- **Safe Recursive Descent Math Parser**: Parses arithmetic operators, precedence, parentheses, math functions (`sin`, `cos`, `sqrt`, `log`, `abs`, `floor`, `ceil`, `pow`, `min`, `max`, `factorial`), and constants (`pi`, `e`, `tau`, `phi`) without using `eval()` or `Function()`.
+- **Offline Unit & Currency Conversions**: Converts length, mass, volume, temperature, data storage, time, speed, and currency using static exchange tables without network access.
+- **UI & Right-Click Copy Integration**: Displays calculation results dynamically in `CalculatorResultMenuItem` with click and right-click to copy result to clipboard.
 
 The output parser module (`extension/outputFormatter.js`) automatically detects and formats command outputs:
 - **Format Auto-Detection**: Detects JSON, CSV, TSV, Code, and plain text formats automatically.

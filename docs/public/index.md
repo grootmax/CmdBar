@@ -15,5 +15,6 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 - **Snippet & Template Library**: Pre-built command templates for Git, Docker, Kubernetes, AWS CLI, npm/pnpm, and System utilities.
 - **Import Wizard & Community Sharing**: "Import from Template" wizard in the companion app to browse library or import community JSON templates, plus "Export Template" to share custom commands.
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
+- **Quick Calculator & Eval Mode**: Type `>` (e.g., `> 2+2`, `> sin(pi/2)`, `> 10 km to miles`, `> 100 USD to EUR`) in search to instantly calculate. Support math functions, unit conversions, and offline currency conversions. Click or right-click to copy results.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
 - **Local Live Reload**: Configuration changes sync instantly.

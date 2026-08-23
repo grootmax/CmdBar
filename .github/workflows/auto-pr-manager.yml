@@ -48,12 +48,16 @@ jobs:
 
           echo "Checking for open pull requests..."
 
-          gh pr list \
+          if ! gh pr list \
             --repo "$GH_REPO" \
             --state open \
             --json number,title,headRefName,baseRefName,isDraft,createdAt \
             --limit 100 |
-            jq 'sort_by(.number)' > /tmp/all-prs.json
+            jq 'sort_by(.number)' > /tmp/all-prs.json; then
+            echo ""
+            echo "ERROR: Failed to list open PRs from GitHub API."
+            exit 0
+          fi
 
           TOTAL_PR_COUNT=$(jq 'length' /tmp/all-prs.json)
 
@@ -199,7 +203,7 @@ jobs:
               MERGEABLE=$(gh pr view "$PR_NUMBER" \
                 --repo "$GH_REPO" \
                 --json mergeable \
-                --jq '.mergeable')
+                --jq '.mergeable' 2>/dev/null || echo "UNKNOWN")
 
               echo "Attempt $ATTEMPT: mergeable=$MERGEABLE"
 
@@ -263,9 +267,14 @@ jobs:
               echo ""
               echo "Cloning repository..."
 
-              git clone \
+              if ! git clone \
                 "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" \
-                "$WORKDIR"
+                "$WORKDIR"; then
+                echo ""
+                echo "ERROR: Failed to clone repository."
+                rm -rf "$WORKDIR" || true
+                break
+              fi
 
               cd "$WORKDIR"
 
@@ -288,11 +297,23 @@ jobs:
               echo ""
               echo "Fetching base branch..."
 
-              git fetch origin "$BASE_BRANCH"
+              if ! git fetch origin "$BASE_BRANCH"; then
+                echo ""
+                echo "ERROR: Failed to fetch base branch."
+                cd /
+                rm -rf "$WORKDIR" || true
+                break
+              fi
 
               echo "Fetching Jules branch..."
 
-              git fetch origin "$HEAD_BRANCH"
+              if ! git fetch origin "$HEAD_BRANCH"; then
+                echo ""
+                echo "ERROR: Failed to fetch Jules branch."
+                cd /
+                rm -rf "$WORKDIR" || true
+                break
+              fi
 
               # ==================================================
               # CHECKOUT JULES BRANCH
@@ -301,9 +322,15 @@ jobs:
               echo ""
               echo "Checking out Jules branch..."
 
-              git checkout -B \
+              if ! git checkout -B \
                 "$HEAD_BRANCH" \
-                "origin/$HEAD_BRANCH"
+                "origin/$HEAD_BRANCH"; then
+                echo ""
+                echo "ERROR: Failed to checkout Jules branch."
+                cd /
+                rm -rf "$WORKDIR" || true
+                break
+              fi
 
               # ==================================================
               # MERGE BASE INTO JULES BRANCH
@@ -416,7 +443,7 @@ jobs:
                 echo "Committing conflict resolution..."
 
                 git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                  -m "chore: auto-resolve merge conflicts" || echo "Note: Commit skipped or nothing to commit."
 
               fi
 
@@ -427,7 +454,13 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo ""
+                echo "ERROR: Failed to push updated Jules branch to origin."
+                cd /
+                rm -rf "$WORKDIR" || true
+                break
+              fi
 
               cd /
 
