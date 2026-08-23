@@ -22,3 +22,14 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Screenshot & Screen Capture Engine
+
+The screenshot module (`extension/screenshotManager.js` and `companion/screenshot_service.py`) provides quick screen capture functionality across GNOME Shell and the Python companion:
+- **Capture Modes**: Fullscreen, active window, and region (area selection) captures.
+- **Destination Options**: Save to file with timestamped filenames, auto-copy to system clipboard, or both.
+- **Annotation Engine**: Vector overlays supporting text notes, bounding boxes, directional arrows/lines, and color highlights.
+- **Metadata Removal**: Automated EXIF/PNG chunk stripping (`tEXt`, `zTXt`, `iTXt`, `tIME`, `pHYs`, `APP1 EXIF`) to sanitize images for privacy prior to saving or sharing.
+- **Share via URL**: Service integration generating unique shareable links with expiration metadata.
+- **D-Bus Integration**: Exposes `CaptureScreenshot`, `AnnotateScreenshot`, and `UploadScreenshot` over D-Bus interface `org.gnome.CmdBar`.
+

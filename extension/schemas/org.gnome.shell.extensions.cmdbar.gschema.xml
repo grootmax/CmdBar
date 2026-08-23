@@ -26,5 +26,35 @@
       <summary>Auto-Format Command Output</summary>
       <description>Automatically format command output into pretty JSON, CSV/TSV tables, or code blocks.</description>
     </key>
+    <key name="shortcut-screenshot-fullscreen" type="as">
+      <default>['&lt;Super&gt;&lt;Shift&gt;3']</default>
+      <summary>Fullscreen Screenshot Shortcut</summary>
+      <description>Keyboard shortcut to trigger quick full screen capture.</description>
+    </key>
+    <key name="shortcut-screenshot-window" type="as">
+      <default>['&lt;Super&gt;&lt;Shift&gt;4']</default>
+      <summary>Window Screenshot Shortcut</summary>
+      <description>Keyboard shortcut to trigger quick window capture.</description>
+    </key>
+    <key name="shortcut-screenshot-region" type="as">
+      <default>['&lt;Super&gt;&lt;Shift&gt;5']</default>
+      <summary>Region Screenshot Shortcut</summary>
+      <description>Keyboard shortcut to trigger area selection screenshot capture.</description>
+    </key>
+    <key name="screenshot-save-directory" type="s">
+      <default>''</default>
+      <summary>Screenshot Save Directory</summary>
+      <description>Target directory to auto-save captured screenshots.</description>
+    </key>
+    <key name="screenshot-strip-metadata" type="b">
+      <default>true</default>
+      <summary>Strip Screenshot Metadata</summary>
+      <description>Remove EXIF and metadata chunks from captured screenshots prior to save or share.</description>
+    </key>
+    <key name="screenshot-auto-copy" type="b">
+      <default>true</default>
+      <summary>Auto Copy Screenshot to Clipboard</summary>
+      <description>Automatically copy screenshot image to system clipboard upon capture.</description>
+    </key>
   </schema>
 </schemalist>
