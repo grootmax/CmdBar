@@ -6,9 +6,7 @@ build/
 coverage/
 node_modules/
 reports/
-coverage/
 vendor/cache/
 vendor/cache/npm/
-coverage/
 vendor/cache/npm/_logs/
 vendor/cache/npm/_update-notifier-last-checked
