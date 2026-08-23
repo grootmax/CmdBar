@@ -370,9 +370,15 @@ jobs:
                   echo "Resolving conflict:"
                   echo "  $FILE"
 
-                  git checkout --theirs -- "$FILE"
-
-                  git add -- "$FILE"
+                  rm -f .git/index.lock
+                  if git checkout --theirs -- "$FILE" 2>/dev/null; then
+                    rm -f .git/index.lock
+                    git add -- "$FILE" || true
+                  else
+                    echo "  File $FILE removed in theirs, deleting..."
+                    rm -f .git/index.lock
+                    git rm -f -- "$FILE" 2>/dev/null || rm -f "$FILE" || true
+                  fi
 
                 done
 
@@ -415,8 +421,11 @@ jobs:
                 echo ""
                 echo "Committing conflict resolution..."
 
-                git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                rm -f .git/index.lock
+                if ! git diff --cached --quiet; then
+                  git commit \
+                    -m "chore: auto-resolve merge conflicts"
+                fi
 
               fi
 
