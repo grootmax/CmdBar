@@ -29,6 +29,30 @@
       <arg name="json_commands" type="s" direction="out"/>
     </method>
     
+    <method name="VerifyYubiKey2FA">
+      <annotation name="org.freedesktop.DBus.Description" value="Verify YubiKey 2FA for a command execution request"/>
+      <arg name="command_json" type="s" direction="in"/>
+      <arg name="auth_data_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    
+    <method name="GetYubiKeyStatus">
+      <annotation name="org.freedesktop.DBus.Description" value="Get YubiKey 2FA configuration and status as JSON string"/>
+      <arg name="status_json" type="s" direction="out"/>
+    </method>
+    
+    <method name="RegisterYubiKeyDevice">
+      <annotation name="org.freedesktop.DBus.Description" value="Register a YubiKey hardware device"/>
+      <arg name="device_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    
+    <method name="ValidateEmergencyCode">
+      <annotation name="org.freedesktop.DBus.Description" value="Validate and consume single-use emergency recovery code"/>
+      <arg name="code" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    
     <signal name="CommandExecuted">
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a command finishes execution"/>
       <arg name="name" type="s"/>

@@ -629,6 +629,17 @@ export function rankCommands(commands, query, usageMap = {}) {
 }
 
 export {
+  isCommandSensitive,
+  parseOtp,
+  verifyTouch,
+  verifyOTP,
+  verifyFIDO2Assertion,
+  verifyEmergencyCode,
+  registerDevice,
+  YubiKeyAuthManager,
+} from "./yubikeyAuth.js";
+
+export {
   detectFormat,
   parseCsvLine,
   parseCsvOrTsv,

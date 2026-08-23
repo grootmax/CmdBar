@@ -132,7 +132,11 @@ jobs:
           # We process them strictly in this order.
           # ==================================================
 
-          jq -c '.[]' /tmp/jules-prs.json | while read -r PR; do
+          mapfile -t JULES_PRS < <(jq -c '.[]' /tmp/jules-prs.json)
+          for PR in "${JULES_PRS[@]}"; do
+            if [ -z "$PR" ]; then
+              continue
+            fi
 
             PR_NUMBER=$(echo "$PR" | jq -r '.number')
             TITLE=$(echo "$PR" | jq -r '.title')
@@ -362,18 +366,16 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
-                git diff \
-                  --name-only \
-                  --diff-filter=U |
-                while IFS= read -r FILE; do
+                readarray -t CONFLICTED_FILES <<< "$(git diff --name-only --diff-filter=U)"
+                for FILE in "${CONFLICTED_FILES[@]}"; do
+                  if [ -n "$FILE" ]; then
+                    echo "Resolving conflict:"
+                    echo "  $FILE"
 
-                  echo "Resolving conflict:"
-                  echo "  $FILE"
+                    git checkout --theirs -- "$FILE" || git rm -- "$FILE" || true
 
-                  git checkout --theirs -- "$FILE"
-
-                  git add -- "$FILE"
-
+                    git add -- "$FILE" || true
+                  fi
                 done
 
                 # ==================================================
@@ -383,7 +385,7 @@ jobs:
                 REMAINING_CONFLICTS=$(git diff \
                   --name-only \
                   --diff-filter=U |
-                  wc -l)
+                  wc -l | tr -d ' ')
 
                 if [ "$REMAINING_CONFLICTS" -ne 0 ]; then
 
@@ -416,7 +418,7 @@ jobs:
                 echo "Committing conflict resolution..."
 
                 git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                  -m "chore: auto-resolve merge conflicts" || true
 
               fi
 

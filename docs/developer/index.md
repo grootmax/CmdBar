@@ -22,3 +22,12 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### YubiKey 2FA Authentication Module
+
+The YubiKey authentication modules (`extension/yubikeyAuth.js` and `companion/yubikey_auth.py`) handle hardware-backed multi-factor authentication:
+- **Sensitive Command Detection**: Automatically identifies destructive or elevated commands (`sudo`, `rm -rf`, `aws ecs`, `kubectl delete`, `deploy`) or commands explicitly flagged with `sensitive: true` / `require_2fa: true`.
+- **Hardware Touch-to-Confirm**: Supports hardware presence test / touch confirmation before execution.
+- **Yubico OTP & FIDO2/U2F Assertions**: Parses 44-character ModHex OTP tokens, verifies device IDs, and validates FIDO2 assertion signatures against registered public keys.
+- **Emergency Access**: Single-use 8-character emergency recovery codes for fallback access when hardware keys are unavailable.
+- **D-Bus Interface Integration**: Exposes `VerifyYubiKey2FA`, `GetYubiKeyStatus`, `RegisterYubiKeyDevice`, and `ValidateEmergencyCode` D-Bus methods on `org.gnome.CmdBar`.
