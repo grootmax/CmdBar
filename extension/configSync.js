@@ -12,6 +12,8 @@ export const DEFAULT_CONFIG = {
     fallback_provider: "ollama",
     fallback_model: "llama3",
   },
+  workspaces: [],
+  active_workspace_id: null,
   categories: [
     {
       name: "AI Assistant",

@@ -11,6 +11,7 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 
 ## Core Features
 
+- **Organization Workspaces**: Collaborative team workspaces with shared commands, RBAC admin controls, usage analytics, billing tier management, private registries, and Slack integration. See [Organization Workspaces](WORKSPACES.md) for details.
 - **Dynamic Menu**: Fully driven by JSON config files.
 - **Snippet & Template Library**: Pre-built command templates for Git, Docker, Kubernetes, AWS CLI, npm/pnpm, and System utilities.
 - **Import Wizard & Community Sharing**: "Import from Template" wizard in the companion app to browse library or import community JSON templates, plus "Export Template" to share custom commands.
