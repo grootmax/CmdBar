@@ -93,6 +93,31 @@ class CmdBarDBusClient:
                 return []
         return []
 
+    def stream_deck_press_key(self, key_index: int) -> bool:
+        """Trigger key press on active Stream Deck profile by key index."""
+        res = self._call_method("StreamDeckPressKey", key_index)
+        return bool(res)
+
+    def stream_deck_set_active_profile(self, profile_name: str) -> bool:
+        """Set active Stream Deck profile by name."""
+        res = self._call_method("StreamDeckSetActiveProfile", profile_name)
+        return bool(res)
+
+    def stream_deck_get_profile_grid(self) -> list:
+        """Retrieve full active Stream Deck profile button grid as list of key visuals."""
+        res = self._call_method("StreamDeckGetProfileGrid")
+        if isinstance(res, list):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return []
+        return []
+
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
         self._executed_callbacks.append(callback)

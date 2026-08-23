@@ -1,5 +1,6 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import { StreamDeckController } from "./streamDeck.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -20,6 +21,17 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
+    </method>
+    <method name="StreamDeckPressKey">
+      <arg name="key_index" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="StreamDeckSetActiveProfile">
+      <arg name="profile_name" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="StreamDeckGetProfileGrid">
+      <arg name="json_grid" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -46,6 +58,7 @@ export class CmdBarDBusService {
     this._indicator = indicator;
     this._dbusImpl = null;
     this._busNameId = 0;
+    this.streamDeck = new StreamDeckController(indicator);
   }
 
   export() {
@@ -227,6 +240,44 @@ export class CmdBarDBusService {
       return JSON.stringify(allCmds);
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
+      return JSON.stringify([]);
+    }
+  }
+
+  async StreamDeckPressKey(keyIndex) {
+    try {
+      if (!this.streamDeck.profiles || this.streamDeck.profiles.size === 0) {
+        await this.streamDeck.loadProfiles();
+      }
+      const res = await this.streamDeck.pressKey(keyIndex);
+      return Boolean(res && res.success);
+    } catch (e) {
+      console.error(`CmdBar D-Bus StreamDeckPressKey error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async StreamDeckSetActiveProfile(profileName) {
+    try {
+      if (!this.streamDeck.profiles || this.streamDeck.profiles.size === 0) {
+        await this.streamDeck.loadProfiles();
+      }
+      return await this.streamDeck.setActiveProfile(profileName);
+    } catch (e) {
+      console.error(`CmdBar D-Bus StreamDeckSetActiveProfile error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async StreamDeckGetProfileGrid() {
+    try {
+      if (!this.streamDeck.profiles || this.streamDeck.profiles.size === 0) {
+        await this.streamDeck.loadProfiles();
+      }
+      const grid = this.streamDeck.renderProfileGrid();
+      return JSON.stringify(grid);
+    } catch (e) {
+      console.error(`CmdBar D-Bus StreamDeckGetProfileGrid error: ${e.message}`);
       return JSON.stringify([]);
     }
   }
