@@ -2,7 +2,7 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands, detectFormat, formatOutput } from './extension/commandProcessor.js';
+import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands, detectFormat, formatOutput, calculateTileBounds, generateWMCommand, parseWMCommand, isWMCommand } from './extension/commandProcessor.js';
 import { saveConfigAtomically, saveConfigAtomicallyAsync } from './companion/configStore.js';
 
 console.log('Running standalone verification tests...');
@@ -73,6 +73,21 @@ try {
     assert.strictEqual(fs.existsSync(tempFile), true, 'Temp file should be created asynchronously');
     const readDataAsync = JSON.parse(fs.readFileSync(tempFile, 'utf8'));
     assert.deepStrictEqual(readDataAsync, testDataAsync, 'Written data should match source data (async)');
+
+    // 7. Window Management Verification Tests
+    const leftBounds = calculateTileBounds('tile-left', { x: 0, y: 0, width: 1920, height: 1080 });
+    assert.deepStrictEqual(leftBounds, { x: 0, y: 0, width: 960, height: 1080 }, 'Tile left bounds should match 50% width');
+
+    assert.strictEqual(isWMCommand('wm:tile-left'), true, 'wm:tile-left should be identified as WM command');
+    assert.strictEqual(isWMCommand('make build'), false, 'make build should not be identified as WM command');
+
+    const parsedWM = parseWMCommand('wm:move-workspace 3');
+    assert.strictEqual(parsedWM.isWM, true, 'Parsed command should mark isWM true');
+    assert.strictEqual(parsedWM.action, 'move-workspace', 'Parsed action should be move-workspace');
+    assert.strictEqual(parsedWM.target, 3, 'Parsed target should be 3');
+
+    const i3Cmd = generateWMCommand('close', {}, 'i3');
+    assert.strictEqual(i3Cmd, 'i3-msg kill', 'i3 close command should generate i3-msg kill');
 
     // Cleanup temp files & dir
     if (fs.existsSync(tempDir)) {

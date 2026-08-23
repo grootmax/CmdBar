@@ -22,3 +22,11 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Window Management Module
+
+The window management module (`extension/windowManager.js` & `companion/window_manager.py`) provides window manipulation, shortcuts, visual previews, and multi-WM compatibility:
+- **Window Control**: Close, move, resize, tile (half and quarter tile layouts), and workspace switching.
+- **Visual Preview**: Visual tile bounds overlay calculation (`calculateTileBounds`, `generatePreviewOverlayData`) and window preview cards with SVG window frames (`renderWindowPreviewCard`).
+- **Multi-WM Compatibility**: Native GNOME Shell `Meta` APIs with CLI fallback generators for i3, Sway, Hyprland, `wmctrl`, and `xdotool`.
+

@@ -121,4 +121,20 @@ describe('CmdBar DBus Service Unit Tests', () => {
       expect.objectContaining({ name: 'Git Status' })
     );
   });
+
+  test('TileWindow, CloseWindow, SwitchWorkspace, and ListWindows execute window actions', async () => {
+    const tileRes = await service.TileWindow('tile-left');
+    expect(tileRes).toBe(true);
+
+    const closeRes = await service.CloseWindow();
+    expect(closeRes).toBe(true);
+
+    const wsRes = await service.SwitchWorkspace('2');
+    expect(wsRes).toBe(true);
+
+    const winsJson = await service.ListWindows();
+    const wins = JSON.parse(winsJson);
+    expect(Array.isArray(wins)).toBe(true);
+    expect(wins.length).toBeGreaterThan(0);
+  });
 });
