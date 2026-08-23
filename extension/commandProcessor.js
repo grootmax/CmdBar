@@ -592,17 +592,25 @@ export function highlightMatches(text, matches) {
 }
 
 /**
- * Ranks commands based on fuzzy match score and usage frequency.
+ * Ranks commands based on fuzzy match score and usage frequency, filtering by RBAC rules if rbacManager is provided.
  * @param {Array<Object>} commands
  * @param {string} query
  * @param {Object.<string, number>} [usageMap={}]
+ * @param {Object} [rbacManager=null]
+ * @param {string} [username=null]
+ * @param {Object} [options={}]
  * @returns {Array<Object>}
  */
-export function rankCommands(commands, query, usageMap = {}) {
+export function rankCommands(commands, query, usageMap = {}, rbacManager = null, username = null, options = {}) {
   if (!Array.isArray(commands)) return [];
 
   const results = [];
   for (const cmd of commands) {
+    if (rbacManager && typeof rbacManager.isCommandVisible === "function") {
+      if (!rbacManager.isCommandVisible(cmd, username, options)) {
+        continue;
+      }
+    }
     const commandStr = cmd.command || "";
     const nameStr = cmd.name || "";
     const usage = usageMap[commandStr] || usageMap[nameStr] || 0;
