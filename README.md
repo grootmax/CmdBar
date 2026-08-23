@@ -12,8 +12,9 @@ Perfect for developers who live in the terminal and want one-click access to pro
 ## Features
 
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
+- **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences.
 - **Dynamic menu** – Fully driven by a simple JSON file
-- **Clipboard History** – Command palette clipboard manager with search, pin/unpin, clear history, and click-to-paste across Wayland and X11
+- **Fuzzy search** – Search box at top of menu with real-time fuzzy matching (e.g., "gp" matches "git push origin"), character markup highlighting, relevance + usage frequency sorting, and full keyboard navigation (arrow keys, Enter, Escape)
 - **Categories** – Group commands (Projects, Infrastructure, ECS, Tickets, etc.)
 - **Copy to clipboard** – Each command menu item includes a copy button (`wl-copy` on Wayland / `xclip` on X11) to copy command strings without executing
 - **Argument support** – Commands that need input (e.g. `prod <task-id>`, `feature TFG-877`) open a clean dialog
