@@ -4,6 +4,16 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.window_manager import (
+    get_windows_list,
+    close_window,
+    move_window,
+    resize_window,
+    tile_window,
+    switch_workspace,
+    generate_window_preview,
+    execute_window_command,
+)
 
 class CmdBarDBusService:
     """
@@ -131,3 +141,18 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def list_windows(self) -> str:
+        return json.dumps(get_windows_list())
+
+    def control_window(self, action: str, param: str = "") -> bool:
+        cmd_str = f"cmdbar:window:{action} {param}".strip()
+        res = execute_window_command(cmd_str)
+        return bool(res and res.get("result", {}).get("success"))
+
+    def get_window_preview(self) -> str:
+        return generate_window_preview()
+
+    def switch_workspace(self, target: str) -> bool:
+        res = switch_workspace(target)
+        return bool(res and res.get("success"))

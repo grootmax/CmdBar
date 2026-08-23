@@ -260,6 +260,13 @@ export const DEFAULT_ALLOWED_BINARIES = [
   "env",
   "sh",
   "bash",
+  "wmctrl",
+  "xdotool",
+  "i3-msg",
+  "swaymsg",
+  "hyprctl",
+  "gdbus",
+  "dbus-send",
 ];
 
 /**
@@ -275,6 +282,10 @@ export function isBinaryAllowlisted(binaryPath, customAllowlist = []) {
   const cleanPath = binaryPath.trim();
   if (!cleanPath) {
     return false;
+  }
+
+  if (cleanPath.startsWith("cmdbar:window:") || cleanPath.startsWith("window:")) {
+    return true;
   }
 
   if (Array.isArray(customAllowlist) && customAllowlist.length > 0) {
@@ -636,4 +647,16 @@ export {
   formatCodeBlock,
   formatOutput,
 } from "./outputFormatter.js";
+
+export {
+  closeWindow,
+  moveWindow,
+  resizeWindow,
+  tileWindow,
+  switchWorkspace,
+  getWindowsList,
+  generateWindowPreview,
+  executeWindowCommand,
+} from "./windowManager.js";
+
 
