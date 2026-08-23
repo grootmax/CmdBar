@@ -637,3 +637,12 @@ export {
   formatOutput,
 } from "./outputFormatter.js";
 
+export {
+  isCalculatorQuery,
+  cleanCalculatorQuery,
+  evaluateCalculatorQuery,
+  calculate,
+  CURRENCY_RATES,
+  UNIT_DEFINITIONS,
+} from "./calculator.js";
+
