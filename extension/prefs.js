@@ -206,5 +206,36 @@ export default class CmdBarPreferences extends ExtensionPreferences {
       settings.set_strv("shortcut", parsed);
       syncUIFromSettings();
     });
+
+    // Numpad Macro Pad Group
+    const numpadGroup = new Adw.PreferencesGroup({
+      title: _("Numpad Macro Pad"),
+      description: _("10 instant macro commands (0-9) with configurable layers and visual overlay HUD"),
+    });
+    page.add(numpadGroup);
+
+    const numpadEnableRow = new Adw.SwitchRow({
+      title: _("Enable Numpad Macro Pad"),
+      subtitle: _("Enable instant numpad keybindings (0-9) and macro mode"),
+    });
+    numpadGroup.add(numpadEnableRow);
+    settings.bind(
+      "numpad-enabled",
+      numpadEnableRow,
+      "active",
+      Gio.SettingsBindFlags.DEFAULT,
+    );
+
+    const numpadOverlayRow = new Adw.SwitchRow({
+      title: _("Show Visual Overlay HUD"),
+      subtitle: _("Display visual overlay showing 10 numpad bindings and active layer"),
+    });
+    numpadGroup.add(numpadOverlayRow);
+    settings.bind(
+      "numpad-overlay-visible",
+      numpadOverlayRow,
+      "active",
+      Gio.SettingsBindFlags.DEFAULT,
+    );
   }
 }

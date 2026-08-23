@@ -18,6 +18,7 @@ import {
   formatOutput,
 } from "./commandProcessor.js";
 import { loadConfig } from "./configSync.js";
+import { NumpadManager } from "./numpadManager.js";
 import {
   translateNaturalLanguageToCommand,
   isAICommand,
@@ -1017,6 +1018,16 @@ const CmdBarIndicator = GObject.registerClass(
         let configPath = this._getConfigPath();
         let extensionPath = this._extension.dir.get_path();
         let config = await loadConfig(configPath, extensionPath);
+        this._cachedConfig = config;
+
+        if (!this._numpadManager) {
+          this._numpadManager = new NumpadManager({
+            config: this._cachedConfig,
+            onExecuteCommand: (name, cmd, b) => this.executeCommand(name, cmd, {}, b),
+          });
+        } else {
+          this._numpadManager.setConfig(this._cachedConfig);
+        }
 
         if (config && config._isInvalid) {
           this._showNotification(
@@ -1396,11 +1407,23 @@ export default class CmdBarExtension extends Extension {
             ? Shell.ActionMode.ALL
             : 1;
 
-        try {
-          if (typeof Main.wm.removeKeybinding === "function") {
-            Main.wm.removeKeybinding("shortcut");
-          }
-        } catch (e) {}
+        const keysToRegister = [
+          "shortcut",
+          "numpad-toggle-shortcut",
+          "numpad-switch-layer-shortcut",
+          "numpad-overlay-shortcut",
+        ];
+        for (let i = 0; i <= 9; i++) {
+          keysToRegister.push(`numpad-key-${i}`);
+        }
+
+        keysToRegister.forEach((keyName) => {
+          try {
+            if (typeof Main.wm.removeKeybinding === "function") {
+              Main.wm.removeKeybinding(keyName);
+            }
+          } catch (e) {}
+        });
 
         Main.wm.addKeybinding(
           "shortcut",
@@ -1411,19 +1434,84 @@ export default class CmdBarExtension extends Extension {
             this._toggleMenu();
           },
         );
+
+        Main.wm.addKeybinding(
+          "numpad-toggle-shortcut",
+          this._settings,
+          flags,
+          mode,
+          () => {
+            if (this._indicator && this._indicator._numpadManager) {
+              const enabled = !this._indicator._numpadManager.isEnabled();
+              this._indicator._numpadManager.setEnabled(enabled);
+              if (Main.notify) {
+                Main.notify("CmdBar Numpad Macro Pad", enabled ? "Numpad Macro Mode: ENABLED" : "Numpad Macro Mode: DISABLED");
+              }
+            }
+          },
+        );
+
+        Main.wm.addKeybinding(
+          "numpad-switch-layer-shortcut",
+          this._settings,
+          flags,
+          mode,
+          () => {
+            if (this._indicator && this._indicator._numpadManager) {
+              this._indicator._numpadManager.cycleLayer();
+              const activeLayer = this._indicator._numpadManager.getActiveLayer();
+              if (Main.notify && activeLayer) {
+                Main.notify("CmdBar Numpad Layer", `Switched to layer: ${activeLayer.name}`);
+              }
+            }
+          },
+        );
+
+        Main.wm.addKeybinding(
+          "numpad-overlay-shortcut",
+          this._settings,
+          flags,
+          mode,
+          () => {
+            if (this._indicator && this._indicator._numpadManager) {
+              this._indicator._numpadManager.toggleOverlay();
+            }
+          },
+        );
+
+        for (let i = 0; i <= 9; i++) {
+          const digit = i;
+          Main.wm.addKeybinding(
+            `numpad-key-${digit}`,
+            this._settings,
+            flags,
+            mode,
+            () => {
+              if (this._indicator && this._indicator._numpadManager) {
+                this._indicator._numpadManager.triggerKey(digit);
+              }
+            },
+          );
+        }
       }
     } catch (e) {
-      console.error(`CmdBar: Failed to register keybinding: ${e.message}`);
+      console.error(`CmdBar: Failed to register keybindings: ${e.message}`);
     }
   }
 
   /**
-   * Unregister global GNOME keybinding.
+   * Unregister global GNOME keybindings.
    */
   _unregisterKeybinding() {
     try {
       if (Main && Main.wm && typeof Main.wm.removeKeybinding === "function") {
         Main.wm.removeKeybinding("shortcut");
+        Main.wm.removeKeybinding("numpad-toggle-shortcut");
+        Main.wm.removeKeybinding("numpad-switch-layer-shortcut");
+        Main.wm.removeKeybinding("numpad-overlay-shortcut");
+        for (let i = 0; i <= 9; i++) {
+          Main.wm.removeKeybinding(`numpad-key-${i}`);
+        }
       }
     } catch (e) {
       console.error(`CmdBar: Failed to unregister keybinding: ${e.message}`);

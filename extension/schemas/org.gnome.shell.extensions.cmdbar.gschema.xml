@@ -26,5 +26,45 @@
       <summary>Auto-Format Command Output</summary>
       <description>Automatically format command output into pretty JSON, CSV/TSV tables, or code blocks.</description>
     </key>
+    <key name="numpad-enabled" type="b">
+      <default>true</default>
+      <summary>Enable Numpad Macro Pad</summary>
+      <description>Toggle dedicated numeric keypad shortcuts and macro layers.</description>
+    </key>
+    <key name="numpad-active-layer" type="i">
+      <default>0</default>
+      <summary>Active Numpad Layer</summary>
+      <description>Index of currently active numpad layer.</description>
+    </key>
+    <key name="numpad-overlay-visible" type="b">
+      <default>false</default>
+      <summary>Show Visual Numpad Overlay</summary>
+      <description>Toggle visual HUD overlay showing current numpad macro bindings.</description>
+    </key>
+    <key name="numpad-toggle-shortcut" type="as">
+      <default>['&lt;Super&gt;KP_Multiply']</default>
+      <summary>Toggle Numpad Macro Mode Shortcut</summary>
+      <description>Shortcut key to toggle Numpad macro mode on and off.</description>
+    </key>
+    <key name="numpad-switch-layer-shortcut" type="as">
+      <default>['&lt;Super&gt;KP_Add']</default>
+      <summary>Switch Numpad Layer Shortcut</summary>
+      <description>Shortcut key to cycle through configured numpad macro layers.</description>
+    </key>
+    <key name="numpad-overlay-shortcut" type="as">
+      <default>['&lt;Super&gt;KP_Subtract']</default>
+      <summary>Toggle Visual Numpad Overlay Shortcut</summary>
+      <description>Shortcut key to show or hide visual numpad overlay HUD.</description>
+    </key>
+    <key name="numpad-key-0" type="as"><default>['&lt;Super&gt;KP_0']</default><summary>Numpad Key 0</summary><description>Shortcut for Numpad key 0</description></key>
+    <key name="numpad-key-1" type="as"><default>['&lt;Super&gt;KP_1']</default><summary>Numpad Key 1</summary><description>Shortcut for Numpad key 1</description></key>
+    <key name="numpad-key-2" type="as"><default>['&lt;Super&gt;KP_2']</default><summary>Numpad Key 2</summary><description>Shortcut for Numpad key 2</description></key>
+    <key name="numpad-key-3" type="as"><default>['&lt;Super&gt;KP_3']</default><summary>Numpad Key 3</summary><description>Shortcut for Numpad key 3</description></key>
+    <key name="numpad-key-4" type="as"><default>['&lt;Super&gt;KP_4']</default><summary>Numpad Key 4</summary><description>Shortcut for Numpad key 4</description></key>
+    <key name="numpad-key-5" type="as"><default>['&lt;Super&gt;KP_5']</default><summary>Numpad Key 5</summary><description>Shortcut for Numpad key 5</description></key>
+    <key name="numpad-key-6" type="as"><default>['&lt;Super&gt;KP_6']</default><summary>Numpad Key 6</summary><description>Shortcut for Numpad key 6</description></key>
+    <key name="numpad-key-7" type="as"><default>['&lt;Super&gt;KP_7']</default><summary>Numpad Key 7</summary><description>Shortcut for Numpad key 7</description></key>
+    <key name="numpad-key-8" type="as"><default>['&lt;Super&gt;KP_8']</default><summary>Numpad Key 8</summary><description>Shortcut for Numpad key 8</description></key>
+    <key name="numpad-key-9" type="as"><default>['&lt;Super&gt;KP_9']</default><summary>Numpad Key 9</summary><description>Shortcut for Numpad key 9</description></key>
   </schema>
 </schemalist>
