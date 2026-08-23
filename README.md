@@ -11,6 +11,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
+- **Enterprise Policy Enforcement Engine** – Enforce security controls including Multi-Factor Authentication (MFA) for sensitive operations, Data Loss Prevention (DLP) pattern scanning and redaction for Credit Cards, SSN, AWS keys, and API tokens, geographic access restrictions (country and IP CIDR allow/deny lists), and time-based access control windows
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Pre-built Snippet & Template Library** – Includes pre-built, ready-to-use command templates for Git workflows, Docker operations, Kubernetes (`kubectl`), AWS CLI, `npm`/`pnpm`, and System utilities.
 - **Import Wizard & Community Template Sharing** – Easily import templates from the built-in library, local JSON files, or remote URLs, and export custom commands into template schema JSON files.
@@ -209,6 +210,28 @@ Used directly by the GNOME Shell extension to load top-bar menus dynamically.
   ]
 }
 ```
+
+---
+
+## Enterprise Policy Enforcement Engine
+
+CmdBar includes a Policy Enforcement Engine (`extension/policyEngine.js` and `app/policy_engine.py`) for enterprise security compliance.
+
+### Policy Capabilities
+
+1. **Multi-Factor Authentication (MFA) for Sensitive Ops**:
+   - Commands matched against sensitive patterns (e.g., `*deploy*`, `*rm -rf*`, `*sudo*`, `*aws ecs*`) or marked with `sensitive: true` require MFA token verification before execution.
+   - Verified MFA sessions persist for a configurable duration (default: 5 minutes / 300 seconds).
+
+2. **Data Loss Prevention (DLP)**:
+   - Real-time regex pattern scanning with optional Luhn validation for sensitive financial and credential data (Credit Cards, SSNs, AWS Access Keys, Private Keys, API Tokens).
+   - Modes: `redact` (replaces sensitive matches with `[REDACTED:<type>]` in input parameters and command outputs), `block` (cancels execution if sensitive patterns are detected), or `warn`.
+
+3. **Geographic Restrictions (Geofencing)**:
+   - Restricts command execution based on ISO country codes (`allowedCountries`, `blockedCountries`) and IP CIDR subnets (`allowedIpRanges`, `blockedIpRanges`).
+
+4. **Time-Based Access Control**:
+   - Configurable access windows by day of week (`allowedDays`: `["Mon", "Tue", "Wed", "Thu", "Fri"]`) and time range (`allowedHours`: `{ start: "08:00", end: "17:00" }`).
 
 ---
 

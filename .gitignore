@@ -5,3 +5,7 @@ __pycache__/
 build/
 node_modules/
 reports/
+coverage/
+.coverage
+vendor/cache/npm/_logs/
+vendor/cache/npm/_update-notifier-last-checked

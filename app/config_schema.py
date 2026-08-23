@@ -6,6 +6,7 @@ import subprocess
 import hmac
 import hashlib
 import secrets
+from app.policy_engine import PolicyEngine
 
 def canonical_json(obj):
     if isinstance(obj, dict):
@@ -50,6 +51,29 @@ DEFAULT_CONFIG = {
     "require_confirmation": True,
     "fallback_provider": "ollama",
     "fallback_model": "llama3"
+  },
+  "policy": {
+    "mfa": {
+      "enabled": False,
+      "sensitive_commands": ["*deploy*", "*rm -rf*", "*sudo*", "*aws ecs*"],
+      "session_duration_sec": 300
+    },
+    "dlp": {
+      "enabled": True,
+      "action": "redact"
+    },
+    "geo": {
+      "enabled": False,
+      "allowed_countries": [],
+      "blocked_countries": [],
+      "allowed_ip_ranges": [],
+      "blocked_ip_ranges": []
+    },
+    "time": {
+      "enabled": False,
+      "allowed_days": ["Mon", "Tue", "Wed", "Thu", "Fri"],
+      "allowed_hours": {"start": "00:00", "end": "23:59"}
+    }
   },
   "categories": [
     {

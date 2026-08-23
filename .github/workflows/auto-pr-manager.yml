@@ -22,6 +22,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  workflows: write
 
 jobs:
   process-jules-prs:
@@ -362,19 +363,25 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
-                git diff \
+                CONFLICTED_FILES=$(git diff \
                   --name-only \
-                  --diff-filter=U |
-                while IFS= read -r FILE; do
+                  --diff-filter=U)
 
-                  echo "Resolving conflict:"
-                  echo "  $FILE"
+                if [ -n "$CONFLICTED_FILES" ]; then
+                  while IFS= read -r FILE; do
+                    [ -z "$FILE" ] && continue
 
-                  git checkout --theirs -- "$FILE"
+                    echo "Resolving conflict:"
+                    echo "  $FILE"
 
-                  git add -- "$FILE"
+                    if git checkout --theirs -- "$FILE" 2>/dev/null; then
+                      git add -- "$FILE"
+                    else
+                      git rm -- "$FILE" 2>/dev/null || true
+                    fi
 
-                done
+                  done <<< "$CONFLICTED_FILES"
+                fi
 
                 # ==================================================
                 # VERIFY NO CONFLICTS REMAIN
@@ -415,8 +422,12 @@ jobs:
                 echo ""
                 echo "Committing conflict resolution..."
 
-                git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                if ! git diff --cached --quiet; then
+                  git commit \
+                    -m "chore: auto-resolve merge conflicts"
+                else
+                  echo "No staged changes to commit after conflict resolution."
+                fi
 
               fi
 
@@ -478,13 +489,14 @@ jobs:
               echo "Checking status checks for PR #$PR_NUMBER..."
 
               CHECK_OUTPUT=$(
-                gh pr checks "$PR_NUMBER" \
+                gh pr view "$PR_NUMBER" \
                   --repo "$GH_REPO" \
-                  --json name,state,bucket,workflow \
+                  --json statusCheckRollup \
+                  --jq '.statusCheckRollup' \
                   2>/dev/null || true
               )
 
-              if [ -z "$CHECK_OUTPUT" ]; then
+              if [ -z "$CHECK_OUTPUT" ] || [ "$CHECK_OUTPUT" = "null" ]; then
                 CHECK_OUTPUT="[]"
               fi
 
@@ -497,10 +509,10 @@ jobs:
                 [
                   .[]
                   | select(
-                      (.name | ascii_downcase | contains("accessibility"))
-                      or (.name | ascii_downcase | contains("a11y"))
-                      or (((.workflow // "") | ascii_downcase) | contains("accessibility"))
-                      or (((.workflow // "") | ascii_downcase) | contains("a11y"))
+                      ((.name // "") | ascii_downcase | contains("accessibility"))
+                      or ((.name // "") | ascii_downcase | contains("a11y"))
+                      or (((.workflowName // .workflow // "") | ascii_downcase) | contains("accessibility"))
+                      or (((.workflowName // .workflow // "") | ascii_downcase) | contains("a11y"))
                     )
                 ]
               ')
@@ -525,7 +537,9 @@ jobs:
               A11Y_FAILED=$(echo "$A11Y_CHECK" | jq '
                 [
                   .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      .conclusion == "FAILURE" or .conclusion == "CANCELLED" or .conclusion == "TIMED_OUT" or .conclusion == "ACTION_REQUIRED" or .state == "FAILURE" or .state == "ERROR" or .bucket == "fail" or .bucket == "cancel"
+                    )
                 ]
                 | length
               ')
@@ -545,7 +559,9 @@ jobs:
               A11Y_PENDING=$(echo "$A11Y_CHECK" | jq '
                 [
                   .[]
-                  | select(.bucket == "pending")
+                  | select(
+                      .status == "IN_PROGRESS" or .status == "QUEUED" or .status == "WAITING" or .status == "REQUESTED" or .state == "PENDING" or .bucket == "pending" or (.status != "COMPLETED" and (.state // "") == "")
+                    )
                 ]
                 | length
               ')
@@ -562,18 +578,32 @@ jobs:
               # --------------------------------------------------
               # CHECK OTHER CHECKS FOR FAILURE / PENDING
               # --------------------------------------------------
-              OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
+              OTHER_CHECKS=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      ((.name // "") | ascii_downcase | contains("process jules prs") | not)
+                      and (((.workflowName // .workflow // "") | ascii_downcase) | contains("auto jules pr manager") | not)
+                    )
+                ]
+              ')
+
+              OTHER_FAILED=$(echo "$OTHER_CHECKS" | jq '
+                [
+                  .[]
+                  | select(
+                      .conclusion == "FAILURE" or .conclusion == "CANCELLED" or .conclusion == "TIMED_OUT" or .conclusion == "ACTION_REQUIRED" or .state == "FAILURE" or .state == "ERROR" or .bucket == "fail" or .bucket == "cancel"
+                    )
                 ]
                 | length
               ')
 
-              OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
+              OTHER_PENDING=$(echo "$OTHER_CHECKS" | jq '
                 [
                   .[]
-                  | select(.bucket == "pending")
+                  | select(
+                      .status == "IN_PROGRESS" or .status == "QUEUED" or .status == "WAITING" or .status == "REQUESTED" or .state == "PENDING" or .bucket == "pending" or (.status != "COMPLETED" and (.state // "") == "")
+                    )
                 ]
                 | length
               ')
