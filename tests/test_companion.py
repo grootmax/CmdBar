@@ -202,6 +202,7 @@ def test_test_command_dialog_async_and_cancellation():
     command = {
         "name": "Test Echo",
         "template": "echo {msg}",
+        "verified": True,
         "parameters": {
             "msg": {
                 "placeholder": "Enter message"
@@ -335,9 +336,106 @@ def test_unverified_modal_cancellation_halts_execution():
 
             # Gio.Subprocess.new should NOT be called because execution was cancelled!
             mock_proc_new.assert_not_called()
+            # Stored verification status must remain unchanged
+            assert command.get("verified") is False
     finally:
         Gio.Subprocess.new = old_subproc_new
         Gtk.Entry = old_entry
+
+
+def test_unverified_modal_approval_proceeds_with_execution():
+    from unittest.mock import MagicMock, patch
+    from companion.companion_app import TestCommandDialog, Gio, Gtk
+
+    command = {
+        "name": "Unverified Test Command",
+        "template": "echo {msg}",
+        "verified": False,
+        "parameters": {
+            "msg": {
+                "placeholder": "Enter message"
+            }
+        }
+    }
+
+    mock_proc = MagicMock()
+    mock_subproc_new = MagicMock(return_value=mock_proc)
+    old_subproc_new = Gio.Subprocess.new
+    Gio.Subprocess.new = mock_subproc_new
+
+    old_entry = Gtk.Entry
+    mock_entry = MagicMock()
+    mock_entry.get_text.return_value = "hello_world"
+    Gtk.Entry = MagicMock(return_value=mock_entry)
+
+    try:
+        dialog = TestCommandDialog(None, command, None)
+
+        with patch("companion.companion_app.Adw") as mock_adw:
+            mock_msg_dlg = MagicMock()
+            mock_adw.MessageDialog.return_value = mock_msg_dlg
+
+            # Capture body argument passed to MessageDialog
+            def fake_connect(event, cb):
+                if event == "response":
+                    cb(mock_msg_dlg, "execute")
+            mock_msg_dlg.connect.side_effect = fake_connect
+
+            dialog.on_run_clicked(None)
+
+            # MessageDialog must be constructed with exact substituted command string in body
+            kwargs = mock_adw.MessageDialog.call_args.kwargs
+            assert "hello_world" in kwargs.get("body", "")
+
+            # Gio.Subprocess.new MUST be called after approval
+            mock_subproc_new.assert_called_once()
+            # Verification status must remain unchanged
+            assert command["verified"] is False
+    finally:
+        Gio.Subprocess.new = old_subproc_new
+        Gtk.Entry = old_entry
+
+
+def test_verified_command_bypasses_confirmation_dialog():
+    from unittest.mock import MagicMock, patch
+    from companion.companion_app import TestCommandDialog, Gio, Gtk
+
+    command = {
+        "name": "Verified Command",
+        "template": "echo {msg}",
+        "verified": True,
+        "parameters": {
+            "msg": {
+                "placeholder": "Enter message"
+            }
+        }
+    }
+
+    mock_proc = MagicMock()
+    mock_subproc_new = MagicMock(return_value=mock_proc)
+    old_subproc_new = Gio.Subprocess.new
+    Gio.Subprocess.new = mock_subproc_new
+
+    old_entry = Gtk.Entry
+    mock_entry = MagicMock()
+    mock_entry.get_text.return_value = "hello_world"
+    Gtk.Entry = MagicMock(return_value=mock_entry)
+
+    try:
+        dialog = TestCommandDialog(None, command, None)
+
+        with patch("companion.companion_app.Adw") as mock_adw:
+            dialog.on_run_clicked(None)
+
+            # MessageDialog must NOT be instantiated for verified commands
+            mock_adw.MessageDialog.assert_not_called()
+            # Execution starts immediately
+            mock_subproc_new.assert_called_once()
+    finally:
+        Gio.Subprocess.new = old_subproc_new
+        Gtk.Entry = old_entry
+
+
 
 
 
