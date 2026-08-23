@@ -1274,11 +1274,17 @@ export async function saveCommandHistory(history, historyPath) {
 
 export {
   PROJECT_TEMPLATES,
+  WORKSPACE_FILE_NAMES,
   findGitRepositoryRoot,
+  findGitRoot,
   findWorkspaceConfigPath,
+  findWorkspaceConfig,
   detectProjectType,
   initWorkspaceConfig,
+  createWorkspaceConfig,
   loadWorkspaceConfig,
   mergeConfigs,
-  WorkspaceManager
+  getEffectiveConfig,
+  switchWorkspace,
+  WorkspaceManager,
 } from "./workspaceConfig.js";

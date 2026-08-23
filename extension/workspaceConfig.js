@@ -1,10 +1,35 @@
-import fs from 'fs';
-import path from 'path';
-import { validateConfigSchema } from './configSync.js';
+/**
+ * Workspace-Specific Configuration Management module for CmdBar.
+ * Supports auto-detection from CWD, git repo integration, project templates,
+ * smooth switching, and merging global and workspace configs.
+ * Compatible with Node.js and GJS.
+ */
+
+import fs from "fs";
+import path from "path";
+import { loadConfig, saveConfig, validateConfigSchema } from "./configSync.js";
+
+const isNode =
+  typeof process !== "undefined" && process.versions && process.versions.node;
+
+let Gio, GLib, fsModule;
+if (isNode) {
+  try {
+    fsModule = await import("fs");
+  } catch (e) {}
+} else {
+  try {
+    const giModule = await import("gi");
+    Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
+    GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
+  } catch (e) {}
+}
+
+export const WORKSPACE_FILE_NAMES = [".cmdbar.json", ".cmdbar/config.json"];
 
 export const PROJECT_TEMPLATES = {
   node: {
-    name: "Node.js",
+    name: "Node.js Project",
     categories: [
       {
         name: "Node.js Scripts",
@@ -18,7 +43,7 @@ export const PROJECT_TEMPLATES = {
     ]
   },
   python: {
-    name: "Python",
+    name: "Python Project",
     categories: [
       {
         name: "Python Commands",
@@ -32,7 +57,7 @@ export const PROJECT_TEMPLATES = {
     ]
   },
   rust: {
-    name: "Rust",
+    name: "Rust Project",
     categories: [
       {
         name: "Cargo Commands",
@@ -46,7 +71,7 @@ export const PROJECT_TEMPLATES = {
     ]
   },
   go: {
-    name: "Go",
+    name: "Go Project",
     categories: [
       {
         name: "Go Commands",
@@ -55,6 +80,20 @@ export const PROJECT_TEMPLATES = {
           { name: "Go Run", command: "go run ." },
           { name: "Go Build", command: "go build" },
           { name: "Go Vet", command: "go vet ./..." }
+        ]
+      }
+    ]
+  },
+  docker: {
+    name: "Docker Container Workspace",
+    categories: [
+      {
+        name: "Docker",
+        commands: [
+          { name: "Compose Up", command: "docker compose up -d" },
+          { name: "Compose Down", command: "docker compose down" },
+          { name: "Compose Logs", command: "docker compose logs -f" },
+          { name: "Compose Build", command: "docker compose build" }
         ]
       }
     ]
@@ -75,90 +114,135 @@ export const PROJECT_TEMPLATES = {
   }
 };
 
-/**
- * Finds the Git repository root starting from startDir and searching upwards.
- * @param {string} startDir 
- * @returns {string|null} Absolute path to git root directory or null
- */
-export function findGitRepositoryRoot(startDir) {
-  if (!startDir || typeof startDir !== 'string') return null;
-  let current = path.resolve(startDir);
-  const root = path.parse(current).root;
+function fileExistsSync(filePath) {
+  if (isNode) {
+    try {
+      if (fsModule && fsModule.existsSync) {
+        return fsModule.existsSync(filePath);
+      }
+      return fs.existsSync(filePath);
+    } catch (e) {
+      return false;
+    }
+  } else {
+    try {
+      let file = Gio.File.new_for_path(filePath);
+      return file.query_exists(null);
+    } catch (e) {
+      return false;
+    }
+  }
+}
 
+function normalizePath(p) {
+  if (!p) return "";
+  let clean = p.replace(/\\/g, "/");
+  if (clean.length > 1 && clean.endsWith("/")) {
+    clean = clean.slice(0, -1);
+  }
+  return clean;
+}
+
+function getParentDir(dir) {
+  const norm = normalizePath(dir);
+  const lastSlash = norm.lastIndexOf("/");
+  if (lastSlash <= 0) {
+    return lastSlash === 0 ? "/" : "";
+  }
+  return norm.substring(0, lastSlash);
+}
+
+function joinPaths(...parts) {
+  return parts
+    .map((p, i) => {
+      let norm = normalizePath(p);
+      if (i > 0 && norm.startsWith("/")) norm = norm.slice(1);
+      return norm;
+    })
+    .filter(Boolean)
+    .join("/");
+}
+
+export function findGitRoot(startDir) {
+  if (!startDir) {
+    startDir = isNode ? process.cwd() : (GLib ? GLib.get_current_dir() : "/");
+  }
+  let current = normalizePath(startDir);
   while (current) {
-    const gitPath = path.join(current, '.git');
-    if (fs.existsSync(gitPath)) {
+    const gitPath = joinPaths(current, ".git");
+    if (fileExistsSync(gitPath)) {
       return current;
     }
-    if (current === root) break;
-    current = path.dirname(current);
+    const parent = getParentDir(current);
+    if (!parent || parent === current) break;
+    current = parent;
   }
   return null;
 }
 
-/**
- * Finds a workspace config file (.cmdbar.json or .cmdbar/config.json)
- * searching upwards from startDir up to git root or filesystem root.
- * @param {string} startDir 
- * @returns {string|null} Absolute path to workspace config file or null
- */
-export function findWorkspaceConfigPath(startDir) {
-  if (!startDir || typeof startDir !== 'string') return null;
-  let current = path.resolve(startDir);
-  const gitRoot = findGitRepositoryRoot(current);
-  const root = path.parse(current).root;
+export function findGitRepositoryRoot(startDir) {
+  if (!startDir || typeof startDir !== "string") return null;
+  const res = findGitRoot(startDir);
+  return res ? path.resolve(res) : null;
+}
+
+export function findWorkspaceConfig(startDir) {
+  if (!startDir) {
+    startDir = isNode ? process.cwd() : (GLib ? GLib.get_current_dir() : "/");
+  }
+  let current = normalizePath(startDir);
+  const gitRoot = findGitRoot(current);
 
   while (current) {
-    const fileConfig = path.join(current, '.cmdbar.json');
-    if (fs.existsSync(fileConfig)) {
-      return fileConfig;
-    }
-    const dirConfig = path.join(current, '.cmdbar', 'config.json');
-    if (fs.existsSync(dirConfig)) {
-      return dirConfig;
+    for (const name of WORKSPACE_FILE_NAMES) {
+      const candidate = joinPaths(current, name);
+      if (fileExistsSync(candidate)) {
+        return {
+          configPath: candidate,
+          workspaceDir: current,
+          filename: name,
+        };
+      }
     }
     if (gitRoot && current === gitRoot) {
       break;
     }
-    if (current === root) break;
-    current = path.dirname(current);
+    const parent = getParentDir(current);
+    if (!parent || parent === current) break;
+    current = parent;
   }
+
   return null;
 }
 
-/**
- * Detects the project type based on indicator files in directory or git root.
- * @param {string} dirPath 
- * @returns {string} Template name ('node', 'python', 'rust', 'go', 'generic')
- */
-export function detectProjectType(dirPath) {
-  if (!dirPath || typeof dirPath !== 'string') return 'generic';
-  const targetDir = path.resolve(dirPath);
-  if (!fs.existsSync(targetDir)) return 'generic';
-
-  if (fs.existsSync(path.join(targetDir, 'package.json'))) return 'node';
-  if (
-    fs.existsSync(path.join(targetDir, 'requirements.txt')) ||
-    fs.existsSync(path.join(targetDir, 'pyproject.toml')) ||
-    fs.existsSync(path.join(targetDir, 'setup.py')) ||
-    fs.existsSync(path.join(targetDir, 'Pipfile'))
-  ) return 'python';
-  if (fs.existsSync(path.join(targetDir, 'Cargo.toml'))) return 'rust';
-  if (fs.existsSync(path.join(targetDir, 'go.mod'))) return 'go';
-  if (fs.existsSync(path.join(targetDir, 'Makefile'))) return 'generic';
-
-  return 'generic';
+export function findWorkspaceConfigPath(startDir) {
+  if (!startDir || typeof startDir !== "string") return null;
+  const ws = findWorkspaceConfig(startDir);
+  return ws ? ws.configPath : null;
 }
 
-/**
- * Initializes a workspace-specific configuration file using a specified or detected template.
- * @param {string} dirPath Workspace root directory
- * @param {string} [templateName] Optional template name
- * @returns {{ config: object, configPath: string }}
- */
+export function detectProjectType(dirPath) {
+  if (!dirPath || typeof dirPath !== "string") return "generic";
+  const targetDir = path.resolve(dirPath);
+  if (!fs.existsSync(targetDir)) return "generic";
+
+  if (fs.existsSync(path.join(targetDir, "package.json"))) return "node";
+  if (
+    fs.existsSync(path.join(targetDir, "requirements.txt")) ||
+    fs.existsSync(path.join(targetDir, "pyproject.toml")) ||
+    fs.existsSync(path.join(targetDir, "setup.py")) ||
+    fs.existsSync(path.join(targetDir, "Pipfile"))
+  ) return "python";
+  if (fs.existsSync(path.join(targetDir, "Cargo.toml"))) return "rust";
+  if (fs.existsSync(path.join(targetDir, "go.mod"))) return "go";
+  if (fs.existsSync(path.join(targetDir, "Makefile"))) return "generic";
+
+  return "generic";
+}
+
 export function initWorkspaceConfig(dirPath, templateName = null) {
-  if (!dirPath || typeof dirPath !== 'string') {
-    throw new Error('Directory path is required');
+  if (!dirPath || typeof dirPath !== "string") {
+    throw new Error("Directory path is required");
   }
   const resolvedDir = path.resolve(dirPath);
   if (!fs.existsSync(resolvedDir)) {
@@ -180,28 +264,60 @@ export function initWorkspaceConfig(dirPath, templateName = null) {
     categories: JSON.parse(JSON.stringify(tmpl.categories))
   };
 
-  const configPath = path.join(resolvedDir, '.cmdbar.json');
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+  const configPath = path.join(resolvedDir, ".cmdbar.json");
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf8");
   return { config, configPath };
 }
 
-/**
- * Loads a workspace-specific configuration file.
- * @param {string} dirPath Path to project directory or directly to config file
- * @returns {object|null} Workspace config object or null if not found/invalid
- */
+export async function createWorkspaceConfig(targetDir, templateName = "generic", customConfig = null) {
+  if (!targetDir) {
+    targetDir = isNode ? process.cwd() : (GLib ? GLib.get_current_dir() : "/");
+  }
+  const normDir = normalizePath(targetDir);
+  const configPath = joinPaths(normDir, ".cmdbar.json");
+
+  let baseTemplate = customConfig;
+  if (!baseTemplate) {
+    const templateKey = (templateName || "generic").toLowerCase();
+    const tmplObj = PROJECT_TEMPLATES[templateKey] || PROJECT_TEMPLATES.generic;
+    baseTemplate = JSON.parse(JSON.stringify(tmplObj));
+  } else {
+    baseTemplate = JSON.parse(JSON.stringify(customConfig));
+  }
+
+  const dirName = normDir.split("/").pop();
+  const workspaceName =
+    (customConfig && (customConfig.workspace_name || customConfig.name)) ||
+    dirName ||
+    baseTemplate.name ||
+    "Workspace";
+  const configData = {
+    workspace_name: workspaceName,
+    ai: baseTemplate.ai || {},
+    categories: baseTemplate.categories || [],
+  };
+
+  await saveConfig(configData, configPath);
+
+  return {
+    configPath,
+    workspaceDir: normDir,
+    config: configData,
+  };
+}
+
 export function loadWorkspaceConfig(dirPath) {
   let configPath = dirPath;
-  if (!dirPath || typeof dirPath !== 'string') return null;
+  if (!dirPath || typeof dirPath !== "string") return null;
 
-  if (!dirPath.endsWith('.json')) {
+  if (!dirPath.endsWith(".json")) {
     configPath = findWorkspaceConfigPath(dirPath);
   }
 
   if (!configPath || !fs.existsSync(configPath)) return null;
 
   try {
-    const raw = fs.readFileSync(configPath, 'utf8');
+    const raw = fs.readFileSync(configPath, "utf8");
     const parsed = JSON.parse(raw);
     if (validateConfigSchema(parsed)) {
       return parsed;
@@ -212,68 +328,98 @@ export function loadWorkspaceConfig(dirPath) {
   return null;
 }
 
-/**
- * Merges workspace-specific configuration into global configuration.
- * Workspace categories/commands are prepended or merged into global config.
- * @param {object} globalConfig 
- * @param {object} workspaceConfig 
- * @returns {object} Merged configuration object
- */
 export function mergeConfigs(globalConfig, workspaceConfig) {
-  if (!globalConfig) return workspaceConfig || { categories: [] };
-  if (!workspaceConfig) return globalConfig;
+  const merged = JSON.parse(JSON.stringify(globalConfig || { categories: [] }));
+  if (!workspaceConfig || typeof workspaceConfig !== "object") {
+    return merged;
+  }
 
-  const merged = JSON.parse(JSON.stringify(globalConfig));
-  const wsCategories = JSON.parse(JSON.stringify(workspaceConfig.categories || []));
+  const wsName = workspaceConfig.workspace_name || (workspaceConfig.workspace && workspaceConfig.workspace.name) || "Workspace";
+  const wsCategories = workspaceConfig.categories || [];
+
+  merged._workspace = {
+    active: true,
+    name: wsName,
+  };
+  if (workspaceConfig.workspace) {
+    merged._activeWorkspace = workspaceConfig.workspace;
+  }
+
+  if (workspaceConfig.ai && typeof workspaceConfig.ai === "object") {
+    merged.ai = { ...(merged.ai || {}), ...workspaceConfig.ai };
+  }
 
   const existingCatMap = new Map();
   (merged.categories || []).forEach((cat, idx) => {
-    existingCatMap.set(cat.name, idx);
+    if (cat && cat.name) existingCatMap.set(cat.name, idx);
   });
 
   const prependedCategories = [];
 
   for (const wsCat of wsCategories) {
+    if (!wsCat || !wsCat.name) continue;
+    const catCopy = JSON.parse(JSON.stringify(wsCat));
+    catCopy.workspace = true;
+    if (Array.isArray(catCopy.commands)) {
+      catCopy.commands.forEach((cmd) => {
+        cmd.workspace = true;
+      });
+    }
+
     if (existingCatMap.has(wsCat.name)) {
       const globalCatIdx = existingCatMap.get(wsCat.name);
       const globalCmdNames = new Set(
-        (merged.categories[globalCatIdx].commands || []).map(c => c.name)
+        (merged.categories[globalCatIdx].commands || []).map((c) => c.name)
       );
-      for (const cmd of (wsCat.commands || [])) {
+      for (const cmd of catCopy.commands || []) {
         if (!globalCmdNames.has(cmd.name)) {
           merged.categories[globalCatIdx].commands.unshift(cmd);
           globalCmdNames.add(cmd.name);
         }
       }
     } else {
-      prependedCategories.push(wsCat);
+      prependedCategories.push(catCopy);
     }
   }
 
   merged.categories = [...prependedCategories, ...(merged.categories || [])];
-
-  if (workspaceConfig.ai) {
-    merged.ai = { ...merged.ai, ...workspaceConfig.ai };
-  }
-
-  if (workspaceConfig.workspace) {
-    merged._activeWorkspace = workspaceConfig.workspace;
-  }
-
   return merged;
 }
 
-/**
- * WorkspaceManager manages active workspace state, auto-detection, switching, and registry.
- */
+export async function getEffectiveConfig(cwd, globalConfigPath, extensionPath) {
+  if (!cwd) {
+    cwd = isNode ? process.cwd() : (GLib ? GLib.get_current_dir() : "/");
+  }
+  const globalConfig = await loadConfig(globalConfigPath, extensionPath);
+  const wsInfo = findWorkspaceConfig(cwd);
+
+  if (!wsInfo) {
+    return globalConfig;
+  }
+
+  try {
+    const wsConfig = await loadConfig(wsInfo.configPath);
+    const merged = mergeConfigs(globalConfig, wsConfig);
+    merged._workspace.dir = wsInfo.workspaceDir;
+    merged._workspace.configPath = wsInfo.configPath;
+    return merged;
+  } catch (e) {
+    return globalConfig;
+  }
+}
+
+export async function switchWorkspace(newCwd, globalConfigPath) {
+  return await getEffectiveConfig(newCwd, globalConfigPath);
+}
+
 export class WorkspaceManager {
   constructor(options = {}) {
     this.globalConfig = options.globalConfig || { categories: [] };
-    this.knownWorkspaces = new Map(); // workspacePath -> info
+    this.knownWorkspaces = new Map();
     this.activeCwd = null;
     this.activeWorkspaceConfigPath = null;
     this.activeWorkspaceConfig = null;
-    this.cache = new Map(); // cwd -> detected config path
+    this.cache = new Map();
   }
 
   setGlobalConfig(config) {

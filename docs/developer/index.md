@@ -98,11 +98,12 @@ The policy enforcement engine (`extension/policyEngine.js` and `app/policy_engin
 
 ### Workspace-Specific Configuration Module
 
-The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`) manages project-level configuration discovery and switching:
+The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py` / `companion/workspace_config.py`) manages project-level configuration discovery and switching:
 - **CWD & Git Auto-Detection**: Searches upward from current working directory to Git repository root for `.cmdbar.json` or `.cmdbar/config.json`.
-- **Project Templates**: Initializes project configurations using built-in templates (`node`, `python`, `rust`, `go`, `generic`).
+- **Project Templates**: Initializes project configurations using built-in templates (`node`, `python`, `rust`, `go`, `docker`, `generic`).
 - **Smooth Merging**: Merges workspace categories with global configuration, prepending project commands while avoiding command duplicates.
 - **WorkspaceManager**: High-performance active workspace manager with caching to guarantee sub-5ms lookup performance.
+- **D-Bus & CLI Exposure**: Exposed via D-Bus (`GetEffectiveConfig`, `SwitchWorkspace`, `InitWorkspace`) and Python companion CLI.
 
 ### Team Command Sharing & Enterprise Collaboration
 

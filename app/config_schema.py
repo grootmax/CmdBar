@@ -821,3 +821,13 @@ def merge_environment(base_env, config, profile_name=None):
             merged[str(k)] = str(v)
     return merged
 
+from companion.workspace_config import (
+    find_git_root,
+    find_workspace_config,
+    create_workspace_config,
+    merge_configs,
+    get_effective_config,
+    switch_workspace,
+    PROJECT_TEMPLATES,
+)
+
