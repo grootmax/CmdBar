@@ -201,7 +201,7 @@ jobs:
               MERGEABLE=$(gh pr view "$PR_NUMBER" \
                 --repo "$GH_REPO" \
                 --json mergeable \
-                --jq '.mergeable')
+                --jq '.mergeable // "UNKNOWN"' 2>/dev/null || echo "UNKNOWN")
 
               echo "Attempt $ATTEMPT: mergeable=$MERGEABLE"
 
@@ -429,7 +429,12 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo "ERROR: Failed to push resolved Jules branch."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               cd /
 
@@ -487,8 +492,8 @@ jobs:
               CHECK_OUTPUT=$(jq -n --arg cr "$CHECK_RUNS" --arg st "$STATUSES" '
                 [
                   ( (($cr | try fromjson catch {}).check_runs // [])[]? | {
-                      name: .name,
-                      state: .status,
+                      name: (.name // ""),
+                      state: (.status // ""),
                       workflow: (.app.name // ""),
                       bucket: (
                         if .status != "completed" then "pending"
@@ -499,8 +504,8 @@ jobs:
                       )
                   }),
                   ( (($st | try fromjson catch {}).statuses // [])[]? | {
-                      name: .context,
-                      state: .state,
+                      name: (.context // ""),
+                      state: (.state // ""),
                       workflow: "status",
                       bucket: (
                         if .state == "success" then "pass"
@@ -525,13 +530,13 @@ jobs:
                 [
                   .[]
                   | select(
-                      (.name | ascii_downcase | contains("accessibility"))
-                      or (.name | ascii_downcase | contains("a11y"))
+                      ((((.name // "") | ascii_downcase) | contains("accessibility"))
+                      or (((.name // "") | ascii_downcase) | contains("a11y"))
                       or (((.workflow // "") | ascii_downcase) | contains("accessibility"))
-                      or (((.workflow // "") | ascii_downcase) | contains("a11y"))
+                      or (((.workflow // "") | ascii_downcase) | contains("a11y")))
                     )
                 ]
-              ')
+              ' 2>/dev/null || echo "[]")
 
               A11Y_COUNT=$(echo "$A11Y_CHECK" | jq 'length')
 
@@ -594,25 +599,25 @@ jobs:
                 [
                   .[]
                   | select(
-                      ((.name | ascii_downcase | contains("process jules prs")) | not)
-                      and ((.name | ascii_downcase | contains("auto jules pr manager")) | not)
+                      ((((.name // "") | ascii_downcase) | contains("process jules prs")) | not)
+                      and ((((.name // "") | ascii_downcase) | contains("auto jules pr manager")) | not)
                     )
                   | select(.bucket == "fail" or .bucket == "cancel")
                 ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
                   | select(
-                      ((.name | ascii_downcase | contains("process jules prs")) | not)
-                      and ((.name | ascii_downcase | contains("auto jules pr manager")) | not)
+                      ((((.name // "") | ascii_downcase) | contains("process jules prs")) | not)
+                      and ((((.name // "") | ascii_downcase) | contains("auto jules pr manager")) | not)
                     )
                   | select(.bucket == "pending")
                 ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               if [ "$OTHER_FAILED" -gt 0 ]; then
                 echo ""
