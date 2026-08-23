@@ -206,5 +206,30 @@ export default class CmdBarPreferences extends ExtensionPreferences {
       settings.set_strv("shortcut", parsed);
       syncUIFromSettings();
     });
+
+    // MIDI Controller Settings Page
+    const midiPage = new Adw.PreferencesPage({
+      title: _("MIDI Controller"),
+      iconName: "audio-card-symbolic",
+    });
+    window.add(midiPage);
+
+    const midiGroup = new Adw.PreferencesGroup({
+      title: _("MIDI Hardware & Performance"),
+      description: _("Configure MIDI button mappings, LED feedback, continuous faders, and DJ performance mode"),
+    });
+    midiPage.add(midiGroup);
+
+    const midiEnableRow = new Adw.ActionRow({
+      title: _("MIDI Controller Support"),
+      subtitle: _("Process incoming MIDI messages (Note On/Off, Control Change) for command execution"),
+    });
+    midiGroup.add(midiEnableRow);
+
+    const perfModeRow = new Adw.ActionRow({
+      title: _("Performance Mode (DJ/Producer)"),
+      subtitle: _("Low-latency execution and continuous slider debouncing for live performance"),
+    });
+    midiGroup.add(perfModeRow);
   }
 }

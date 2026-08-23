@@ -23,6 +23,7 @@ import {
   isAICommand,
   cleanAIPrompt,
 } from "./aiTranslator.js";
+import { MidiControllerManager } from "./midiController.js";
 
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
@@ -971,6 +972,21 @@ const CmdBarIndicator = GObject.registerClass(
 
       this.add_child(this._box);
 
+      // Initialize MIDI Controller Manager
+      this._midiController = new MidiControllerManager();
+      this._midiController.setCallbacks({
+        onExecute: (name, cmdStr, metadata) => {
+          this.executeCommand(name, cmdStr, metadata || {});
+        },
+        onPerformanceModeChanged: (enabled) => {
+          if (enabled) {
+            this.setButtonLabel("[PERF]");
+          } else {
+            this.setButtonLabel("");
+          }
+        },
+      });
+
       // Harvest environment asynchronously on startup
       harvestEnvironment();
 
@@ -1023,6 +1039,10 @@ const CmdBarIndicator = GObject.registerClass(
             "CmdBar Configuration Error",
             "Invalid configuration file detected. Using in-memory default settings without overwriting your file.",
           );
+        }
+
+        if (config && this._midiController) {
+          this._midiController.updateConfig(config);
         }
 
         // Clear all current items in menu
@@ -1122,6 +1142,11 @@ const CmdBarIndicator = GObject.registerClass(
           "Execution Error",
           "Command template parsed to empty argument list.",
         );
+        return;
+      }
+
+      if (this._midiController && this._midiController.getConfig().performance_mode) {
+        _executeDirectTokens(argv, commandName);
         return;
       }
 

@@ -12,6 +12,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 ## Features
 
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
+- **MIDI Controller Support** – Use physical MIDI controllers (buttons, pads, faders, knobs) for command execution, LED status feedback, parameter sliders, bank switching, and low-latency DJ/producer performance mode
 - **Output Formatters** – Automatically parse and nicely format command outputs: JSON pretty-printing with Pango markup & ANSI syntax highlighting, ASCII table rendering for CSV/TSV data, and monospaced boxed code blocks
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
 - **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences.
@@ -227,6 +228,11 @@ CmdBar exposes a full D-Bus API on the Session Bus under bus name `org.gnome.Cmd
 | `RemoveCommand` | `string name` | `boolean` | Remove a command by name |
 | `ExecuteCommand` | `string name` | `boolean` | Execute a command by name or direct command string |
 | `GetCommands` | *None* | `string` (JSON) | Get all registered commands as a JSON array |
+| `ProcessMidiMessage` | `string type, int32 channel, int32 number, int32 value` | `string` (JSON) | Process incoming MIDI message |
+| `SetMidiPerformanceMode` | `boolean enabled` | `boolean` | Toggle low-latency MIDI performance mode |
+| `SwitchMidiBank` | `string bank` | `boolean` | Switch active MIDI bank profile |
+| `GetMidiMappings` | *None* | `string` (JSON) | Get configured MIDI mappings |
+| `SetMidiLedFeedback` | `boolean enabled` | `boolean` | Enable or disable LED feedback |
 
 ### Signals
 
@@ -234,6 +240,10 @@ CmdBar exposes a full D-Bus API on the Session Bus under bus name `org.gnome.Cmd
 |--------|------------|-------------|
 | `CommandExecuted` | `string name, int32 exit_code, boolean success` | Emitted when a command finishes execution |
 | `CommandOutput` | `string name, string stdout, string stderr` | Emitted with command output streams |
+| `MidiMessageReceived` | `string type, int32 channel, int32 number, int32 value` | Emitted when a MIDI message is received |
+| `MidiBankSwitched` | `string bank` | Emitted when MIDI bank profile changes |
+| `MidiPerformanceModeToggled` | `boolean enabled` | Emitted when MIDI performance mode changes |
+| `MidiLedFeedbackSent` | `string type, int32 channel, int32 number, int32 value` | Emitted when LED feedback message is sent |
 
 ### CLI Example (`gdbus`)
 ```bash

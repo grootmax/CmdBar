@@ -42,5 +42,59 @@
       <arg name="stdout" type="s"/>
       <arg name="stderr" type="s"/>
     </signal>
+
+    <method name="ProcessMidiMessage">
+      <annotation name="org.freedesktop.DBus.Description" value="Process incoming MIDI message (note/cc)"/>
+      <arg name="type" type="s" direction="in"/>
+      <arg name="channel" type="i" direction="in"/>
+      <arg name="number" type="i" direction="in"/>
+      <arg name="value" type="i" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+
+    <method name="SetMidiPerformanceMode">
+      <annotation name="org.freedesktop.DBus.Description" value="Toggle or set MIDI performance mode"/>
+      <arg name="enabled" type="b" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="SwitchMidiBank">
+      <annotation name="org.freedesktop.DBus.Description" value="Switch active MIDI bank profile"/>
+      <arg name="bank" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="GetMidiMappings">
+      <annotation name="org.freedesktop.DBus.Description" value="Get list of configured MIDI mappings as JSON string"/>
+      <arg name="json_mappings" type="s" direction="out"/>
+    </method>
+
+    <method name="SetMidiLedFeedback">
+      <annotation name="org.freedesktop.DBus.Description" value="Enable or disable MIDI LED feedback"/>
+      <arg name="enabled" type="b" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <signal name="MidiMessageReceived">
+      <arg name="type" type="s"/>
+      <arg name="channel" type="i"/>
+      <arg name="number" type="i"/>
+      <arg name="value" type="i"/>
+    </signal>
+
+    <signal name="MidiBankSwitched">
+      <arg name="bank" type="s"/>
+    </signal>
+
+    <signal name="MidiPerformanceModeToggled">
+      <arg name="enabled" type="b"/>
+    </signal>
+
+    <signal name="MidiLedFeedbackSent">
+      <arg name="type" type="s"/>
+      <arg name="channel" type="i"/>
+      <arg name="number" type="i"/>
+      <arg name="value" type="i"/>
+    </signal>
   </interface>
 </node>
