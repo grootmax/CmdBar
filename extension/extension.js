@@ -27,13 +27,13 @@ const ExecutionConfirmationDialog = GObject.registerClass(
       this._executed = false;
 
       let mainBox = new St.BoxLayout({
-        orientation: Clutter.Orientation.VERTICAL,
+        vertical: true,
         style_class: "cmdbar-dialog-content",
         style: "padding: 16px; min-width: 320px;",
       });
 
       let headerBox = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         style: "margin-bottom: 8px;",
       });
 
@@ -368,7 +368,7 @@ const CommandInputMenuItem = GObject.registerClass(
       this._cmdObj = cmdObj || {};
 
       this.box = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         x_expand: true,
       });
 
@@ -588,7 +588,7 @@ const CommandMenuItem = GObject.registerClass(
       this._cmdObj = cmdObj || {};
 
       this.box = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         x_expand: true,
       });
 
@@ -694,7 +694,7 @@ const JobMenuItem = GObject.registerClass(
       this.jobId = jobId;
 
       this.box = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         x_expand: true,
         style: "padding: 4px 6px;",
       });
@@ -747,7 +747,7 @@ const CategoryHeaderMenuItem = GObject.registerClass(
       });
 
       this.box = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         style_class: "cmdbar-category-header",
         x_expand: true,
       });

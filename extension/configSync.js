@@ -44,9 +44,9 @@ const isNode =
 let Gio, GLib;
 if (!isNode) {
   try {
-    const gi = await import("gi");
-    Gio = gi.Gio;
-    GLib = gi.GLib;
+    const giModule = await import("gi");
+    Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
+    GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
   } catch (e) {
     console.error(
       "CmdBar: Failed to import gi inside non-Node environment:",
@@ -203,25 +203,14 @@ function gjs_ensureDir(dirPath) {
         resolve();
         return;
       }
-      file.make_directory_with_parents_async(
-        GLib.PRIORITY_DEFAULT,
-        null,
-        (obj, res) => {
-          try {
-            obj.make_directory_with_parents_finish(res);
-            resolve();
-          } catch (e) {
-            // Ignore already-exists error
-            if (file.query_exists(null)) {
-              resolve();
-            } else {
-              reject(e);
-            }
-          }
-        },
-      );
+      file.make_directory_with_parents(null);
+      resolve();
     } catch (e) {
-      reject(e);
+      if (file.query_exists(null)) {
+        resolve();
+      } else {
+        reject(e);
+      }
     }
   });
 }
@@ -277,12 +266,8 @@ function gjs_writeFileAtomic(filePath, content) {
               null,
               (moveObj, moveRes) => {
                 try {
-                  let [moveSuccess] = moveObj.move_finish(moveRes);
-                  if (moveSuccess) {
-                    resolve();
-                  } else {
-                    throw new Error("Failed to rename temporary file");
-                  }
+                  moveObj.move_finish(moveRes);
+                  resolve();
                 } catch (moveErr) {
                   gjs_deleteFile(tmpPath).then(() => reject(moveErr));
                 }

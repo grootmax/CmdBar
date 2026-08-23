@@ -11,8 +11,8 @@ try {
 
 if (!GLib) {
   try {
-    const gi = await import("gi");
-    GLib = gi.GLib;
+    const giModule = await import("gi");
+    GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
   } catch (e) {}
 }
 
@@ -111,7 +111,9 @@ export async function writeConfigAtomically(targetPath, data) {
     }
   } else {
     // GJS (GNOME Shell) environment
-    const { Gio, GLib } = await import("gi");
+    const giModule = await import("gi");
+    const Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
+    const GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
     const file = Gio.File.new_for_path(targetPath);
     const tmpPath = targetPath + ".tmp";
     const tmpFile = Gio.File.new_for_path(tmpPath);
