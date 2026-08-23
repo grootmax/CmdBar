@@ -132,7 +132,7 @@ jobs:
           # We process them strictly in this order.
           # ==================================================
 
-          jq -c '.[]' /tmp/jules-prs.json | while read -r PR; do
+          while read -r PR; do
 
             PR_NUMBER=$(echo "$PR" | jq -r '.number')
             TITLE=$(echo "$PR" | jq -r '.title')
@@ -477,12 +477,38 @@ jobs:
               echo ""
               echo "Checking status checks for PR #$PR_NUMBER..."
 
-              CHECK_OUTPUT=$(
-                gh pr checks "$PR_NUMBER" \
-                  --repo "$GH_REPO" \
-                  --json name,state,bucket,workflow \
-                  2>/dev/null || true
-              )
+              HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json headRefOid --jq '.headRefOid' 2>/dev/null || true)
+
+              CHECK_RUNS=$(gh api "repos/${GH_REPO}/commits/${HEAD_SHA}/check-runs" 2>/dev/null || echo "{}")
+              STATUSES=$(gh api "repos/${GH_REPO}/commits/${HEAD_SHA}/status" 2>/dev/null || echo "{}")
+
+              CHECK_OUTPUT=$(jq -n --argjson cr "$CHECK_RUNS" --argjson st "$STATUSES" '
+                [
+                  ( ($cr.check_runs // [])[]? | {
+                      name: .name,
+                      state: .status,
+                      workflow: (.app.name // ""),
+                      bucket: (
+                        if .status != "completed" then "pending"
+                        elif (.conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped") then "pass"
+                        elif (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required") then "fail"
+                        else "pending"
+                        end
+                      )
+                  }),
+                  ( ($st.statuses // [])[]? | {
+                      name: .context,
+                      state: .state,
+                      workflow: "status",
+                      bucket: (
+                        if .state == "success" then "pass"
+                        elif (.state == "failure" or .state == "error") then "fail"
+                        else "pending"
+                        end
+                      )
+                  })
+                ]
+              ' 2>/dev/null || echo "[]")
 
               if [ -z "$CHECK_OUTPUT" ]; then
                 CHECK_OUTPUT="[]"
@@ -565,6 +591,10 @@ jobs:
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
+                  | select(
+                      ((.name | ascii_downcase | contains("process jules prs")) | not)
+                      and ((.name | ascii_downcase | contains("auto jules pr manager")) | not)
+                    )
                   | select(.bucket == "fail" or .bucket == "cancel")
                 ]
                 | length
@@ -573,6 +603,10 @@ jobs:
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
+                  | select(
+                      ((.name | ascii_downcase | contains("process jules prs")) | not)
+                      and ((.name | ascii_downcase | contains("auto jules pr manager")) | not)
+                    )
                   | select(.bucket == "pending")
                 ]
                 | length
@@ -679,7 +713,7 @@ jobs:
 
             break
 
-          done
+          done < <(jq -c '.[]' /tmp/jules-prs.json)
 
           echo ""
           echo "=========================================="
