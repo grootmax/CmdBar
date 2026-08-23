@@ -22,3 +22,10 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Headless Server Mode Architecture
+
+CmdBar includes a standalone server component (`companion/server.py` and `app/server.py`) for headless deployment:
+- **HTTP REST API**: RESTful endpoints for health (`/health`), monitoring (`/metrics`), shortcuts CRUD (`/api/v1/shortcuts`), config management (`/api/v1/config`), command execution (`/api/v1/execute`), and AI translation (`/api/v1/ai/translate`).
+- **RFC 6455 WebSocket Interface**: Bi-directional real-time event streaming (`/ws`) for command output, execution status, and live configuration sync.
+- **systemd Integration**: CLI option (`--install-service`, `--uninstall-service`, `--status-service`) and systemd unit (`schemas/cmdbar-server.service`) for user daemon lifecycle management.
