@@ -362,10 +362,12 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
-                git diff \
-                  --name-only \
-                  --diff-filter=U |
+                CONFLICTED_FILES=$(git diff --name-only --diff-filter=U)
+
+                echo "$CONFLICTED_FILES" |
                 while IFS= read -r FILE; do
+
+                  [ -z "$FILE" ] && continue
 
                   echo "Resolving conflict:"
                   echo "  $FILE"
@@ -478,10 +480,17 @@ jobs:
               echo "Checking status checks for PR #$PR_NUMBER..."
 
               CHECK_OUTPUT=$(
-                gh pr checks "$PR_NUMBER" \
-                  --repo "$GH_REPO" \
-                  --json name,state,bucket,workflow \
-                  2>/dev/null || true
+                gh api "repos/$GH_REPO/commits/$HEAD_BRANCH/check-runs" 2>/dev/null | jq '
+                  .check_runs // [] | map({
+                    name: .name,
+                    state: .status,
+                    bucket: (
+                      if .status != "completed" then "pending"
+                      elif (.conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped") then "pass"
+                      else "fail" end
+                    )
+                  })
+                ' 2>/dev/null || echo "[]"
               )
 
               if [ -z "$CHECK_OUTPUT" ]; then
@@ -561,10 +570,12 @@ jobs:
 
               # --------------------------------------------------
               # CHECK OTHER CHECKS FOR FAILURE / PENDING
+              # (Excluding the PR manager itself)
               # --------------------------------------------------
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
+                  | select((.name | ascii_downcase | contains("jules prs") | not) and (.name | ascii_downcase | contains("auto jules pr manager") | not))
                   | select(.bucket == "fail" or .bucket == "cancel")
                 ]
                 | length
@@ -573,6 +584,7 @@ jobs:
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
+                  | select((.name | ascii_downcase | contains("jules prs") | not) and (.name | ascii_downcase | contains("auto jules pr manager") | not))
                   | select(.bucket == "pending")
                 ]
                 | length
