@@ -12,6 +12,7 @@ export const DEFAULT_CONFIG = {
     fallback_provider: "ollama",
     fallback_model: "llama3",
   },
+  triggers: [],
   categories: [
     {
       name: "AI Assistant",
@@ -124,6 +125,9 @@ export function validateConfigSchema(config) {
           return false;
       }
     }
+  }
+  if (config.triggers !== undefined && !Array.isArray(config.triggers)) {
+    return false;
   }
   return true;
 }

@@ -1,5 +1,6 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import { EventTriggerEngine } from "./eventTriggers.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -20,6 +21,30 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
+    </method>
+    <method name="RegisterTrigger">
+      <arg name="trigger_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="UnregisterTrigger">
+      <arg name="trigger_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetTriggers">
+      <arg name="json_triggers" type="s" direction="out"/>
+    </method>
+    <method name="FireEvent">
+      <arg name="event_type" type="s" direction="in"/>
+      <arg name="context_json" type="s" direction="in"/>
+      <arg name="json_results" type="s" direction="out"/>
+    </method>
+    <method name="EnableTrigger">
+      <arg name="trigger_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="DisableTrigger">
+      <arg name="trigger_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -46,6 +71,7 @@ export class CmdBarDBusService {
     this._indicator = indicator;
     this._dbusImpl = null;
     this._busNameId = 0;
+    this.triggerEngine = new EventTriggerEngine();
   }
 
   export() {
@@ -229,6 +255,70 @@ export class CmdBarDBusService {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
     }
+  }
+
+  async RegisterTrigger(triggerJson) {
+    try {
+      const trigger = typeof triggerJson === "string" ? JSON.parse(triggerJson) : triggerJson;
+      const res = this.triggerEngine.registerTrigger(trigger);
+      if (res) {
+        const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
+        const config = await loadConfig(configPath);
+        if (!config.triggers) config.triggers = [];
+        config.triggers.push(trigger);
+        await saveConfig(config, configPath);
+      }
+      return res;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async UnregisterTrigger(triggerId) {
+    try {
+      const res = this.triggerEngine.unregisterTrigger(triggerId);
+      if (res) {
+        const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
+        const config = await loadConfig(configPath);
+        if (config.triggers) {
+          config.triggers = config.triggers.filter((t) => t.id !== triggerId);
+          await saveConfig(config, configPath);
+        }
+      }
+      return res;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async GetTriggers() {
+    try {
+      return JSON.stringify(this.triggerEngine.getTriggers());
+    } catch (e) {
+      return JSON.stringify([]);
+    }
+  }
+
+  async FireEvent(eventType, contextJson) {
+    try {
+      const ctx = typeof contextJson === "string" ? JSON.parse(contextJson || "{}") : (contextJson || {});
+      const results = this.triggerEngine.fireEvent(eventType, ctx);
+      return JSON.stringify(results);
+    } catch (e) {
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async EnableTrigger(triggerId) {
+    return this.triggerEngine.enableTrigger(triggerId);
+  }
+
+  async DisableTrigger(triggerId) {
+    return this.triggerEngine.disableTrigger(triggerId);
   }
 
   emitCommandExecuted(name, exitCode, success) {

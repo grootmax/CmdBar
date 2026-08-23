@@ -51,6 +51,7 @@ DEFAULT_CONFIG = {
     "fallback_provider": "ollama",
     "fallback_model": "llama3"
   },
+  "triggers": [],
   "categories": [
     {
       "name": "System Utilities",
