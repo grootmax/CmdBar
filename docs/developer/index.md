@@ -22,3 +22,13 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Cron Scheduling Architecture
+
+The Cron Scheduler module (`app/cron_scheduler.py` & `extension/cronScheduler.js`) provides automated background execution:
+- **Expression Parsing**: 5-part cron syntax parser supporting shorthands (`@daily`, `@hourly`, etc.), step intervals, ranges, and day/month names.
+- **Timezone Awareness**: Converts datetimes into target timezones (`UTC`, `Local`, or IANA timezone strings).
+- **Overlap Prevention**: Tracks running job states to prevent duplicate concurrent executions.
+- **Email Reporting**: Formats and dispatches email execution reports on completion or failure.
+- **Visual Editor**: Integrated Libadwaita UI with schedule presets, real-time expression validation, and projected run times preview.
+

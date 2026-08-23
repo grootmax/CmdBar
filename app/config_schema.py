@@ -51,6 +51,7 @@ DEFAULT_CONFIG = {
     "fallback_provider": "ollama",
     "fallback_model": "llama3"
   },
+  "cron_jobs": [],
   "categories": [
     {
       "name": "System Utilities",
@@ -150,6 +151,10 @@ def load_config(path=None):
 
         # Normalize and migrate loaded configuration
         migrated = False
+        if "cron_jobs" not in config_data:
+            config_data["cron_jobs"] = []
+            migrated = True
+
         for cat in config_data.get("categories", []):
             # Migrate shortcuts to commands
             if "shortcuts" in cat:
