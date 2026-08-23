@@ -182,7 +182,8 @@ class CmdBarWindow(Adw.ApplicationWindow):
                 sc_box.set_margin_top(6)
                 sc_box.set_margin_bottom(6)
 
-                sc_icon = Gtk.Image.new_from_icon_name("utilities-terminal-symbolic")
+                icon_name = "starred-symbolic" if (sc.get("favorite") or sc.get("pinned")) else "utilities-terminal-symbolic"
+                sc_icon = Gtk.Image.new_from_icon_name(icon_name)
                 sc_box.append(sc_icon)
 
                 sc_label = Gtk.Label(label=sc["name"])
@@ -283,6 +284,14 @@ class CmdBarWindow(Adw.ApplicationWindow):
         verified_row.set_active(shortcut.get("verified", False))
         verified_row.connect("notify::active", self._on_verified_toggled)
         pref_group.add(verified_row)
+
+        # Favorite Switch
+        favorite_row = Adw.SwitchRow()
+        favorite_row.set_title("Favorite Command")
+        favorite_row.set_subtitle("Pin command to top Favorites category in CmdBar menu")
+        favorite_row.set_active(shortcut.get("favorite", False) or shortcut.get("pinned", False))
+        favorite_row.connect("notify::active", self._on_favorite_toggled)
+        pref_group.add(favorite_row)
 
         # Mode Selector
         mode_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -583,6 +592,15 @@ class CmdBarWindow(Adw.ApplicationWindow):
         c_idx = self.app.selected_category_idx
         s_idx = self.app.selected_shortcut_idx
         self.app.config["categories"][c_idx]["commands"][s_idx]["verified"] = row.get_active()
+
+    def _on_favorite_toggled(self, row, pspec):
+        c_idx = self.app.selected_category_idx
+        s_idx = self.app.selected_shortcut_idx
+        if c_idx is not None and s_idx is not None:
+            val = row.get_active()
+            self.app.config["categories"][c_idx]["commands"][s_idx]["favorite"] = val
+            self.app.config["categories"][c_idx]["commands"][s_idx]["pinned"] = val
+            self._refresh_sidebar()
 
     def _on_param_secure_toggled(self, check, p_key):
         c_idx = self.app.selected_category_idx

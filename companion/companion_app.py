@@ -412,7 +412,8 @@ def list_categories_and_commands(config_data):
         if not commands:
             print("    (No commands)")
         for j, cmd in enumerate(commands, 1):
-            print(f"    {i}.{j} {cmd.get('name')}")
+            fav_str = " [★ Favorite]" if (cmd.get("favorite") or cmd.get("pinned")) else ""
+            print(f"    {i}.{j} {cmd.get('name')}{fav_str}")
             print(f"        Template: {cmd.get('template')}")
             params = cmd.get("parameters", {})
             if params:

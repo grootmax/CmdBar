@@ -16,7 +16,7 @@ import {
   formatShortcutHint,
   parseAccel,
 } from "./commandProcessor.js";
-import { loadConfig } from "./configSync.js";
+import { loadConfig, saveConfig } from "./configSync.js";
 import {
   translateNaturalLanguageToCommand,
   isAICommand,
@@ -495,10 +495,51 @@ const CommandInputMenuItem = GObject.registerClass(
       });
       this.box.add_child(this.label);
 
+      // Star / Favorite Button
+      let isFavInput = Boolean(this._cmdObj && (this._cmdObj.favorite || this._cmdObj.pinned));
+      this.favoriteButton = new St.Button({
+        child: new St.Icon({
+          icon_name: isFavInput ? "starred-symbolic" : "non-starred-symbolic",
+          style_class: isFavInput ? "popup-menu-icon cmdbar-star-icon-active" : "popup-menu-icon cmdbar-star-icon",
+        }),
+        style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
+        track_hover: true,
+        can_focus: true,
+        accessible_name: isFavInput ? "Remove from Favorites" : "Add to Favorites",
+      });
+
+      this.favoriteButton.connect("clicked", () => {
+        if (
+          this._indicator &&
+          typeof this._indicator.toggleFavorite === "function"
+        ) {
+          this._indicator.toggleFavorite(this._cmdObj);
+        }
+      });
+      this.box.add_child(this.favoriteButton);
+
       this.add_child(this.box);
 
       this._activateId = this.connect("activate", () => {
         this._onSubmit(commandName);
+      });
+
+      this.connect("key-press-event", (actor, event) => {
+        let symbol = typeof event.get_key_symbol === "function" ? event.get_key_symbol() : 0;
+        if (
+          symbol === Clutter.KEY_f ||
+          symbol === Clutter.KEY_F ||
+          symbol === Clutter.KEY_asterisk
+        ) {
+          if (
+            this._indicator &&
+            typeof this._indicator.toggleFavorite === "function"
+          ) {
+            this._indicator.toggleFavorite(this._cmdObj);
+            return typeof Clutter.EVENT_STOP !== "undefined" ? Clutter.EVENT_STOP : true;
+          }
+        }
+        return typeof Clutter.EVENT_PROPAGATE !== "undefined" ? Clutter.EVENT_PROPAGATE : false;
       });
     }
 
@@ -698,6 +739,62 @@ export function copyToClipboard(text) {
   return success;
 }
 
+/**
+ * Helper function supporting wtype (Wayland) and xdotool (X11) to paste text.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function pasteClipboardText(text) {
+  if (text === null || text === undefined) {
+    text = "";
+  } else if (typeof text !== "string") {
+    text = String(text);
+  }
+
+  let isWayland = false;
+  try {
+    let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
+    let sessionType = GLib.getenv("XDG_SESSION_TYPE");
+    if (
+      waylandDisplay ||
+      (sessionType && sessionType.toLowerCase() === "wayland")
+    ) {
+      isWayland = true;
+    }
+  } catch (e) {}
+
+  let tools = isWayland
+    ? [
+        ["wtype", "-M", "ctrl", "v"],
+        ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
+      ]
+    : [
+        ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
+        ["wtype", "-M", "ctrl", "v"],
+      ];
+
+  let success = false;
+  for (let argv of tools) {
+    try {
+      let proc = Gio.Subprocess.new(
+        argv,
+        Gio.SubprocessFlags.NONE,
+      );
+      proc.communicate_utf8_async(null, null, (subprocess, result) => {
+        try {
+          subprocess.communicate_utf8_finish(result);
+        } catch (err) {}
+      });
+      success = true;
+      break;
+    } catch (e) {
+      continue;
+    }
+  }
+  return success;
+}
+
+
 // Standard menu item for parameterless or parameter-prompting commands
 const CommandMenuItem = GObject.registerClass(
   class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
@@ -733,6 +830,29 @@ const CommandMenuItem = GObject.registerClass(
         x_expand: true,
       });
       this.box.add_child(this.label);
+
+      // Star / Favorite Button
+      let isFav = Boolean(this._cmdObj && (this._cmdObj.favorite || this._cmdObj.pinned));
+      this.favoriteButton = new St.Button({
+        child: new St.Icon({
+          icon_name: isFav ? "starred-symbolic" : "non-starred-symbolic",
+          style_class: isFav ? "popup-menu-icon cmdbar-star-icon-active" : "popup-menu-icon cmdbar-star-icon",
+        }),
+        style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
+        track_hover: true,
+        can_focus: true,
+        accessible_name: isFav ? "Remove from Favorites" : "Add to Favorites",
+      });
+
+      this.favoriteButton.connect("clicked", () => {
+        if (
+          this._indicator &&
+          typeof this._indicator.toggleFavorite === "function"
+        ) {
+          this._indicator.toggleFavorite(this._cmdObj);
+        }
+      });
+      this.box.add_child(this.favoriteButton);
 
       // Copy Button
       this.copyButton = new St.Button({
@@ -794,6 +914,24 @@ const CommandMenuItem = GObject.registerClass(
 
       this._activateId = this.connect("activate", () => {
         runCommandAsync(this._commandName, this._commandTemplate, this._cmdObj);
+      });
+
+      this.connect("key-press-event", (actor, event) => {
+        let symbol = typeof event.get_key_symbol === "function" ? event.get_key_symbol() : 0;
+        if (
+          symbol === Clutter.KEY_f ||
+          symbol === Clutter.KEY_F ||
+          symbol === Clutter.KEY_asterisk
+        ) {
+          if (
+            this._indicator &&
+            typeof this._indicator.toggleFavorite === "function"
+          ) {
+            this._indicator.toggleFavorite(this._cmdObj);
+            return typeof Clutter.EVENT_STOP !== "undefined" ? Clutter.EVENT_STOP : true;
+          }
+        }
+        return typeof Clutter.EVENT_PROPAGATE !== "undefined" ? Clutter.EVENT_PROPAGATE : false;
       });
     }
 
@@ -865,7 +1003,7 @@ const JobMenuItem = GObject.registerClass(
 // Menu item for group/category headers
 const CategoryHeaderMenuItem = GObject.registerClass(
   class CategoryHeaderMenuItem extends PopupMenu.PopupBaseMenuItem {
-    _init(categoryName) {
+    _init(categoryName, iconName) {
       super._init({
         reactive: false,
         activate: false,
@@ -878,7 +1016,7 @@ const CategoryHeaderMenuItem = GObject.registerClass(
       });
 
       this.icon = new St.Icon({
-        icon_name: "folder-symbolic",
+        icon_name: iconName || "folder-symbolic",
         style_class: "popup-menu-icon",
         style: "margin-right: 8px; margin-top: 6px; margin-bottom: 2px;",
         y_align: Clutter.ActorAlign.CENTER,
@@ -942,12 +1080,14 @@ const CmdBarIndicator = GObject.registerClass(
     }
 
     setButtonLabel(labelText) {
-      if (labelText && labelText.trim().length > 0) {
-        this._label.text = labelText.trim();
-        this._label.visible = true;
-      } else {
-        this._label.text = "";
-        this._label.visible = false;
+      if (this._label) {
+        if (labelText && labelText.trim().length > 0) {
+          this._label.text = labelText.trim();
+          this._label.visible = true;
+        } else {
+          this._label.text = "";
+          this._label.visible = false;
+        }
       }
     }
 
@@ -972,10 +1112,55 @@ const CmdBarIndicator = GObject.registerClass(
       ]);
     }
 
+    async toggleFavorite(cmdObj) {
+      if (!cmdObj) return;
+      try {
+        let configPath = this._getConfigPath();
+        let extensionPath = this._extension && this._extension.dir ? this._extension.dir.get_path() : null;
+        let config = await loadConfig(configPath, extensionPath);
+
+        if (!config || !config.categories) return;
+
+        let found = false;
+        let newFavState = false;
+
+        for (let cat of config.categories) {
+          if (!cat.commands) continue;
+          for (let cmd of cat.commands) {
+            if (
+              cmd === cmdObj ||
+              (cmd.name === cmdObj.name && cmd.command === cmdObj.command)
+            ) {
+              const current = Boolean(cmd.favorite || cmd.pinned);
+              cmd.favorite = !current;
+              cmd.pinned = !current;
+              newFavState = !current;
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
+        }
+
+        if (found) {
+          await saveConfig(config, configPath);
+          this._cachedConfig = config;
+          await this._reloadMenu();
+          let stateText = newFavState ? "added to" : "removed from";
+          this._showNotification(
+            "Command Favorites",
+            `'${cmdObj.name}' ${stateText} Favorites.`,
+          );
+        }
+      } catch (e) {
+        console.error(`CmdBar: error toggling favorite: ${e.message}`);
+      }
+    }
+
     async _reloadMenu() {
       try {
         let configPath = this._getConfigPath();
-        let extensionPath = this._extension.dir.get_path();
+        let extensionPath = this._extension && this._extension.dir ? this._extension.dir.get_path() : null;
         let config = await loadConfig(configPath, extensionPath);
 
         if (config && config._isInvalid) {
@@ -984,6 +1169,8 @@ const CmdBarIndicator = GObject.registerClass(
             "Invalid configuration file detected. Using in-memory default settings without overwriting your file.",
           );
         }
+
+        this._cachedConfig = config;
 
         // Clear all current items in menu
         this.menu.removeAll();
@@ -994,18 +1181,62 @@ const CmdBarIndicator = GObject.registerClass(
           return;
         }
 
+        // 1. Gather all favorite commands across all categories
+        let favoriteCommands = [];
+        config.categories.forEach((category) => {
+          if (category.commands && Array.isArray(category.commands)) {
+            category.commands.forEach((cmd) => {
+              if (cmd && (cmd.favorite || cmd.pinned)) {
+                favoriteCommands.push(cmd);
+              }
+            });
+          }
+        });
+
+        // 2. Add "Favorites" category section at top if any favorites exist
+        if (favoriteCommands.length > 0) {
+          this.menu.addMenuItem(
+            new CategoryHeaderMenuItem("Favorites", "starred-symbolic"),
+          );
+
+          favoriteCommands.forEach((cmd) => {
+            if (hasPlaceholder(cmd.command)) {
+              this.menu.addMenuItem(
+                new CommandInputMenuItem(
+                  this,
+                  cmd.name,
+                  cmd.command,
+                  cmd.placeholder,
+                  cmd,
+                ),
+              );
+            } else {
+              this.menu.addMenuItem(
+                new CommandMenuItem(this, cmd.name, cmd.command, cmd),
+              );
+            }
+          });
+
+          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        }
+
+        // 3. Render categories with favorites sorted first within each category
         config.categories.forEach((category, catIndex) => {
-          // Category header
           if (catIndex > 0) {
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
           }
           this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
 
-          // Category commands
           if (category.commands && Array.isArray(category.commands)) {
-            category.commands.forEach((cmd) => {
+            let sortedCmds = [...category.commands].sort((a, b) => {
+              let aFav = Boolean(a && (a.favorite || a.pinned));
+              let bFav = Boolean(b && (b.favorite || b.pinned));
+              if (aFav === bFav) return 0;
+              return bFav ? -1 : 1;
+            });
+
+            sortedCmds.forEach((cmd) => {
               if (hasPlaceholder(cmd.command)) {
-                // Commands requiring text inputs (Requirement 1 & 2)
                 this.menu.addMenuItem(
                   new CommandInputMenuItem(
                     this,
@@ -1016,7 +1247,6 @@ const CmdBarIndicator = GObject.registerClass(
                   ),
                 );
               } else {
-                // Ordinary parameterless commands
                 this.menu.addMenuItem(
                   new CommandMenuItem(this, cmd.name, cmd.command, cmd),
                 );

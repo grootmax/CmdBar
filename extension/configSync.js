@@ -122,6 +122,16 @@ export function validateConfigSchema(config) {
           typeof cmd.placeholder !== "string"
         )
           return false;
+        if (
+          cmd.favorite !== undefined &&
+          typeof cmd.favorite !== "boolean"
+        )
+          return false;
+        if (
+          cmd.pinned !== undefined &&
+          typeof cmd.pinned !== "boolean"
+        )
+          return false;
       }
     }
   }

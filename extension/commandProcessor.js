@@ -476,3 +476,154 @@ export function parseAccel(text) {
   return [`${modifiers}${baseKey}`];
 }
 
+/**
+ * Escapes special XML/HTML markup characters.
+ * @param {string} str
+ * @returns {string}
+ */
+export function escapeMarkup(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/**
+ * Perform fuzzy matching of pattern against text.
+ * @param {string} pattern
+ * @param {string} text
+ * @param {number} [usageCount=0]
+ * @returns {{ match: boolean, matches: number[], score: number }}
+ */
+export function fuzzyMatch(pattern, text, usageCount = 0) {
+  if (!pattern || !pattern.trim()) {
+    return {
+      match: true,
+      matches: [],
+      score: 1 + (usageCount || 0),
+    };
+  }
+
+  const cleanPattern = pattern.trim().toLowerCase();
+  const cleanText = (text || "").toLowerCase();
+
+  let patternIdx = 0;
+  const matches = [];
+
+  for (let i = 0; i < cleanText.length; i++) {
+    if (cleanText[i] === cleanPattern[patternIdx]) {
+      matches.push(i);
+      patternIdx++;
+      if (patternIdx === cleanPattern.length) {
+        break;
+      }
+    }
+  }
+
+  if (patternIdx < cleanPattern.length) {
+    return {
+      match: false,
+      matches: [],
+      score: 0,
+    };
+  }
+
+  let score = 10;
+  if (cleanPattern === cleanText) {
+    score += 100;
+  } else if (cleanText.startsWith(cleanPattern)) {
+    score += 50;
+  }
+
+  if (matches.length > 1) {
+    const spread = matches[matches.length - 1] - matches[0];
+    score -= spread * 0.5;
+  }
+
+  score += (usageCount || 0) * 2;
+
+  return {
+    match: true,
+    matches,
+    score,
+  };
+}
+
+/**
+ * Surround matched indices in text with <b> tags, properly escaping markup.
+ * @param {string} text
+ * @param {number[]} matchedIndices
+ * @returns {string}
+ */
+export function highlightMatches(text, matchedIndices) {
+  if (!text) return "";
+  if (!matchedIndices || matchedIndices.length === 0) {
+    return escapeMarkup(text);
+  }
+
+  const indicesSet = new Set(matchedIndices);
+  let result = "";
+  let inBold = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const isMatched = indicesSet.has(i);
+    if (isMatched && !inBold) {
+      result += "<b>";
+      inBold = true;
+    } else if (!isMatched && inBold) {
+      result += "</b>";
+      inBold = false;
+    }
+    result += escapeMarkup(text[i]);
+  }
+  if (inBold) {
+    result += "</b>";
+  }
+
+  return result;
+}
+
+/**
+ * Rank commands based on fuzzy matching query against command/name and usage frequency.
+ * @param {Array<object>} commands
+ * @param {string} query
+ * @param {object} [usageMap={}]
+ * @returns {Array<{ command: object, matches: number[], score: number }>}
+ */
+export function rankCommands(commands, query, usageMap = {}) {
+  if (!Array.isArray(commands)) return [];
+
+  const results = [];
+  for (const cmd of commands) {
+    if (!cmd) continue;
+    const usageCount =
+      (usageMap && (usageMap[cmd.command] || usageMap[cmd.name])) || 0;
+    const resCmd = fuzzyMatch(query, cmd.command || "", usageCount);
+    const resName = fuzzyMatch(query, cmd.name || "", usageCount);
+
+    let bestRes = null;
+    if (resCmd.match && resName.match) {
+      bestRes = resName.score >= resCmd.score ? resName : resCmd;
+    } else if (resName.match) {
+      bestRes = resName;
+    } else if (resCmd.match) {
+      bestRes = resCmd;
+    }
+
+    if (bestRes && bestRes.match) {
+      results.push({
+        command: cmd,
+        matches: bestRes.matches,
+        score: bestRes.score,
+      });
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results;
+}
+
+

@@ -226,3 +226,29 @@ def test_python_config_signing_and_tamper_rejection(tmp_path):
     assert bak_data["categories"][0]["commands"][0]["command"] == "/tmp/malicious"
 
 
+def test_command_favorites_persistence(tmp_path):
+    import json
+    from app.config_schema import load_config, save_config
+
+    cfg_file = tmp_path / "config.json"
+    custom_cfg = {
+        "categories": [
+            {
+                "name": "Dev Utilities",
+                "commands": [
+                    {"name": "Build", "command": "make build", "favorite": True},
+                    {"name": "Clean", "command": "make clean", "favorite": False}
+                ]
+            }
+        ]
+    }
+
+    save_config(custom_cfg, str(cfg_file))
+    loaded = load_config(str(cfg_file))
+    cmds = loaded["categories"][0]["commands"]
+    assert cmds[0]["name"] == "Build"
+    assert cmds[0]["favorite"] is True
+    assert cmds[1]["favorite"] is False
+
+
+
