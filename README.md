@@ -11,6 +11,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
+- **Quick Notes & Scratchpad** – Lightweight plain-text and Markdown notes with instant scratchpad access, tag filtering (`tag:work`), attached shell commands, shareable `cmdbar://note/share?data=...` links, atomic cross-device sync, and full D-Bus integration
 - **Quick Calculator & Eval** – Type `> 2+2`, `= (100 - 25) / 5`, or `calc sin(45)` directly in the search box to evaluate math expressions inline and press Enter to copy the evaluated result to your clipboard
 - **Policy Enforcement Engine** – Enterprise security policy enforcement with MFA (RFC 6238 TOTP) for sensitive operations, Data Loss Prevention (DLP) pattern scanning and redaction, Geographic location/IP CIDR restrictions, and Time-based access controls
 - **Web Dashboard** – Modern web interface featuring drag-and-drop category & command reordering, real-time command preview dry-run engine with parameter validation, team collaboration presets & role access controls, mobile responsiveness, and PWA offline capability with Service Worker caching.
