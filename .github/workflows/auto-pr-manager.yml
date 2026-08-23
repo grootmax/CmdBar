@@ -51,7 +51,7 @@ jobs:
           gh pr list \
             --repo "$GH_REPO" \
             --state open \
-            --json number,title,headRefName,baseRefName,isDraft,createdAt \
+            --json number,title,headRefName,baseRefName,isDraft,createdAt,headRefOid \
             --limit 100 |
             jq 'sort_by(.number)' > /tmp/all-prs.json
 
@@ -137,6 +137,7 @@ jobs:
             PR_NUMBER=$(echo "$PR" | jq -r '.number')
             TITLE=$(echo "$PR" | jq -r '.title')
             HEAD_BRANCH=$(echo "$PR" | jq -r '.headRefName')
+            HEAD_SHA=$(echo "$PR" | jq -r '.headRefOid // .headRefName')
             BASE_BRANCH=$(echo "$PR" | jq -r '.baseRefName')
             IS_DRAFT=$(echo "$PR" | jq -r '.isDraft')
 
@@ -371,9 +372,9 @@ jobs:
                   echo "Resolving conflict:"
                   echo "  $FILE"
 
-                  git checkout --theirs -- "$FILE"
+                  git checkout --theirs -- "$FILE" 2>/dev/null || git rm -f -- "$FILE" 2>/dev/null || true
 
-                  git add -- "$FILE"
+                  git add -- "$FILE" 2>/dev/null || true
 
                 done <<< "$CONFLICTED_FILES"
 
@@ -416,8 +417,12 @@ jobs:
                 echo ""
                 echo "Committing conflict resolution..."
 
-                git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                git add -A || true
+
+                if ! git diff --cached --quiet; then
+                  git commit \
+                    -m "chore: auto-resolve merge conflicts" || true
+                fi
 
               fi
 
@@ -428,11 +433,22 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              PUSH_SUCCESS=true
+
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo "WARNING: Failed to push updated branch for PR #$PR_NUMBER."
+                PUSH_SUCCESS=false
+              fi
 
               cd /
 
               rm -rf "$WORKDIR"
+
+              if [ "$PUSH_SUCCESS" = "false" ]; then
+                echo ""
+                echo "PR #$PR_NUMBER push failed. Stopping processing."
+                break
+              fi
 
               echo ""
               echo "=========================================="
@@ -479,7 +495,7 @@ jobs:
               echo "Checking status checks for PR #$PR_NUMBER..."
 
               CHECK_OUTPUT=$(
-                gh api "repos/$GH_REPO/commits/$HEAD_BRANCH/check-runs" 2>/dev/null | jq '
+                gh api "repos/$GH_REPO/commits/$HEAD_SHA/check-runs" 2>/dev/null | jq '
                   .check_runs // [] | map({
                     name: .name,
                     state: .status,
