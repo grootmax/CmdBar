@@ -1,5 +1,14 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import {
+  createNote,
+  getNote,
+  deleteNote,
+  getScratchpad,
+  updateScratchpad,
+  searchNotes,
+  generateShareLink,
+} from "./notesManager.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -20,6 +29,38 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
+    </method>
+    <method name="GetNotes">
+      <arg name="json_notes" type="s" direction="out"/>
+    </method>
+    <method name="GetNote">
+      <arg name="id" type="s" direction="in"/>
+      <arg name="json_note" type="s" direction="out"/>
+    </method>
+    <method name="AddNote">
+      <arg name="title" type="s" direction="in"/>
+      <arg name="content" type="s" direction="in"/>
+      <arg name="tags_json" type="s" direction="in"/>
+      <arg name="json_note" type="s" direction="out"/>
+    </method>
+    <method name="DeleteNote">
+      <arg name="id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetScratchpad">
+      <arg name="json_scratchpad" type="s" direction="out"/>
+    </method>
+    <method name="UpdateScratchpad">
+      <arg name="content" type="s" direction="in"/>
+      <arg name="json_scratchpad" type="s" direction="out"/>
+    </method>
+    <method name="SearchNotes">
+      <arg name="query" type="s" direction="in"/>
+      <arg name="json_notes" type="s" direction="out"/>
+    </method>
+    <method name="ShareNoteLink">
+      <arg name="id" type="s" direction="in"/>
+      <arg name="share_link" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -228,6 +269,139 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
+    }
+  }
+
+  async GetNotes() {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      return JSON.stringify(config.notes || []);
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetNotes error: ${e.message}`);
+      return JSON.stringify([]);
+    }
+  }
+
+  async GetNote(id) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const note = getNote(config.notes || [], id);
+      return JSON.stringify(note || null);
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetNote error: ${e.message}`);
+      return JSON.stringify(null);
+    }
+  }
+
+  async AddNote(title, content, tagsJson) {
+    try {
+      let tags = [];
+      if (tagsJson) {
+        try {
+          tags = JSON.parse(tagsJson);
+        } catch (e) {}
+      }
+
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      if (!config.notes) config.notes = [];
+
+      const newNote = createNote(config.notes, { title, content, tags });
+      await saveConfig(config, configPath);
+      return JSON.stringify(newNote);
+    } catch (e) {
+      console.error(`CmdBar D-Bus AddNote error: ${e.message}`);
+      return JSON.stringify(null);
+    }
+  }
+
+  async DeleteNote(id) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      if (!config.notes) return false;
+
+      const deleted = deleteNote(config.notes, id);
+      if (deleted) {
+        await saveConfig(config, configPath);
+      }
+      return deleted;
+    } catch (e) {
+      console.error(`CmdBar D-Bus DeleteNote error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async GetScratchpad() {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      if (!config.notes) config.notes = [];
+
+      const sp = getScratchpad(config.notes);
+      await saveConfig(config, configPath);
+      return JSON.stringify(sp);
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetScratchpad error: ${e.message}`);
+      return JSON.stringify(null);
+    }
+  }
+
+  async UpdateScratchpad(content) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      if (!config.notes) config.notes = [];
+
+      const sp = updateScratchpad(config.notes, content);
+      await saveConfig(config, configPath);
+      return JSON.stringify(sp);
+    } catch (e) {
+      console.error(`CmdBar D-Bus UpdateScratchpad error: ${e.message}`);
+      return JSON.stringify(null);
+    }
+  }
+
+  async SearchNotes(query) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const results = searchNotes(config.notes || [], query);
+      return JSON.stringify(results);
+    } catch (e) {
+      console.error(`CmdBar D-Bus SearchNotes error: ${e.message}`);
+      return JSON.stringify([]);
+    }
+  }
+
+  async ShareNoteLink(id) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const note = getNote(config.notes || [], id);
+      if (!note) return "";
+      return generateShareLink(note);
+    } catch (e) {
+      console.error(`CmdBar D-Bus ShareNoteLink error: ${e.message}`);
+      return "";
     }
   }
 
