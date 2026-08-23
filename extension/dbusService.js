@@ -20,6 +20,12 @@ import {
   parseShareUrl,
   ROLES,
 } from "./teamSharing.js";
+import {
+  getNormalizedNumpadConfig,
+  getActiveLayer,
+  setActiveLayerIndex,
+  getNumpadKeyCommand,
+} from "./numpadManager.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -138,6 +144,20 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="GetConfigHistory">
       <arg name="json_history" type="s" direction="out"/>
     </method>
+    <method name="GetNumpadLayers">
+      <arg name="json_numpad" type="s" direction="out"/>
+    </method>
+    <method name="SetActiveNumpadLayer">
+      <arg name="layer_index" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="ExecuteNumpadKey">
+      <arg name="key_index" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="ToggleNumpadOverlay">
+      <arg name="success" type="b" direction="out"/>
+    </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
       <arg name="exit_code" type="i"/>
@@ -173,6 +193,10 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="event_type" type="s"/>
       <arg name="command" type="s"/>
       <arg name="success" type="b"/>
+    </signal>
+    <signal name="NumpadLayerChanged">
+      <arg name="layer_index" type="i"/>
+      <arg name="layer_name" type="s"/>
     </signal>
   </interface>
 </node>`;
@@ -664,6 +688,77 @@ export class CmdBarDBusService {
     return this._ssoManager.validateCategoryAccess(session_id, category_name);
   }
 
+  async GetNumpadLayers() {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const norm = getNormalizedNumpadConfig(config);
+      return JSON.stringify(norm);
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetNumpadLayers error: ${e.message}`);
+      return JSON.stringify({});
+    }
+  }
+
+  async SetActiveNumpadLayer(layerIndex) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const newIdx = setActiveLayerIndex(config, layerIndex);
+      await saveConfig(config, configPath);
+
+      const active = getActiveLayer(config);
+      this.emitNumpadLayerChanged(active.index, active.name);
+
+      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        this._indicator._reloadMenu();
+      }
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus SetActiveNumpadLayer error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async ExecuteNumpadKey(keyIndex) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const cmdInfo = getNumpadKeyCommand(config, keyIndex);
+
+      if (!cmdInfo || !cmdInfo.command) {
+        return false;
+      }
+
+      if (this._indicator && typeof this._indicator.executeCommand === "function") {
+        this._indicator.executeCommand(cmdInfo.name, cmdInfo.command, {}, { name: cmdInfo.name, command: cmdInfo.command });
+      }
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ExecuteNumpadKey error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async ToggleNumpadOverlay() {
+    try {
+      if (this._indicator && this._indicator._numpadOverlay && typeof this._indicator._numpadOverlay.toggle === "function") {
+        await this._indicator._numpadOverlay.toggle();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ToggleNumpadOverlay error: ${e.message}`);
+      return false;
+    }
+  }
+
   emitSSOSessionStateChanged(sessionId, state) {
     if (this._dbusImpl && GLib) {
       try {
@@ -985,6 +1080,19 @@ export class CmdBarDBusService {
         );
       } catch (e) {
         console.error(`CmdBar D-Bus emitEventTriggered error: ${e.message}`);
+      }
+    }
+  }
+
+  emitNumpadLayerChanged(layerIndex, layerName) {
+    if (this._dbusImpl && GLib) {
+      try {
+        this._dbusImpl.emit_signal(
+          "NumpadLayerChanged",
+          new GLib.Variant("(is)", [parseInt(layerIndex, 10) || 0, layerName || ""])
+        );
+      } catch (e) {
+        console.error(`CmdBar D-Bus emitNumpadLayerChanged error: ${e.message}`);
       }
     }
   }

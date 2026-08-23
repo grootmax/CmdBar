@@ -256,5 +256,46 @@ export default class CmdBarPreferences extends ExtensionPreferences {
     });
     brandingGroup.add(domainRow);
     settings.bind("domain-alias", domainRow, "text", Gio.SettingsBindFlags.DEFAULT);
+
+    const numpadGroup = new Adw.PreferencesGroup({
+      title: _("Numpad Macro Pad"),
+      description: _("Dedicated hardware macro pad on numeric keypad"),
+    });
+    page.add(numpadGroup);
+
+    const numpadEnableRow = new Adw.SwitchRow({
+      title: _("Enable Numpad Macro Pad"),
+      subtitle: _("Enable instant 10-key numpad macro commands and visual overlay"),
+    });
+    numpadGroup.add(numpadEnableRow);
+    settings.bind("numpad-enabled", numpadEnableRow, "active", Gio.SettingsBindFlags.DEFAULT);
+
+    const numpadOverlayRow = new Adw.EntryRow({
+      title: _("Overlay Shortcut"),
+      subtitle: _("e.g. <Super>KP_Multiply"),
+      show_apply_button: true,
+    });
+    numpadGroup.add(numpadOverlayRow);
+    let overlayStrv = settings.get_strv("numpad-overlay-shortcut");
+    numpadOverlayRow.text = formatShortcutHint(overlayStrv[0] || "<Super>KP_Multiply");
+
+    numpadOverlayRow.connect("apply", () => {
+      let parsed = parseAccel(numpadOverlayRow.text);
+      settings.set_strv("numpad-overlay-shortcut", parsed);
+    });
+
+    const numpadLayerRow = new Adw.EntryRow({
+      title: _("Layer Switch Shortcut"),
+      subtitle: _("e.g. <Super>KP_Divide"),
+      show_apply_button: true,
+    });
+    numpadGroup.add(numpadLayerRow);
+    let layerStrv = settings.get_strv("numpad-layer-switch");
+    numpadLayerRow.text = formatShortcutHint(layerStrv[0] || "<Super>KP_Divide");
+
+    numpadLayerRow.connect("apply", () => {
+      let parsed = parseAccel(numpadLayerRow.text);
+      settings.set_strv("numpad-layer-switch", parsed);
+    });
   }
 }
