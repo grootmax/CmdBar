@@ -140,7 +140,8 @@ jobs:
           # We process them strictly in this order.
           # ==================================================
 
-          jq -c 'if type == "array" then .[]? else empty end' /tmp/jules-prs.json | while read -r PR; do
+          jq -c 'if type == "array" then .[]? else empty end' /tmp/jules-prs.json > /tmp/jules-prs-lines.json
+          while read -r PR; do
 
             PR_NUMBER=$(echo "$PR" | jq -r '.number // empty' 2>/dev/null || echo "")
             TITLE=$(echo "$PR" | jq -r '.title // empty' 2>/dev/null || echo "")
@@ -728,7 +729,7 @@ jobs:
 
             break
 
-          done
+          done < /tmp/jules-prs-lines.json
 
           echo ""
           echo "=========================================="
