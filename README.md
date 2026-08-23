@@ -19,6 +19,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 - **Pre-built Snippet & Template Library** – Includes pre-built, ready-to-use command templates for Git workflows, Docker operations, Kubernetes (`kubectl`), AWS CLI, `npm`/`pnpm`, and System utilities.
 - **Import Wizard & Community Template Sharing** – Easily import templates from the built-in library, local JSON files, or remote URLs, and export custom commands into template schema JSON files.
 - **Elgato Stream Deck Integration** – Visual buttons for shortcuts with dynamic labels, real-time LED feedback status (Idle, Executing, Success, Error), one-touch profile switching across categories, and ultra-fast cached SVG rendering
+- **CI/CD Integration Pipeline** – Real-time pipeline status monitoring, deployment triggering, rollback execution, and secret masking across GitHub Actions, GitLab CI, and Jenkins.
 - **Output Formatters** – Automatically parse and nicely format command outputs: JSON pretty-printing with Pango markup & ANSI syntax highlighting, ASCII table rendering for CSV/TSV data, and monospaced boxed code blocks
 - **Multi-Step Command Chains** – Define sequential workflows with conditional logic ("Pull → Build → Deploy → Notify"), step dependencies, custom success criteria, pause prompts, real-time progress visualization, and automatic error handling with rollback commands.
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
