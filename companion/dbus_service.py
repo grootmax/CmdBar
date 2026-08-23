@@ -14,14 +14,21 @@ from companion.yubikey_auth import (
 )
 from companion.event_triggers import EventTriggerEngine
 from companion.stream_deck import get_stream_deck_manager
+from companion.environment_snapshot import (
+    export_snapshot,
+    import_snapshot,
+    create_backup,
+    restore_backup,
+    list_backups
+)
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, and manages signals for CommandExecuted,
-    CommandOutput, and EventTriggered.
+    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, ExportSnapshot, ImportSnapshot, CreateBackup, RestoreBackup, ListBackups,
+    and manages signals for CommandExecuted, CommandOutput, SSOSessionStateChanged, and EventTriggered.
     :visibility: public
     """
 
@@ -108,6 +115,46 @@ class CmdBarDBusService:
 
     is_yubi_key_required = is_yubikey_required
     authenticate_yubi_key = authenticate_yubikey
+
+    def export_snapshot(self, options_json: str = '{}') -> str:
+        try:
+            options = json.loads(options_json or '{}') if isinstance(options_json, str) else (options_json or {})
+        except Exception:
+            options = {}
+        res = export_snapshot(**options)
+        return json.dumps(res)
+
+    def import_snapshot(self, snapshot_json: str, options_json: str = '{}') -> bool:
+        try:
+            options = json.loads(options_json or '{}') if isinstance(options_json, str) else (options_json or {})
+        except Exception:
+            options = {}
+        try:
+            res = import_snapshot(snapshot_json, **options)
+            return bool(res and res.get("success"))
+        except Exception:
+            return False
+
+    def create_backup(self, description: str = 'D-Bus backup') -> str:
+        try:
+            res = create_backup(description=description)
+            return res.get("backup_path", "")
+        except Exception:
+            return ""
+
+    def restore_backup(self, backup_path_or_id: str) -> bool:
+        try:
+            res = restore_backup(backup_path_or_id)
+            return bool(res and res.get("success"))
+        except Exception:
+            return False
+
+    def list_backups(self) -> str:
+        try:
+            res = list_backups()
+            return json.dumps(res)
+        except Exception:
+            return json.dumps([])
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
@@ -392,7 +439,6 @@ class CmdBarDBusService:
         :visibility: public
         """
         return self.trigger_engine.remove_trigger(trigger_id)
-
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
         if self.stream_deck_manager:
