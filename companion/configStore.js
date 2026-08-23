@@ -131,6 +131,14 @@ export function saveConfigAtomically(configData, customPath) {
         configData.signature = computeSignatureSync(configData, key);
     }
 
+    // Read existing file mode if target exists
+    let existingMode;
+    if (fs.existsSync(targetPath)) {
+        try {
+            existingMode = fs.statSync(targetPath).mode;
+        } catch (e) {}
+    }
+
     // 2. Generate temporary file path in the SAME directory
     // Same directory is critical to guarantee the temp file resides on the same filesystem/mount point,
     // enabling an atomic `rename` operation.
@@ -141,6 +149,12 @@ export function saveConfigAtomically(configData, customPath) {
 
         // 3. Write JSON content to temporary file
         fs.writeFileSync(tempPath, jsonString, 'utf8');
+
+        if (existingMode !== undefined) {
+            try {
+                fs.chmodSync(tempPath, existingMode);
+            } catch (e) {}
+        }
 
         // 4. Atomic rename/swap operation
         fs.renameSync(tempPath, targetPath);
@@ -179,6 +193,15 @@ export async function saveConfigAtomicallyAsync(configData, customPath) {
         configData.signature = computeSignatureSync(configData, key);
     }
 
+    // Read existing file mode if target exists
+    let existingMode;
+    if (fs.existsSync(targetPath)) {
+        try {
+            const stats = await fs.promises.stat(targetPath);
+            existingMode = stats.mode;
+        } catch (e) {}
+    }
+
     // 2. Generate temporary file path in the SAME directory
     const tempPath = `${targetPath}.${Date.now()}.${Math.random().toString(36).substring(2, 8)}.tmp`;
 
@@ -187,6 +210,12 @@ export async function saveConfigAtomicallyAsync(configData, customPath) {
 
         // 3. Write JSON content to temporary file
         await fs.promises.writeFile(tempPath, jsonString, 'utf8');
+
+        if (existingMode !== undefined) {
+            try {
+                await fs.promises.chmod(tempPath, existingMode);
+            } catch (e) {}
+        }
 
         // 4. Atomic rename/swap operation
         await fs.promises.rename(tempPath, targetPath);

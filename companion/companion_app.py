@@ -298,6 +298,55 @@ def substitute_and_quote_command(template, params_data):
     return re.sub(pattern, replacer, template)
 
 
+def tokenize_and_substitute(template, params_data=None):
+    """
+    Tokenizes template string or list and substitutes parameters into discrete tokens
+    without subshell evaluation.
+    """
+    if isinstance(template, list):
+        tokens = list(template)
+    else:
+        tokens = shlex.split(template) if template else []
+    if not params_data:
+        return tokens
+    result = []
+    for token in tokens:
+        subbed = token
+        for ph, val in params_data.items():
+            clean_val = str(val).strip() if val is not None else ""
+            subbed = subbed.replace(f"{{{ph}}}", clean_val)
+            subbed = subbed.replace(f"<{ph}>", clean_val)
+        result.append(subbed)
+    return result
+
+
+def get_preview_tokens(tokens, params_data=None, parameters_schema=None):
+    """
+    Returns preview token list with sensitive/secure parameters redacted.
+    """
+    secure_params = set()
+    if isinstance(parameters_schema, list):
+        for p in parameters_schema:
+            if isinstance(p, dict) and p.get("secure", False):
+                secure_params.add(p.get("name"))
+    elif isinstance(parameters_schema, dict):
+        for ph, p in parameters_schema.items():
+            if isinstance(p, dict) and p.get("secure", False):
+                secure_params.add(ph)
+
+    result = []
+    for token in tokens:
+        subbed = token
+        if params_data:
+            for ph, val in params_data.items():
+                is_secure = ph in secure_params or "password" in ph.lower() or "secret" in ph.lower() or "token" in ph.lower()
+                replacement = "[REDACTED]" if is_secure else (str(val).strip() if val is not None else "")
+                subbed = subbed.replace(f"{{{ph}}}", replacement)
+                subbed = subbed.replace(f"<{ph}>", replacement)
+        result.append(subbed)
+    return result
+
+
 def run_command_in_shell(command_str):
     """
     Runs the given command string inside a shell and returns (exit_code, stdout, stderr).
@@ -719,14 +768,7 @@ if GUI_AVAILABLE:
             self.run_btn.set_sensitive(all_valid and self.proc is None)
             return all_valid
             
-        def on_run_clicked(self, btn):
-            if not self.validate_all():
-                return
-            
-            params_data = {ph: self.entries[ph].get_text() for ph in self.placeholders}
-            final_cmd = substitute_and_quote_command(self.command['template'], params_data)
-            
-            # Print construction & execution log
+        def start_process_execution(self, final_cmd):
             buffer = self.output_view.get_buffer()
             buffer.set_text(f"Constructed Command:\n{final_cmd}\n\nRunning in shell...\n")
             
@@ -755,6 +797,49 @@ if GUI_AVAILABLE:
                 self.run_btn.set_visible(True)
                 self.cancel_test_btn.set_visible(False)
                 self.validate_all()
+
+        def on_run_clicked(self, btn):
+            if not self.validate_all():
+                return
+            
+            params_data = {ph: self.entries[ph].get_text() for ph in self.placeholders}
+            final_cmd = substitute_and_quote_command(self.command['template'], params_data)
+            
+            is_verified = self.command.get("verified", True)
+            if not is_verified:
+                dialog = None
+                if 'Adw' in globals() and hasattr(Adw, 'MessageDialog'):
+                    dialog = Adw.MessageDialog(
+                        transient_for=self,
+                        heading="Confirm Command Execution",
+                        body=f"This command is unverified.\n\nCommand: {final_cmd}"
+                    )
+                    dialog.add_response("cancel", "Cancel")
+                    dialog.add_response("execute", "Execute")
+                    dialog.set_response_appearance("execute", Adw.ResponseAppearance.SUGGESTED)
+                elif 'Gtk' in globals() and hasattr(Gtk, 'MessageDialog'):
+                    dialog = Gtk.MessageDialog(
+                        transient_for=self,
+                        modal=True,
+                        message_type=Gtk.MessageType.QUESTION,
+                        buttons=Gtk.ButtonsType.OK_CANCEL,
+                        text=f"Confirm Command Execution\n\nCommand: {final_cmd}"
+                    )
+
+                def on_response(dlg, response_id):
+                    dlg.destroy()
+                    if response_id in ("execute", "ok", 1, -5) or str(response_id).lower() in ("execute", "ok"):
+                        self.start_process_execution(final_cmd)
+                    else:
+                        buffer = self.output_view.get_buffer()
+                        buffer.set_text("Execution cancelled by user confirmation dialog.\n")
+
+                if dialog:
+                    dialog.connect("response", on_response)
+                    dialog.present()
+                    return
+
+            self.start_process_execution(final_cmd)
                 
         def on_cancel_test_clicked(self, btn):
             self.stop_running_process()

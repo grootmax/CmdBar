@@ -238,6 +238,14 @@ function gjs_writeFileAtomic(filePath, content) {
         try {
             let file = Gio.File.new_for_path(filePath);
             let tmpFile = Gio.File.new_for_path(tmpPath);
+            let mode = null;
+            if (file.query_exists(null)) {
+                try {
+                    let info = file.query_info('unix::mode', Gio.FileQueryInfoFlags.NONE, null);
+                    mode = info.get_attribute_uint32('unix::mode');
+                } catch (e) {}
+            }
+
             let encoder = new TextEncoder();
             let bytes = encoder.encode(content);
             tmpFile.replace_contents_async(
@@ -251,6 +259,13 @@ function gjs_writeFileAtomic(filePath, content) {
                         let [success] = obj.replace_contents_finish(res);
                         if (!success) {
                             throw new Error("Failed to replace contents");
+                        }
+                        if (mode !== null) {
+                            try {
+                                let modeInfo = new Gio.FileInfo();
+                                modeInfo.set_attribute_uint32('unix::mode', mode);
+                                tmpFile.set_attributes_from_info(modeInfo, Gio.FileQueryInfoFlags.NONE, null);
+                            } catch (e) {}
                         }
                         tmpFile.move_async(
                             file,
@@ -657,7 +672,19 @@ export async function loadConfig(configPath, extensionPath) {
         isValidSignature = false;
     }
 
-    if (!isValidSchema || !isValidSignature) {
+    if (!isValidSchema) {
+        // Safe fallback to default in memory without touching invalid file on disk
+        let configObj = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+        Object.defineProperty(configObj, '_isInvalid', {
+            value: true,
+            enumerable: false,
+            writable: true,
+            configurable: true
+        });
+        return configObj;
+    }
+
+    if (!isValidSignature) {
         // Archive corrupted or untrusted file to .bak and restore clean signed default config
         const backupPath = configPath + '.bak';
         try {
