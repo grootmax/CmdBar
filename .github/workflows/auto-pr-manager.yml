@@ -88,7 +88,7 @@ jobs:
           jq '
             [
               .[]
-              | select(.headRefName | startswith("jules/"))
+              | select((.headRefName // "") | startswith("jules/"))
             ]
           ' /tmp/all-prs.json > /tmp/jules-prs.json
 
@@ -364,17 +364,20 @@ jobs:
 
                 git diff \
                   --name-only \
-                  --diff-filter=U |
+                  --diff-filter=U > /tmp/conflicted-files.txt
+
                 while IFS= read -r FILE; do
+                  if [ -n "$FILE" ]; then
+                    echo "Resolving conflict:"
+                    echo "  $FILE"
 
-                  echo "Resolving conflict:"
-                  echo "  $FILE"
+                    git checkout --theirs -- "$FILE"
 
-                  git checkout --theirs -- "$FILE"
+                    git add -- "$FILE"
+                  fi
+                done < /tmp/conflicted-files.txt
 
-                  git add -- "$FILE"
-
-                done
+                rm -f /tmp/conflicted-files.txt
 
                 # ==================================================
                 # VERIFY NO CONFLICTS REMAIN
@@ -412,11 +415,13 @@ jobs:
                 # COMMIT RESOLUTION
                 # ==================================================
 
-                echo ""
-                echo "Committing conflict resolution..."
+                if [ -f .git/MERGE_HEAD ] || ! git diff --cached --quiet; then
+                  echo ""
+                  echo "Committing conflict resolution..."
 
-                git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                  git commit \
+                    -m "chore: auto-resolve merge conflicts"
+                fi
 
               fi
 
@@ -497,8 +502,8 @@ jobs:
                 [
                   .[]
                   | select(
-                      (.name | ascii_downcase | contains("accessibility"))
-                      or (.name | ascii_downcase | contains("a11y"))
+                      ((.name // "") | ascii_downcase | contains("accessibility"))
+                      or ((.name // "") | ascii_downcase | contains("a11y"))
                       or (((.workflow // "") | ascii_downcase) | contains("accessibility"))
                       or (((.workflow // "") | ascii_downcase) | contains("a11y"))
                     )
@@ -565,7 +570,11 @@ jobs:
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      (.bucket == "fail" or .bucket == "cancel")
+                      and (((.name // "") | ascii_downcase) | contains("process jules prs") | not)
+                      and (((.workflow // "") | ascii_downcase) | contains("auto jules pr manager") | not)
+                    )
                 ]
                 | length
               ')
@@ -573,7 +582,11 @@ jobs:
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "pending")
+                  | select(
+                      (.bucket == "pending")
+                      and (((.name // "") | ascii_downcase) | contains("process jules prs") | not)
+                      and (((.workflow // "") | ascii_downcase) | contains("auto jules pr manager") | not)
+                    )
                 ]
                 | length
               ')

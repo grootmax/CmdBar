@@ -628,6 +628,422 @@ export function rankCommands(commands, query, usageMap = {}) {
   return results;
 }
 
+/**
+ * Converts a shell glob pattern into a JavaScript RegExp.
+ * @param {string} glob
+ * @returns {RegExp}
+ * @private
+ */
+function globToRegExp(glob) {
+  let regStr = "^";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === "*") {
+      regStr += ".*";
+    } else if (c === "?") {
+      regStr += ".";
+    } else if ("[].+^$(){}|\\".includes(c)) {
+      regStr += "\\" + c;
+    } else {
+      regStr += c;
+    }
+  }
+  regStr += "$";
+  return new RegExp(regStr, "i");
+}
+
+/**
+ * Evaluates whether a command matches a given pattern using the specified matching strategy.
+ * Supported types: 'exact', 'substring', 'glob', 'regex', 'binary'.
+ * @param {string} command
+ * @param {string|RegExp} pattern
+ * @param {string} [type]
+ * @returns {boolean}
+ * @public
+ */
+export function matchPattern(command, pattern, type) {
+  if (!command || typeof command !== "string") return false;
+  if (!pattern) return false;
+
+  const cmdStr = command.trim();
+  const patStr = typeof pattern === "string" ? pattern.trim() : String(pattern);
+
+  let matchType = type;
+  if (!matchType) {
+    if (typeof pattern === "object" && pattern instanceof RegExp) {
+      matchType = "regex";
+    } else if (patStr.includes("*") || patStr.includes("?")) {
+      matchType = "glob";
+    } else if (patStr.startsWith("^") || patStr.endsWith("$")) {
+      matchType = "regex";
+    } else {
+      matchType = "substring";
+    }
+  }
+
+  if (matchType === "exact") {
+    return cmdStr === patStr || cmdStr.toLowerCase() === patStr.toLowerCase();
+  }
+
+  if (matchType === "substring") {
+    return cmdStr.toLowerCase().includes(patStr.toLowerCase());
+  }
+
+  if (matchType === "glob") {
+    try {
+      const re = globToRegExp(patStr);
+      return re.test(cmdStr);
+    } catch (e) {
+      return cmdStr.toLowerCase().includes(patStr.toLowerCase());
+    }
+  }
+
+  if (matchType === "regex") {
+    try {
+      const re = pattern instanceof RegExp ? pattern : new RegExp(patStr, "i");
+      return re.test(cmdStr);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  if (matchType === "binary") {
+    const tokens = tokenizeCommand(cmdStr);
+    if (tokens.length === 0) return false;
+    const binary = tokens[0];
+    return (
+      binary === patStr ||
+      binary.endsWith("/" + patStr) ||
+      patStr.endsWith("/" + binary) ||
+      binary.toLowerCase().includes(patStr.toLowerCase())
+    );
+  }
+
+  return false;
+}
+
+/**
+ * Checks whether user or group context satisfies user/group restrictions on a policy rule.
+ * @param {object} [userContext]
+ * @param {string[]} [ruleUsers]
+ * @param {string[]} [ruleGroups]
+ * @returns {boolean}
+ * @public
+ */
+export function isUserInContext(userContext, ruleUsers, ruleGroups) {
+  let username = userContext && userContext.username;
+  let userGroups = (userContext && userContext.groups) || [];
+
+  if (!username) {
+    if (typeof process !== "undefined" && process.env) {
+      username = process.env.USER || process.env.USERNAME || "unknown";
+    } else if (typeof GLib !== "undefined" && GLib.get_user_name) {
+      username = GLib.get_user_name();
+    } else {
+      username = "unknown";
+    }
+  }
+
+  if (Array.isArray(ruleUsers) && ruleUsers.length > 0) {
+    const matchesUser = ruleUsers.some(
+      (u) => u === "*" || u.toLowerCase() === username.toLowerCase()
+    );
+    if (!matchesUser) return false;
+  }
+
+  if (Array.isArray(ruleGroups) && ruleGroups.length > 0) {
+    const matchesGroup = ruleGroups.some(
+      (g) => g === "*" || userGroups.some((ug) => ug.toLowerCase() === g.toLowerCase())
+    );
+    if (!matchesGroup) return false;
+  }
+
+  return true;
+}
+
+const DEFAULT_APPROVAL_SECRET = "cmdbar-approval-secret-key";
+
+/**
+ * Helper to compute signature string for payload.
+ * @param {string} payload
+ * @param {string} [key]
+ * @returns {string}
+ * @private
+ */
+function computeSignature(payload, key = DEFAULT_APPROVAL_SECRET) {
+  let sig = "";
+  if (typeof process !== "undefined" && process.versions && process.versions.node) {
+    try {
+      const crypto = globalThis.require ? globalThis.require("crypto") : null;
+      if (crypto) {
+        sig = crypto.createHmac("sha256", key).update(payload).digest("hex");
+      }
+    } catch (e) {}
+  }
+  if (!sig && typeof GLib !== "undefined" && GLib.compute_hmac_for_string) {
+    try {
+      const encoder = new TextEncoder();
+      sig = GLib.compute_hmac_for_string(GLib.ChecksumType.SHA256, encoder.encode(key), payload, -1);
+    } catch (e) {}
+  }
+  if (!sig) {
+    let hash = 0;
+    const str = payload + key;
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
+    }
+    sig = Math.abs(hash).toString(16);
+  }
+  return sig;
+}
+
+/**
+ * Creates a signed approval token for overriding a blocked command.
+ * @param {string} command
+ * @param {string} [approver="admin"]
+ * @param {number} [expiresInMs=3600000]
+ * @param {string} [key]
+ * @returns {string}
+ * @public
+ */
+export function createApprovalToken(command, approver = "admin", expiresInMs = 3600000, key = DEFAULT_APPROVAL_SECRET) {
+  const expiresAt = Date.now() + expiresInMs;
+  const payload = JSON.stringify({ command, approver, expiresAt });
+  const sig = computeSignature(payload, key);
+  const tokenObj = { payload, sig };
+  return Buffer.from(JSON.stringify(tokenObj)).toString("base64");
+}
+
+/**
+ * Validates an approval token for a specific command.
+ * @param {string} tokenStr
+ * @param {string} command
+ * @param {string} [key]
+ * @returns {{ valid: boolean, error: string|null, tokenData: object|null }}
+ * @public
+ */
+export function validateApprovalToken(tokenStr, command, key = DEFAULT_APPROVAL_SECRET) {
+  if (!tokenStr || typeof tokenStr !== "string") {
+    return { valid: false, error: "Missing token", tokenData: null };
+  }
+
+  try {
+    const raw = Buffer.from(tokenStr, "base64").toString("utf8");
+    const { payload, sig } = JSON.parse(raw);
+    const data = JSON.parse(payload);
+
+    if (Date.now() > data.expiresAt) {
+      return { valid: false, error: "Approval token expired", tokenData: data };
+    }
+
+    if (command && data.command !== "*" && data.command.trim() !== command.trim()) {
+      return { valid: false, error: "Token command mismatch", tokenData: data };
+    }
+
+    const expectedSig = computeSignature(payload, key);
+
+    if (sig !== expectedSig) {
+      return { valid: false, error: "Invalid token signature", tokenData: data };
+    }
+
+    return { valid: true, error: null, tokenData: data };
+  } catch (e) {
+    return { valid: false, error: "Malformed approval token", tokenData: null };
+  }
+}
+
+/**
+ * Grants an approval override for a command in the overrides map.
+ * @param {object} overrides
+ * @param {string} command
+ * @param {string} [approver="admin"]
+ * @param {number} [expiresInMs=3600000]
+ * @returns {object}
+ * @public
+ */
+export function grantApprovalOverride(overrides, command, approver = "admin", expiresInMs = 3600000) {
+  if (!overrides || typeof overrides !== "object") return null;
+  const expiresAt = Date.now() + expiresInMs;
+  const overrideEntry = {
+    command,
+    approved_by: approver,
+    expires_at: expiresAt,
+    created_at: Date.now(),
+  };
+  overrides[command.trim()] = overrideEntry;
+  return overrideEntry;
+}
+
+/**
+ * Evaluates a command against policy rules (whitelist, blacklist, pattern matching, user/group filters, overrides).
+ * @param {string} command
+ * @param {object} [userContext]
+ * @param {object} [policy]
+ * @param {object|string} [overrides]
+ * @returns {{ allowed: boolean, action: string, reason: string, matchedRule: object|null, requiresApproval: boolean, canOverride: boolean, overrideActive: boolean }}
+ * @public
+ */
+export function evaluateCommandPolicy(command, userContext = null, policy = null, overrides = null) {
+  if (!command || typeof command !== "string" || command.trim().length === 0) {
+    return {
+      allowed: false,
+      action: "block",
+      reason: "Command is empty or invalid.",
+      matchedRule: null,
+      requiresApproval: false,
+      canOverride: false,
+      overrideActive: false,
+    };
+  }
+
+  const cmdStr = command.trim();
+
+  if (policy && policy.enabled === false) {
+    return {
+      allowed: true,
+      action: "allow",
+      reason: "Policy enforcement is disabled.",
+      matchedRule: null,
+      requiresApproval: false,
+      canOverride: false,
+      overrideActive: false,
+    };
+  }
+
+  const effectivePolicy = policy || {};
+  const effectiveOverrides = overrides || effectivePolicy.overrides || {};
+
+  if (typeof effectiveOverrides === "string") {
+    const tokenVal = validateApprovalToken(effectiveOverrides, cmdStr);
+    if (tokenVal.valid) {
+      return {
+        allowed: true,
+        action: "allow",
+        reason: `Execution allowed via valid approval token (approved by ${tokenVal.tokenData.approver}).`,
+        matchedRule: null,
+        requiresApproval: false,
+        canOverride: true,
+        overrideActive: true,
+      };
+    }
+  } else if (typeof effectiveOverrides === "object") {
+    const overrideEntry = effectiveOverrides[cmdStr];
+    if (overrideEntry) {
+      if (typeof overrideEntry === "object" && overrideEntry.expires_at) {
+        if (Date.now() < overrideEntry.expires_at) {
+          return {
+            allowed: true,
+            action: "allow",
+            reason: `Execution allowed via approved policy override (approved by ${overrideEntry.approved_by || "admin"}).`,
+            matchedRule: null,
+            requiresApproval: false,
+            canOverride: true,
+            overrideActive: true,
+          };
+        }
+      } else if (overrideEntry === true) {
+        return {
+          allowed: true,
+          action: "allow",
+          reason: "Execution allowed via policy override flag.",
+          matchedRule: null,
+          requiresApproval: false,
+          canOverride: true,
+          overrideActive: true,
+        };
+      }
+    }
+  }
+
+  const blacklist = effectivePolicy.blacklist || [];
+  const rules = effectivePolicy.rules || [];
+
+  const blacklistRules = [];
+  for (const item of blacklist) {
+    if (typeof item === "string") {
+      blacklistRules.push({ pattern: item, action: "block", allow_override: true });
+    } else if (item && typeof item === "object") {
+      blacklistRules.push({ action: "block", allow_override: true, ...item });
+    }
+  }
+  for (const rule of rules) {
+    if (rule && rule.action === "block") {
+      blacklistRules.push(rule);
+    }
+  }
+
+  for (const rule of blacklistRules) {
+    if (isUserInContext(userContext, rule.users, rule.groups)) {
+      if (matchPattern(cmdStr, rule.pattern, rule.type)) {
+        const canOverride = rule.allow_override !== false;
+        return {
+          allowed: false,
+          action: "block",
+          reason: rule.reason || `Command blocked by blacklist rule matching pattern '${rule.pattern}'.`,
+          matchedRule: rule,
+          requiresApproval: canOverride,
+          canOverride: canOverride,
+          overrideActive: false,
+        };
+      }
+    }
+  }
+
+  const whitelist = effectivePolicy.whitelist || [];
+  const whitelistRules = [];
+  for (const item of whitelist) {
+    if (typeof item === "string") {
+      whitelistRules.push({ pattern: item, action: "allow" });
+    } else if (item && typeof item === "object") {
+      whitelistRules.push({ action: "allow", ...item });
+    }
+  }
+  for (const rule of rules) {
+    if (rule && rule.action === "allow") {
+      whitelistRules.push(rule);
+    }
+  }
+
+  const isWhitelistMode = whitelistRules.length > 0 || effectivePolicy.mode === "whitelist_only" || effectivePolicy.mode === "hybrid";
+  if (isWhitelistMode) {
+    let matchedWhitelist = false;
+    let matchedRule = null;
+
+    for (const rule of whitelistRules) {
+      if (isUserInContext(userContext, rule.users, rule.groups)) {
+        if (matchPattern(cmdStr, rule.pattern, rule.type)) {
+          matchedWhitelist = true;
+          matchedRule = rule;
+          break;
+        }
+      }
+    }
+
+    if (!matchedWhitelist) {
+      return {
+        allowed: false,
+        action: "block",
+        reason: "Command is not in the approved whitelist.",
+        matchedRule: null,
+        requiresApproval: true,
+        canOverride: true,
+        overrideActive: false,
+      };
+    }
+  }
+
+  return {
+    allowed: true,
+    action: "allow",
+    reason: "Command allowed by security policy.",
+    matchedRule: null,
+    requiresApproval: false,
+    canOverride: true,
+    overrideActive: false,
+  };
+}
+
 export {
   detectFormat,
   parseCsvLine,
@@ -637,3 +1053,4 @@ export {
   formatCodeBlock,
   formatOutput,
 } from "./outputFormatter.js";
+

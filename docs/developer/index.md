@@ -22,3 +22,11 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Command Policy Engine (Whitelist & Blacklist)
+
+The command policy engine (`evaluateCommandPolicy` / `evaluate_command_policy`) validates commands prior to execution:
+- **Blacklist & Whitelist Evaluation**: Filters commands using pattern strategies (`exact`, `substring`, `glob`, `regex`, `binary`).
+- **User & Group Rule Filters**: Evaluates user context against rule restrictions (`users`, `groups`).
+- **Approval Overrides**: HMAC-SHA256 signed approval tokens (`createApprovalToken` / `validateApprovalToken`) and temporary override grants.
+

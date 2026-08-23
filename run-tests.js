@@ -2,7 +2,7 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands, detectFormat, formatOutput } from './extension/commandProcessor.js';
+import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands, detectFormat, formatOutput, matchPattern, evaluateCommandPolicy, createApprovalToken, validateApprovalToken } from './extension/commandProcessor.js';
 import { saveConfigAtomically, saveConfigAtomicallyAsync } from './companion/configStore.js';
 
 console.log('Running standalone verification tests...');
@@ -73,6 +73,20 @@ try {
     assert.strictEqual(fs.existsSync(tempFile), true, 'Temp file should be created asynchronously');
     const readDataAsync = JSON.parse(fs.readFileSync(tempFile, 'utf8'));
     assert.deepStrictEqual(readDataAsync, testDataAsync, 'Written data should match source data (async)');
+
+    // 7. Command Whitelist & Blacklist Policy Engine Tests
+    assert.strictEqual(matchPattern('rm -rf /tmp', 'rm -rf *', 'glob'), true, 'Glob pattern matching should work');
+    
+    const policy = { enabled: true, blacklist: ['rm -rf *'] };
+    const blEval = evaluateCommandPolicy('rm -rf /tmp', null, policy);
+    assert.strictEqual(blEval.allowed, false, 'Blacklisted command should be blocked');
+
+    const appToken = createApprovalToken('rm -rf /tmp', 'admin', 3600000);
+    const valRes = validateApprovalToken(appToken, 'rm -rf /tmp');
+    assert.strictEqual(valRes.valid, true, 'Approval token should be valid');
+
+    const overrideEval = evaluateCommandPolicy('rm -rf /tmp', null, policy, appToken);
+    assert.strictEqual(overrideEval.allowed, true, 'Approval token override should allow command execution');
 
     // Cleanup temp files & dir
     if (fs.existsSync(tempDir)) {

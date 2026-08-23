@@ -10,6 +10,14 @@ import hmac
 import hashlib
 import secrets
 from companion.ai_translator import is_ai_command, translate_natural_language_to_command
+from app.config_schema import (
+    match_pattern,
+    is_user_in_context,
+    create_approval_token,
+    validate_approval_token,
+    grant_approval_override,
+    evaluate_command_policy
+)
 from app.template_manager import (
     load_all_templates,
     load_template_file,
