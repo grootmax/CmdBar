@@ -132,7 +132,13 @@ jobs:
           # We process them strictly in this order.
           # ==================================================
 
-          jq -c '.[]' /tmp/jules-prs.json | while read -r PR; do
+          mapfile -t JULES_PRS < <(jq -c '.[]' /tmp/jules-prs.json)
+
+          for PR in "${JULES_PRS[@]}"; do
+
+            if [ -z "$PR" ]; then
+              continue
+            fi
 
             PR_NUMBER=$(echo "$PR" | jq -r '.number')
             TITLE=$(echo "$PR" | jq -r '.title')
@@ -495,16 +501,33 @@ jobs:
               echo ""
               echo "Checking status checks for PR #$PR_NUMBER..."
 
-              CHECK_OUTPUT=$(
-                gh pr checks "$PR_NUMBER" \
+              RAW_CHECKS=$(
+                gh pr view "$PR_NUMBER" \
                   --repo "$GH_REPO" \
-                  --json name,state,bucket,workflow \
-                  2>/dev/null || true
+                  --json statusCheckRollup \
+                  --jq '.statusCheckRollup // []' \
+                  2>/dev/null || echo "[]"
               )
 
-              if [ -z "$CHECK_OUTPUT" ]; then
-                CHECK_OUTPUT="[]"
+              if [ -z "$RAW_CHECKS" ]; then
+                RAW_CHECKS="[]"
               fi
+
+              CHECK_OUTPUT=$(echo "$RAW_CHECKS" | jq '
+                map({
+                  name: (.name // .context // ""),
+                  workflow: (.workflowName // ""),
+                  status: (.status // ""),
+                  conclusion: (.conclusion // ""),
+                  state: (.state // ""),
+                  bucket: (
+                    if (.conclusion == "SUCCESS" or .state == "SUCCESS" or .conclusion == "NEUTRAL" or .conclusion == "SKIPPED") then "pass"
+                    elif (.conclusion == "FAILURE" or .conclusion == "CANCELLED" or .conclusion == "TIMED_OUT" or .state == "FAILURE" or .state == "ERROR") then "fail"
+                    else "pending"
+                    end
+                  )
+                })
+              ')
 
               echo ""
               echo "Status checks output:"
@@ -543,7 +566,7 @@ jobs:
               A11Y_FAILED=$(echo "$A11Y_CHECK" | jq '
                 [
                   .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(.bucket == "fail")
                 ]
                 | length
               ')
@@ -579,16 +602,31 @@ jobs:
 
               # --------------------------------------------------
               # CHECK OTHER CHECKS FOR FAILURE / PENDING
+              # (Excludes accessibility checks and self workflow)
               # --------------------------------------------------
-              OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
+              OTHER_CHECKS=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      ((.name | ascii_downcase | contains("accessibility")) | not)
+                      and ((.name | ascii_downcase | contains("a11y")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("accessibility")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("a11y")) | not)
+                      and ((.name | ascii_downcase | contains("process jules prs")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("auto jules pr manager")) | not)
+                    )
+                ]
+              ')
+
+              OTHER_FAILED=$(echo "$OTHER_CHECKS" | jq '
+                [
+                  .[]
+                  | select(.bucket == "fail")
                 ]
                 | length
               ')
 
-              OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
+              OTHER_PENDING=$(echo "$OTHER_CHECKS" | jq '
                 [
                   .[]
                   | select(.bucket == "pending")
