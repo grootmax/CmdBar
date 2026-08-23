@@ -364,17 +364,20 @@ jobs:
 
                 git diff \
                   --name-only \
-                  --diff-filter=U |
+                  --diff-filter=U > /tmp/conflicted-files.txt
+
                 while IFS= read -r FILE; do
+                  if [ -n "$FILE" ]; then
+                    echo "Resolving conflict:"
+                    echo "  $FILE"
 
-                  echo "Resolving conflict:"
-                  echo "  $FILE"
+                    git checkout --theirs -- "$FILE"
 
-                  git checkout --theirs -- "$FILE"
+                    git add -- "$FILE"
+                  fi
+                done < /tmp/conflicted-files.txt
 
-                  git add -- "$FILE"
-
-                done
+                rm -f /tmp/conflicted-files.txt
 
                 # ==================================================
                 # VERIFY NO CONFLICTS REMAIN
@@ -412,11 +415,13 @@ jobs:
                 # COMMIT RESOLUTION
                 # ==================================================
 
-                echo ""
-                echo "Committing conflict resolution..."
+                if ! git diff --cached --quiet; then
+                  echo ""
+                  echo "Committing conflict resolution..."
 
-                git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                  git commit \
+                    -m "chore: auto-resolve merge conflicts"
+                fi
 
               fi
 
