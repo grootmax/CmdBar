@@ -319,6 +319,7 @@ DEFAULT_CONFIG = {
         "sensor_triggers": [],
     },
     "triggers": [],
+    "cron_jobs": [],
 }
 
 
@@ -411,6 +412,9 @@ def load_config(path=None):
             config_data.get("yubikey"), dict
         ):
             config_data["yubikey"] = json.loads(json.dumps(DEFAULT_CONFIG["yubikey"]))
+            migrated = True
+        if "cron_jobs" not in config_data:
+            config_data["cron_jobs"] = []
             migrated = True
         for cat in config_data.get("categories", []):
             # Migrate shortcuts to commands
