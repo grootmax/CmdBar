@@ -15,12 +15,10 @@ CmdBar targets GNOME Shell 46 and 47 directly without legacy runtime fallback br
 - **Symbolic System Icons**: All indicators, category headers, command menu items, and confirmation dialogs instantiate symbolic icons using standard `St.Icon` with `icon_name` property.
 - **Path Resolution & Filesystem Operations**: Installation root path resolution uses native `Gio.File` handle methods (`Extension.dir.get_path()`). Directory creation uses `make_directory_with_parents(null)` sync API, file moves use `move_finish(res)` without array destructuring, and `Gio` imports handle `giModule.default` for GNOME Shell 46+ compatibility.
 
-## D-Bus Service Integration Architecture
+### Output Parser & Formatter Module
 
-CmdBar exports an `org.gnome.CmdBar` D-Bus service over the Session Bus:
-- **XML Interface Specification**: Located at `extension/org.gnome.CmdBar.xml` and `companion/org.gnome.CmdBar.xml`.
-- **GJS Export Service**: Implemented in `extension/dbusService.js` and managed during `CmdBarExtension.enable()` / `disable()`.
-- **Methods**: `AddCommand`, `RemoveCommand`, `ExecuteCommand`, `GetCommands`.
-- **Signals**: `CommandExecuted`, `CommandOutput`.
-- **Python Integration Bindings**: Implemented in `companion/dbus_client.py` and `companion/dbus_service.py` to allow external tool scriptability and test coverage.
-
+The output parser module (`extension/outputFormatter.js`) automatically detects and formats command outputs:
+- **Format Auto-Detection**: Detects JSON, CSV, TSV, Code, and plain text formats automatically.
+- **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
+- **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
+- **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.

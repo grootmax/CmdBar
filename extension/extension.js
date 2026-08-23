@@ -15,6 +15,7 @@ import {
   getPreviewTokens,
   formatShortcutHint,
   parseAccel,
+  formatOutput,
 } from "./commandProcessor.js";
 import { loadConfig } from "./configSync.js";
 import {
@@ -22,7 +23,6 @@ import {
   isAICommand,
   cleanAIPrompt,
 } from "./aiTranslator.js";
-import { CmdBarDBusService } from "./dbusService.js";
 
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
@@ -90,7 +90,8 @@ function _executeDirectTokens(argv, commandName) {
           let title = `Command Succeeded: ${commandName}`;
           let body = `Exit status: ${exitStatus}`;
           if (stdout && stdout.trim()) {
-            body += `\n\nOutput:\n${stdout.trim()}`;
+            const formatted = formatOutput(stdout);
+            body += `\n\nOutput (${formatted.format}):\n${formatted.text}`;
           }
           Main.notify(title, body);
         } else {
@@ -700,13 +701,11 @@ export function copyToClipboard(text) {
 }
 
 /**
- * Helper function to simulate paste action (Ctrl+V) using wtype on Wayland or xdotool on X11.
+ * Helper function supporting pasting clipboard text via wtype (Wayland) or xdotool (X11).
  * @param {string} text
  * @returns {boolean}
  */
 export function pasteClipboardText(text) {
-  copyToClipboard(text);
-
   let isWayland = false;
   try {
     let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
@@ -719,35 +718,24 @@ export function pasteClipboardText(text) {
     }
   } catch (e) {}
 
-  let tools = isWayland
-    ? [
-        ["wtype", "-M", "ctrl", "v"],
-        ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
-      ]
-    : [
-        ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
-        ["wtype", "-M", "ctrl", "v"],
-      ];
+  let argv = isWayland
+    ? ["wtype", "-M", "ctrl", "v"]
+    : ["xdotool", "key", "--clearmodifiers", "ctrl+v"];
 
-  let success = false;
-  for (let argv of tools) {
-    try {
-      let proc = Gio.Subprocess.new(
-        argv,
-        Gio.SubprocessFlags.NONE,
-      );
-      proc.communicate_utf8_async(null, null, (subprocess, result) => {
-        try {
-          subprocess.communicate_utf8_finish(result);
-        } catch (err) {}
-      });
-      success = true;
-      break;
-    } catch (e) {
-      continue;
-    }
+  try {
+    let proc = Gio.Subprocess.new(
+      argv,
+      Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+    );
+    proc.communicate_utf8_async(null, null, (subprocess, result) => {
+      try {
+        subprocess.communicate_utf8_finish(result);
+      } catch (err) {}
+    });
+    return true;
+  } catch (e) {
+    return false;
   }
-  return success;
 }
 
 // Standard menu item for parameterless or parameter-prompting commands
@@ -1239,12 +1227,6 @@ const CmdBarIndicator = GObject.registerClass(
         }
       }
 
-      let dbusService = this._dbusService || (this._extension && this._extension._dbusService);
-      if (dbusService) {
-        dbusService.emitCommandOutput(job.commandName, stdout, stderr);
-        dbusService.emitCommandExecuted(job.commandName, success ? 0 : 1, success);
-      }
-
       // Display detailed execution notification (Requirement 5)
       let title = "";
       let body = "";
@@ -1254,7 +1236,7 @@ const CmdBarIndicator = GObject.registerClass(
         body = `The process was stopped by the user.`;
       } else if (success) {
         title = `Command Succeeded: ${job.commandName}`;
-        body = stdout ? stdout.trim() : "Execution completed successfully.";
+        body = stdout ? formatOutput(stdout).text : "Execution completed successfully.";
       } else {
         title = `Command Failed: ${job.commandName}`;
         body = stderr
@@ -1360,17 +1342,6 @@ export default class CmdBarExtension extends Extension {
 
     // Register global keybinding
     this._registerKeybinding();
-
-    // Export D-Bus Service
-    try {
-      this._dbusService = new CmdBarDBusService(this._indicator);
-      this._dbusService.export();
-      if (this._indicator) {
-        this._indicator._dbusService = this._dbusService;
-      }
-    } catch (e) {
-      console.error(`CmdBar: Failed to initialize D-Bus service: ${e.message}`);
-    }
 
     // Listen for live GSettings changes
     this._showIndicatorId = this._settings.connect(
@@ -1505,13 +1476,6 @@ export default class CmdBarExtension extends Extension {
         this._shortcutId = 0;
       }
       this._settings = null;
-    }
-
-    if (this._dbusService) {
-      try {
-        this._dbusService.unexport();
-      } catch (e) {}
-      this._dbusService = null;
     }
 
     if (this._indicator) {
