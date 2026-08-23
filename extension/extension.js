@@ -22,18 +22,28 @@ import {
   isAICommand,
   cleanAIPrompt,
 } from "./aiTranslator.js";
+import { ChainRunner, ChainStatus, StepStatus } from "./chainRunner.js";
 
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
     if (Main && typeof Main.notify === "function") {
-      Main.notify("CmdBar AI Assistant", "Translating prompt to shell command...");
+      Main.notify(
+        "CmdBar AI Assistant",
+        "Translating prompt to shell command...",
+      );
     }
 
-    const generatedCmd = await translateNaturalLanguageToCommand(commandStr, config || {});
+    const generatedCmd = await translateNaturalLanguageToCommand(
+      commandStr,
+      config || {},
+    );
 
     if (!generatedCmd) {
       if (Main && typeof Main.notify === "function") {
-        Main.notify("AI Translation Failed", "AI model returned an empty command.");
+        Main.notify(
+          "AI Translation Failed",
+          "AI model returned an empty command.",
+        );
       }
       return;
     }
@@ -53,9 +63,11 @@ async function handleAICommandExecution(commandStr, config, onComplete) {
           if (onComplete) onComplete();
         },
         () => {
-          console.log("CmdBar AI: User cancelled execution of AI generated command.");
+          console.log(
+            "CmdBar AI: User cancelled execution of AI generated command.",
+          );
           if (onComplete) onComplete();
-        }
+        },
       );
     } else {
       _executeDirectTokens(tokens, "AI Command");
@@ -73,7 +85,7 @@ function _executeDirectTokens(argv, commandName) {
   try {
     let proc = Gio.Subprocess.new(
       argv,
-      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
     );
 
     proc.communicate_utf8_async(null, null, (subprocess, result) => {
@@ -264,6 +276,249 @@ function requestCommandConfirmation(
   }
 }
 
+// Native GNOME Shell Modal Dialog for Multi-Step Command Chain Progress Visualization & Control
+const ChainProgressDialog = GObject.registerClass(
+  class ChainProgressDialog extends ModalDialog.ModalDialog {
+    _init(runner) {
+      super._init({ style_class: "cmdbar-chain-dialog" });
+
+      this._runner = runner;
+
+      let mainBox = new St.BoxLayout({
+        vertical: true,
+        style_class: "cmdbar-dialog-content",
+        style: "padding: 16px; min-width: 450px; max-width: 600px;",
+      });
+
+      let headerBox = new St.BoxLayout({
+        vertical: false,
+        style: "margin-bottom: 12px;",
+      });
+
+      let icon = new St.Icon({
+        icon_name: "system-run-symbolic",
+        style_class: "popup-menu-icon",
+        style: "margin-right: 10px;",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      headerBox.add_child(icon);
+
+      this.titleLabel = new St.Label({
+        text: `Chain Execution: ${runner.name}`,
+        style: "font-weight: bold; font-size: 1.15em;",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      headerBox.add_child(this.titleLabel);
+      mainBox.add_child(headerBox);
+
+      this.statusLabel = new St.Label({
+        text: "Initializing chain steps...",
+        style:
+          "margin-bottom: 12px; color: #3584e4; font-weight: bold; font-size: 0.95em;",
+      });
+      mainBox.add_child(this.statusLabel);
+
+      this.stepsContainer = new St.BoxLayout({
+        vertical: true,
+        style:
+          "margin-bottom: 16px; background-color: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px;",
+      });
+      mainBox.add_child(this.stepsContainer);
+
+      this.logLabel = new St.Label({
+        text: "",
+        style:
+          "font-family: monospace; font-size: 0.85em; background-color: rgba(0,0,0,0.4); padding: 8px; border-radius: 4px; max-height: 120px;",
+      });
+      mainBox.add_child(this.logLabel);
+
+      this.contentLayout.add_child(mainBox);
+
+      this.cancelButton = this.addButton({
+        label: "Cancel Chain",
+        action: () => {
+          this._runner.cancel();
+          this.close();
+        },
+        key: Clutter.KEY_Escape,
+      });
+
+      this.actionButton = this.addButton({
+        label: "Pause",
+        action: () => {
+          if (this._runner.status === ChainStatus.PAUSED) {
+            this._runner.resume();
+          } else {
+            this._runner.pause();
+          }
+        },
+      });
+
+      this.renderSteps(this._runner.getProgress());
+    }
+
+    renderSteps(progress) {
+      if (!this.stepsContainer) return;
+      this.stepsContainer.destroy_all_children();
+
+      for (let i = 0; i < progress.steps.length; i++) {
+        let step = progress.steps[i];
+        let stepRow = new St.BoxLayout({
+          vertical: false,
+          style: "margin-bottom: 4px; padding: 4px;",
+        });
+
+        let iconName = "process-working-symbolic";
+        let color = "#aaaaaa";
+
+        switch (step.status) {
+          case StepStatus.SUCCESS:
+            iconName = "emblem-ok-symbolic";
+            color = "#2ec27e";
+            break;
+          case StepStatus.FAILED:
+            iconName = "dialog-error-symbolic";
+            color = "#e01b24";
+            break;
+          case StepStatus.RUNNING:
+            iconName = "emblem-synchronizing-symbolic";
+            color = "#3584e4";
+            break;
+          case StepStatus.PAUSED:
+            iconName = "media-playback-pause-symbolic";
+            color = "#f5c211";
+            break;
+          case StepStatus.SKIPPED:
+            iconName = "media-skip-forward-symbolic";
+            color = "#777777";
+            break;
+          case StepStatus.ROLLING_BACK:
+          case StepStatus.ROLLED_BACK:
+            iconName = "edit-undo-symbolic";
+            color = "#ff7800";
+            break;
+        }
+
+        let stepIcon = new St.Icon({
+          icon_name: iconName,
+          style: `margin-right: 8px; color: ${color};`,
+          y_align: Clutter.ActorAlign.CENTER,
+        });
+        stepRow.add_child(stepIcon);
+
+        let stepLabel = new St.Label({
+          text: `${i + 1}. ${step.name} (${step.status})`,
+          style: `font-size: 0.9em; color: ${color};`,
+          y_align: Clutter.ActorAlign.CENTER,
+        });
+        stepRow.add_child(stepLabel);
+
+        this.stepsContainer.add_child(stepRow);
+      }
+    }
+
+    updateProgress(progress) {
+      this.renderSteps(progress);
+
+      let currentStep = progress.steps.find(
+        (s) => s.id === progress.currentStepId,
+      );
+      if (currentStep) {
+        this.statusLabel.text = `Step ${progress.completed + 1} of ${progress.total}: ${currentStep.name} (${progress.status})`;
+        if (currentStep.stdout || currentStep.stderr) {
+          let output =
+            (currentStep.stdout || "") +
+            (currentStep.stderr ? "\n" + currentStep.stderr : "");
+          this.logLabel.text =
+            output.length > 250
+              ? output.substring(output.length - 250)
+              : output;
+        }
+      } else {
+        this.statusLabel.text = `Chain Status: ${progress.status}`;
+      }
+
+      if (
+        progress.status === ChainStatus.SUCCESS ||
+        progress.status === ChainStatus.FAILED ||
+        progress.status === ChainStatus.ROLLED_BACK ||
+        progress.status === ChainStatus.CANCELLED
+      ) {
+        if (this.actionButton) {
+          this.actionButton.label = "Close";
+          this.actionButton.set_reactive(true);
+        }
+      }
+    }
+
+    updatePauseState(step, prompt, resumeCb) {
+      this.statusLabel.text = `Paused: ${prompt || step.name}`;
+      if (this.actionButton) {
+        this.actionButton.label = "Continue";
+      }
+    }
+
+    updateRollbackState(steps) {
+      this.statusLabel.text = `Rolling back executed steps due to failure...`;
+    }
+  },
+);
+
+export function executeChain(cmdObj, placeholderMap, config) {
+  let runner = new ChainRunner(cmdObj, {
+    placeholderMap: placeholderMap || {},
+  });
+
+  let dialog = null;
+  try {
+    if (Main && Main.uiGroup) {
+      dialog = new ChainProgressDialog(runner);
+      dialog.open();
+    }
+  } catch (e) {
+    console.warn(`CmdBar: ModalDialog unavailable for chain: ${e.message}`);
+  }
+
+  runner.options.onStepStart = (step, progress) => {
+    if (dialog) dialog.updateProgress(progress);
+  };
+  runner.options.onStepComplete = (step, result, progress) => {
+    if (dialog) dialog.updateProgress(progress);
+  };
+  runner.options.onStepPause = (step, prompt, resume) => {
+    if (dialog) dialog.updatePauseState(step, prompt, resume);
+  };
+  runner.options.onChainComplete = (progress) => {
+    if (dialog) dialog.updateProgress(progress);
+    if (Main && typeof Main.notify === "function") {
+      Main.notify(
+        `Chain Succeeded: ${cmdObj.name || "Command Chain"}`,
+        `All steps completed successfully.`,
+      );
+    }
+  };
+  runner.options.onChainError = (error, progress) => {
+    if (dialog) dialog.updateProgress(progress);
+    if (Main && typeof Main.notify === "function") {
+      Main.notify(
+        `Chain Failed: ${cmdObj.name || "Command Chain"}`,
+        error.message,
+      );
+    }
+  };
+  runner.options.onRollbackStart = (steps) => {
+    if (dialog) dialog.updateRollbackState(steps);
+    if (Main && typeof Main.notify === "function") {
+      Main.notify(
+        `Chain Rollback: ${cmdObj.name || "Command Chain"}`,
+        `Reverting executed steps.`,
+      );
+    }
+  };
+
+  runner.start();
+}
+
 /**
  * Run a command asynchronously as a direct tokenized array and notify the user when done.
  * @param {string} commandName
@@ -271,7 +526,17 @@ function requestCommandConfirmation(
  * @param {object} [cmdObj]
  * @param {object} [placeholderMap]
  */
-function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, config) {
+function runCommandAsync(
+  commandName,
+  commandString,
+  cmdObj,
+  placeholderMap,
+  config,
+) {
+  if (cmdObj && (cmdObj.type === "chain" || Array.isArray(cmdObj.steps))) {
+    executeChain(cmdObj, placeholderMap, config);
+    return;
+  }
   let rawCmdStr = Array.isArray(commandString)
     ? commandString.join(" ")
     : String(commandString || "");
@@ -533,7 +798,11 @@ const CommandInputMenuItem = GObject.registerClass(
                 let argv = substituteTokens(tokens, placeholderMap);
                 let fullCmdStr = argv.join(" ");
 
-                if (isAICommand(fullCmdStr) || isAICommand(this._commandTemplate) || isAICommand(text)) {
+                if (
+                  isAICommand(fullCmdStr) ||
+                  isAICommand(this._commandTemplate) ||
+                  isAICommand(text)
+                ) {
                   let promptText = isAICommand(text) ? text : fullCmdStr;
                   handleAICommandExecution(
                     promptText,
@@ -546,7 +815,7 @@ const CommandInputMenuItem = GObject.registerClass(
                       ) {
                         this._indicator.menu.close();
                       }
-                    }
+                    },
                   );
                   return;
                 }
@@ -668,14 +937,8 @@ export function copyToClipboard(text) {
   } catch (e) {}
 
   let tools = isWayland
-    ? [
-        ["wl-copy"],
-        ["xclip", "-selection", "clipboard"],
-      ]
-    : [
-        ["xclip", "-selection", "clipboard"],
-        ["wl-copy"],
-      ];
+    ? [["wl-copy"], ["xclip", "-selection", "clipboard"]]
+    : [["xclip", "-selection", "clipboard"], ["wl-copy"]];
 
   let success = false;
   for (let argv of tools) {
@@ -696,6 +959,39 @@ export function copyToClipboard(text) {
     }
   }
   return success;
+}
+
+/**
+ * Helper function supporting wtype (Wayland) and xdotool (X11) to paste clipboard text.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function pasteClipboardText(text) {
+  let isWayland = false;
+  try {
+    let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
+    let sessionType = GLib.getenv("XDG_SESSION_TYPE");
+    if (
+      waylandDisplay ||
+      (sessionType && sessionType.toLowerCase() === "wayland")
+    ) {
+      isWayland = true;
+    }
+  } catch (e) {}
+
+  let cmd = isWayland
+    ? ["wtype", "-M", "ctrl", "v"]
+    : ["xdotool", "key", "--clearmodifiers", "ctrl+v"];
+
+  try {
+    let proc = Gio.Subprocess.new(cmd, Gio.SubprocessFlags.NONE);
+    if (proc && typeof proc.communicate_utf8_async === "function") {
+      proc.communicate_utf8_async(null, null, () => {});
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 // Standard menu item for parameterless or parameter-prompting commands
@@ -1362,15 +1658,9 @@ export default class CmdBarExtension extends Extension {
           }
         } catch (e) {}
 
-        Main.wm.addKeybinding(
-          "shortcut",
-          this._settings,
-          flags,
-          mode,
-          () => {
-            this._toggleMenu();
-          },
-        );
+        Main.wm.addKeybinding("shortcut", this._settings, flags, mode, () => {
+          this._toggleMenu();
+        });
       }
     } catch (e) {
       console.error(`CmdBar: Failed to register keybinding: ${e.message}`);

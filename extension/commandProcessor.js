@@ -2,6 +2,8 @@
  * Core business logic for CmdBar extension command processing and validation.
  */
 
+export { ChainRunner, ChainStatus, StepStatus } from "./chainRunner.js";
+
 let GLib;
 try {
   if (typeof globalThis.imports !== "undefined" && globalThis.imports.gi) {
@@ -112,7 +114,10 @@ export async function writeConfigAtomically(targetPath, data) {
   } else {
     // GJS (GNOME Shell) environment
     const giModule = await import("gi");
-    const Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
+    const Gio =
+      giModule.Gio ||
+      (giModule.default && giModule.default.Gio) ||
+      giModule.default;
     const GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
     const file = Gio.File.new_for_path(targetPath);
     const tmpPath = targetPath + ".tmp";
@@ -413,7 +418,7 @@ export function getPreviewTokens(argv, placeholderMap, parametersSchema) {
  * @returns {string}
  */
 export function formatShortcutHint(accel) {
-  let str = Array.isArray(accel) ? (accel[0] || "") : (accel || "");
+  let str = Array.isArray(accel) ? accel[0] || "" : accel || "";
   if (!str) return "Super+Space";
 
   let parts = [];
@@ -476,3 +481,145 @@ export function parseAccel(text) {
   return [`${modifiers}${baseKey}`];
 }
 
+/**
+ * Escapes HTML/XML markup characters (&, <, >, ", ').
+ * @param {string} text
+ * @returns {string}
+ */
+export function escapeMarkup(text) {
+  if (text === null || text === undefined) return "";
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Performs fuzzy matching of pattern against str.
+ * @param {string} pattern
+ * @param {string} str
+ * @param {number} [usageCount=0]
+ * @returns {{match: boolean, score: number, matches: number[]}}
+ */
+export function fuzzyMatch(pattern, str, usageCount = 0) {
+  if (!pattern || !pattern.trim()) {
+    return { match: true, score: 10 + usageCount * 5, matches: [] };
+  }
+
+  const pLower = pattern.toLowerCase().trim();
+  const sLower = (str || "").toLowerCase();
+
+  if (sLower === pLower) {
+    return {
+      match: true,
+      score: 1000 + usageCount * 5,
+      matches: Array.from({ length: str.length }, (_, i) => i),
+    };
+  }
+
+  let pIdx = 0;
+  const matches = [];
+  let score = 0;
+
+  for (let sIdx = 0; sIdx < str.length && pIdx < pLower.length; sIdx++) {
+    if (sLower[sIdx] === pLower[pIdx]) {
+      matches.push(sIdx);
+      pIdx++;
+      if (sIdx === 0 || str[sIdx - 1] === " " || str[sIdx - 1] === "-") {
+        score += 10;
+      } else {
+        score += 5;
+      }
+    }
+  }
+
+  if (pIdx < pLower.length) {
+    return { match: false, score: 0, matches: [] };
+  }
+
+  if (sLower.includes(pLower)) {
+    score += 50;
+  }
+
+  score += usageCount * 5;
+
+  return { match: true, score, matches };
+}
+
+/**
+ * Highlights matched indices in text with <b> tags, properly escaping un-highlighted text.
+ * @param {string} text
+ * @param {number[]} matches
+ * @returns {string}
+ */
+export function highlightMatches(text, matches) {
+  if (!text) return "";
+  if (!matches || matches.length === 0) return escapeMarkup(text);
+
+  const matchSet = new Set(matches);
+  let result = "";
+  let inHighlight = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = escapeMarkup(text[i]);
+    if (matchSet.has(i)) {
+      if (!inHighlight) {
+        result += "<b>";
+        inHighlight = true;
+      }
+      result += char;
+    } else {
+      if (inHighlight) {
+        result += "</b>";
+        inHighlight = false;
+      }
+      result += char;
+    }
+  }
+
+  if (inHighlight) {
+    result += "</b>";
+  }
+
+  return result;
+}
+
+/**
+ * Ranks commands by fuzzy matching query against command name/command string and usage count.
+ * @param {Array<{name: string, command: string|string[]}>} commands
+ * @param {string} query
+ * @param {Object.<string, number>} [usageMap={}]
+ * @returns {Array<{command: object, score: number, highlightedName: string, highlightedCommand: string}>}
+ */
+export function rankCommands(commands, query, usageMap = {}) {
+  if (!Array.isArray(commands)) return [];
+
+  const results = [];
+
+  for (const cmd of commands) {
+    const nameStr = cmd.name || "";
+    const cmdStr = Array.isArray(cmd.command)
+      ? cmd.command.join(" ")
+      : String(cmd.command || "");
+    const usageCount =
+      (usageMap && usageMap[cmdStr]) || (usageMap && usageMap[nameStr]) || 0;
+
+    const nameMatch = fuzzyMatch(query, nameStr, usageCount);
+    const cmdMatch = fuzzyMatch(query, cmdStr, usageCount);
+
+    if (nameMatch.match || cmdMatch.match) {
+      const bestScore = Math.max(nameMatch.score, cmdMatch.score);
+      results.push({
+        command: cmd,
+        score: bestScore,
+        highlightedName: highlightMatches(nameStr, nameMatch.matches),
+        highlightedCommand: highlightMatches(cmdStr, cmdMatch.matches),
+      });
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results;
+}

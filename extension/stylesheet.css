@@ -65,3 +65,39 @@
 .cmdbar-refresh-button:hover {
     background-color: rgba(255, 255, 255, 0.1);
 }
+
+/* Chain Progress Dialog Styles */
+.cmdbar-chain-dialog {
+    spacing: 12px;
+    padding: 16px;
+}
+
+.cmdbar-step-item {
+    padding: 6px 8px;
+    border-radius: 4px;
+}
+
+.cmdbar-step-success {
+    color: #2ec27e;
+}
+
+.cmdbar-step-failed {
+    color: #e01b24;
+}
+
+.cmdbar-step-running {
+    color: #3584e4;
+}
+
+.cmdbar-step-paused {
+    color: #f5c211;
+}
+
+.cmdbar-step-skipped {
+    color: #777777;
+}
+
+.cmdbar-step-rollback {
+    color: #ff7800;
+}
+

@@ -12,6 +12,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 ## Features
 
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
+- **Multi-Step Command Chains** – Define sequential workflows with conditional logic ("Pull → Build → Deploy → Notify"), step dependencies, custom success criteria, pause prompts, real-time progress visualization, and automatic error handling with rollback commands.
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
 - **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences.
 - **Dynamic menu** – Fully driven by a simple JSON file
@@ -200,6 +201,47 @@ Used directly by the GNOME Shell extension to load top-bar menus dynamically.
           "name": "Start Task",
           "command": "echo Starting task <task-id>",
           "placeholder": "task-id"
+        },
+        {
+          "name": "Pull → Build → Deploy → Notify",
+          "type": "chain",
+          "description": "Multi-step deployment pipeline",
+          "steps": [
+            {
+              "id": "pull",
+              "name": "Pull latest code",
+              "command": "git pull origin main",
+              "on_success": "build",
+              "rollback_command": "git reset --hard HEAD@{1}"
+            },
+            {
+              "id": "build",
+              "name": "Build project",
+              "command": "make build",
+              "depends_on": ["pull"],
+              "success_criteria": { "exit_code": 0 },
+              "on_success": "pause_before_deploy"
+            },
+            {
+              "id": "pause_before_deploy",
+              "name": "Pause before deploy",
+              "type": "pause",
+              "prompt": "Ready to deploy to production?"
+            },
+            {
+              "id": "deploy",
+              "name": "Deploy service",
+              "command": "echo Deploying...",
+              "depends_on": ["build"],
+              "rollback_command": "echo Reverting deploy..."
+            },
+            {
+              "id": "notify",
+              "name": "Notify completion",
+              "command": "notify-send 'Deployment succeeded!'",
+              "depends_on": ["deploy"]
+            }
+          ]
         }
       ]
     }

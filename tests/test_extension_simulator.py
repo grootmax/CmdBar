@@ -4,6 +4,7 @@ import pytest
 
 # Emulates the JavaScript and GJS logic inside the GNOME extension
 
+
 def gjs_shell_quote(s):
     """
     Emulates GJS/GLib.shell_quote(s) behavior in Python.
@@ -47,10 +48,10 @@ def substitute_template_gjs(template, values, placeholders):
 def test_gjs_shell_quote():
     # Test spaces
     assert gjs_shell_quote("hello world") == "'hello world'"
-    
+
     # Test special characters
     assert gjs_shell_quote("hello; rm -rf /") == "'hello; rm -rf /'"
-    
+
     # Test quotes inside values
     assert gjs_shell_quote("don't panic") == "'don'\\''t panic'"
 
@@ -61,7 +62,7 @@ def test_gjs_validation_rules():
     assert validate_input_gjs("valid-sub_1") is True
     assert validate_input_gjs("invalid;sub") is False
     assert validate_input_gjs("invalid space") is False
-    
+
     # Test custom patterns
     custom_pattern = "^[a-z]+$"
     assert validate_input_gjs("abc", custom_pattern) is True
@@ -73,14 +74,16 @@ def test_gjs_substitution():
     template = "git checkout {branch} && git pull origin {branch}"
     placeholders = ["branch"]
     values = {"branch": "feature/safe-quoting"}
-    
+
     final_cmd = substitute_template_gjs(template, values, placeholders)
     # Both placeholders should be replaced and quoted
     assert "feature/safe-quoting" in final_cmd
     assert "'feature/safe-quoting'" in final_cmd
-    
+
     # Verify exact substitution structure
-    expected = "git checkout 'feature/safe-quoting' && git pull origin 'feature/safe-quoting'"
+    expected = (
+        "git checkout 'feature/safe-quoting' && git pull origin 'feature/safe-quoting'"
+    )
     assert final_cmd == expected
 
 
@@ -89,26 +92,27 @@ def test_gjs_subprocess_unpacking_behavior():
     Emulates the 2-tuple returned by Gio.Subprocess.communicate_utf8_finish in GJS.
     It returns [stdout, stderr] without a 'success' boolean.
     """
+
     def mock_communicate_utf8_finish(result):
         # returns [stdout, stderr]
         return ["user-entered-parameter", ""]
 
     res = mock_communicate_utf8_finish(None)
     assert len(res) == 2
-    
+
     # Legacy incorrect unpacking logic:
     # let [success, stdout, stderr] = res;
     success = res[0]  # "user-entered-parameter"
     stdout = res[1] if len(res) > 1 else ""  # ""
-    
+
     # This caused stdout to be empty, which incorrectly failed parameter validation!
     assert stdout == ""
-    
+
     # Corrected unpacking logic:
     # let [stdout, stderr] = res;
     stdout_corrected = res[0]
     stderr_corrected = res[1]
-    
+
     assert stdout_corrected == "user-entered-parameter"
     assert stderr_corrected == ""
 
@@ -243,7 +247,9 @@ class SimulatedCommandMenuItem:
         return 0
 
     def format_output_text(self, raw_output, is_success):
-        lines = [line.strip() for line in (raw_output or "").splitlines() if line.strip()]
+        lines = [
+            line.strip() for line in (raw_output or "").splitlines() if line.strip()
+        ]
         if lines:
             summary = lines[-1]
         else:
@@ -270,7 +276,9 @@ class SimulatedCommandMenuItem:
 
     def refresh_output(self, simulated_stdout="", simulated_stderr="", success=True):
         self.set_status_running()
-        raw_output = simulated_stdout if success else (simulated_stderr or simulated_stdout)
+        raw_output = (
+            simulated_stdout if success else (simulated_stderr or simulated_stdout)
+        )
         formatted = self.format_output_text(raw_output, success)
         if success:
             self.set_status_success(formatted)
@@ -313,7 +321,9 @@ def test_command_menu_item_output_formatting_and_truncation():
 
 
 def test_command_menu_item_status_colors_and_refresh():
-    item = SimulatedCommandMenuItem("Service Status", "systemctl status app", {"output": True})
+    item = SimulatedCommandMenuItem(
+        "Service Status", "systemctl status app", {"output": True}
+    )
 
     # Success state (green)
     item.refresh_output(simulated_stdout="active (running)", success=True)
@@ -324,6 +334,3 @@ def test_command_menu_item_status_colors_and_refresh():
     item.refresh_output(simulated_stderr="Job for app.service failed", success=False)
     assert item.output_label["text"] == "Job for app.service failed"
     assert item.output_label["style_class"] == "cmdbar-output-error"
-
-
-

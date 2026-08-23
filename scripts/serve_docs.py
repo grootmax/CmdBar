@@ -9,26 +9,27 @@ from compile_docs import compile_docs
 PORT = 8000
 reload_event = threading.Event()
 
+
 class LiveReloadHandler(http.server.SimpleHTTPRequestHandler):
     def translate_path(self, path):
         # Serve compiled folders from build/
-        if path.startswith('/public'):
-            rel_path = path[7:].lstrip('/')
-            return os.path.join(os.getcwd(), 'build/public', rel_path)
-        elif path.startswith('/developer'):
-            rel_path = path[10:].lstrip('/')
-            return os.path.join(os.getcwd(), 'build/developer', rel_path)
+        if path.startswith("/public"):
+            rel_path = path[7:].lstrip("/")
+            return os.path.join(os.getcwd(), "build/public", rel_path)
+        elif path.startswith("/developer"):
+            rel_path = path[10:].lstrip("/")
+            return os.path.join(os.getcwd(), "build/developer", rel_path)
         return super().translate_path(path)
 
     def do_GET(self):
         # SSE endpoint for instant-reload
-        if self.path == '/__reload__':
+        if self.path == "/__reload__":
             self.send_response(200)
-            self.send_header('Content-Type', 'text/event-stream')
-            self.send_header('Cache-Control', 'no-cache')
-            self.send_header('Connection', 'keep-alive')
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
             self.end_headers()
-            
+
             # Send initial ping
             try:
                 self.wfile.write(b": ok\n\n")
@@ -48,9 +49,9 @@ class LiveReloadHandler(http.server.SimpleHTTPRequestHandler):
                 time.sleep(0.1)
             return
 
-        if self.path == '/' or self.path == '':
+        if self.path == "/" or self.path == "":
             self.send_response(302)
-            self.send_header('Location', '/public/')
+            self.send_header("Location", "/public/")
             self.end_headers()
             return
 
@@ -62,16 +63,18 @@ class LiveReloadHandler(http.server.SimpleHTTPRequestHandler):
             return
         super().log_message(format, *args)
 
+
 def trigger_reload():
     print("Change detected. Recompiling & triggering browser reload...")
     reload_event.set()
     time.sleep(0.2)
     reload_event.clear()
 
+
 def watch_docs_folder(interval=0.5):
-    watch_dirs = ['docs']
+    watch_dirs = ["docs"]
     last_mtimes = {}
-    
+
     # Initialize
     for directory in watch_dirs:
         if os.path.exists(directory):
@@ -87,7 +90,7 @@ def watch_docs_folder(interval=0.5):
         time.sleep(interval)
         changed = False
         current_files = set()
-        
+
         for directory in watch_dirs:
             if os.path.exists(directory):
                 for root, _, filenames in os.walk(directory):
@@ -98,7 +101,7 @@ def watch_docs_folder(interval=0.5):
                             mtime = os.path.getmtime(filepath)
                         except OSError:
                             continue
-                        
+
                         if filepath not in last_mtimes:
                             print(f"\n[Watcher] New file detected: {filepath}")
                             last_mtimes[filepath] = mtime
@@ -107,20 +110,21 @@ def watch_docs_folder(interval=0.5):
                             print(f"\n[Watcher] File modified: {filepath}")
                             last_mtimes[filepath] = mtime
                             changed = True
-                            
+
         deleted_files = set(last_mtimes.keys()) - current_files
         if deleted_files:
             for filepath in deleted_files:
                 print(f"\n[Watcher] File deleted: {filepath}")
                 del last_mtimes[filepath]
             changed = True
-            
+
         if changed:
             try:
                 compile_docs(live_reload=True)
                 trigger_reload()
             except Exception as e:
                 print(f"Error compiling docs: {e}")
+
 
 def main():
     # 1. Do initial compilation
@@ -134,15 +138,17 @@ def main():
     # 3. Start the HTTP server
     # ThreadingHTTPServer handles each request in a separate thread
     # which is required for long-lived SSE connections to not block other HTTP requests.
-    server_address = ('', PORT)
+    server_address = ("", PORT)
     try:
         # Use ThreadingHTTPServer (Python 3.7+)
         from http.server import ThreadingHTTPServer
+
         httpd = ThreadingHTTPServer(server_address, LiveReloadHandler)
     except ImportError:
         # Fallback to standard ThreadingTCPServer if ThreadingHTTPServer is somehow not present
         class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
             pass
+
         httpd = ThreadedHTTPServer(server_address, LiveReloadHandler)
 
     print(f"\n=============================================")
@@ -159,5 +165,6 @@ def main():
         httpd.server_close()
         sys.exit(0)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
