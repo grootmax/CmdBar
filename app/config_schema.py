@@ -7,16 +7,19 @@ import hmac
 import hashlib
 import secrets
 
+
 def canonical_json(obj):
     if isinstance(obj, dict):
         clean = {k: v for k, v in obj.items() if k != "signature"}
-        return json.dumps(clean, sort_keys=True, separators=(',', ':'))
+        return json.dumps(clean, sort_keys=True, separators=(",", ":"))
     elif isinstance(obj, list):
-        return '[' + ','.join(canonical_json(x) for x in obj) + ']'
-    return json.dumps(obj, separators=(',', ':'))
+        return "[" + ",".join(canonical_json(x) for x in obj) + "]"
+    return json.dumps(obj, separators=(",", ":"))
+
 
 def get_key_path(config_path):
     return os.path.join(os.path.dirname(config_path), ".key")
+
 
 def get_or_create_signing_key(key_path):
     dir_path = os.path.dirname(key_path)
@@ -38,58 +41,78 @@ def get_or_create_signing_key(key_path):
         pass
     return key
 
+
 def compute_signature(config_data, key):
     str_val = canonical_json(config_data)
-    return hmac.new(key.encode("utf-8"), str_val.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.new(
+        key.encode("utf-8"), str_val.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+
 
 DEFAULT_CONFIG = {
-  "ai": {
-    "provider": "openai",
-    "model": "gpt-4o",
-    "temperature": 0.2,
-    "require_confirmation": True,
-    "fallback_provider": "ollama",
-    "fallback_model": "llama3"
-  },
-  "categories": [
-    {
-      "name": "System Utilities",
-      "commands": [
-        {
-          "name": "Ping Host",
-          "command": "ping -c 3 <host>",
-          "mode": "shell-quoted",
-          "parameters": {
-            "host": {
-              "regex": "^[a-zA-Z0-9.-]+$",
-              "error_message": "Invalid host format! Must contain only alphanumeric, dots, and dashes."
-            }
-          }
+    "ai": {
+        "provider": "openai",
+        "model": "gpt-4o",
+        "temperature": 0.2,
+        "require_confirmation": True,
+        "fallback_provider": "ollama",
+        "fallback_model": "llama3",
+    },
+    "sso": {
+        "enabled": False,
+        "default_provider": "azuread",
+        "session_timeout_minutes": 480,
+        "idle_timeout_minutes": 120,
+        "jit_provisioning": {
+            "enabled": True,
+            "default_role": "user",
+            "attribute_mapping": {"email": "email", "name": "name", "groups": "groups"},
         },
+        "group_mappings": [
+            {"sso_group": "CmdBar-Admins", "role": "admin", "allowed_categories": ["*"]}
+        ],
+    },
+    "categories": [
         {
-          "name": "Direct Exec",
-          "command": "/usr/bin/echo \"Hello\" <arg>",
-          "mode": "direct-array",
-          "parameters": {
-            "arg": {
-              "regex": "^[a-zA-Z0-9_]+$",
-              "error_message": "Invalid argument format! Must be alphanumeric or underscore."
-            }
-          }
+            "name": "System Utilities",
+            "commands": [
+                {
+                    "name": "Ping Host",
+                    "command": "ping -c 3 <host>",
+                    "mode": "shell-quoted",
+                    "parameters": {
+                        "host": {
+                            "regex": "^[a-zA-Z0-9.-]+$",
+                            "error_message": "Invalid host format! Must contain only alphanumeric, dots, and dashes.",
+                        }
+                    },
+                },
+                {
+                    "name": "Direct Exec",
+                    "command": '/usr/bin/echo "Hello" <arg>',
+                    "mode": "direct-array",
+                    "parameters": {
+                        "arg": {
+                            "regex": "^[a-zA-Z0-9_]+$",
+                            "error_message": "Invalid argument format! Must be alphanumeric or underscore.",
+                        }
+                    },
+                },
+            ],
         }
-      ]
-    }
-  ]
+    ],
 }
+
 
 def get_config_path():
     config_dir = os.path.expanduser("~/.config/cmdbar")
     return os.path.join(config_dir, "config.json")
 
+
 def load_config(path=None):
     if path is None:
         path = get_config_path()
-    
+
     key_path = get_key_path(path)
     key = get_or_create_signing_key(key_path)
 
@@ -117,20 +140,24 @@ def load_config(path=None):
                 return legacy_config
             except Exception:
                 pass
-        
+
         # Otherwise, save & return DEFAULT_CONFIG
         default_copy = json.loads(json.dumps(DEFAULT_CONFIG))
         save_config(default_copy, path)
         default_copy.pop("signature", None)
         return default_copy
-    
+
     try:
         with open(path, "r") as f:
             config_data = json.load(f)
-        
+
         # Verify cryptographic signature
         sig = config_data.get("signature") if isinstance(config_data, dict) else None
-        expected_sig = compute_signature(config_data, key) if isinstance(config_data, dict) else None
+        expected_sig = (
+            compute_signature(config_data, key)
+            if isinstance(config_data, dict)
+            else None
+        )
 
         if not sig or sig != expected_sig:
             backup_path = path + ".bak"
@@ -140,7 +167,13 @@ def load_config(path=None):
             except Exception:
                 pass
             try:
-                subprocess.Popen(["notify-send", "Security Alert: Config Verification Failed", "Untrusted or tampered configuration file detected. Archived to .bak and restored safe defaults."])
+                subprocess.Popen(
+                    [
+                        "notify-send",
+                        "Security Alert: Config Verification Failed",
+                        "Untrusted or tampered configuration file detected. Archived to .bak and restored safe defaults.",
+                    ]
+                )
             except Exception:
                 pass
             default_copy = json.loads(json.dumps(DEFAULT_CONFIG))
@@ -157,7 +190,7 @@ def load_config(path=None):
                     cat["commands"] = cat["shortcuts"]
                 del cat["shortcuts"]
                 migrated = True
-                
+
             if "commands" in cat:
                 for cmd in cat["commands"]:
                     # Support CLI Companion file loading without data structure mismatches
@@ -174,10 +207,10 @@ def load_config(path=None):
                                     params_dict[p_name] = p_cfg
                         cmd["parameters"] = params_dict
                         migrated = True
-                        
+
         if migrated:
             save_config(config_data, path)
-            
+
         config_data.pop("signature", None)
         return config_data
     except Exception:
@@ -186,6 +219,7 @@ def load_config(path=None):
         default_copy.pop("signature", None)
         default_copy["_is_invalid"] = True
         return default_copy
+
 
 def save_config(config_data, path=None):
     if path is None:
@@ -196,7 +230,9 @@ def save_config(config_data, path=None):
         key = get_or_create_signing_key(key_path)
         config_data["signature"] = compute_signature(config_data, key)
     from app.atomic_write import atomic_write_json
+
     atomic_write_json(path, config_data)
+
 
 def validate_parameter_value(value, parameter_schema):
     """
@@ -206,14 +242,14 @@ def validate_parameter_value(value, parameter_schema):
     """
     value = str(value).strip() if value is not None else ""
     # 1. Check for forbidden characters
-    forbidden = [';', '&&', '||', '|', '&', '`', '$', '(', ')', '>', '<']
+    forbidden = [";", "&&", "||", "|", "&", "`", "$", "(", ")", ">", "<"]
     for f in forbidden:
         if f in value:
             err = f"Input contains forbidden characters like '{f}'!"
             if parameter_schema.get("secure", False) and value:
                 err = err.replace(value, "[REDACTED]")
             return False, err
-            
+
     # 2. Check regex validation if any
     regex_pattern = parameter_schema.get("regex")
     if regex_pattern:
@@ -228,17 +264,20 @@ def validate_parameter_value(value, parameter_schema):
             if parameter_schema.get("secure", False) and value:
                 err = err.replace(value, "[REDACTED]")
             return False, err
-            
+
     return True, None
 
-def resolve_command_preview(command_template, mode, parameter_values, parameters_schema):
+
+def resolve_command_preview(
+    command_template, mode, parameter_values, parameters_schema
+):
     """
     Resolves a command template for dry-run preview.
     Returns (resolved_string, errors_dict)
     :visibility: public
     """
     errors = {}
-    
+
     schema_items = []
     if isinstance(parameters_schema, dict):
         for p_name, p_cfg in parameters_schema.items():
@@ -255,7 +294,7 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
         is_valid, err_msg = validate_parameter_value(val, param)
         if not is_valid:
             errors[name] = err_msg
-            
+
     # We should mask secure parameter values *only* for the preview substitution.
     # The actual validation must have already run on the plain-text value.
     preview_values = {}
@@ -285,10 +324,11 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
         try:
             parts = shlex.split(command_template)
         except Exception:
-            parts = command_template.split() # fallback
-            
+            parts = command_template.split()  # fallback
+
         resolved_parts = []
         for part in parts:
+
             def replacer_part(match):
                 ph = match.group(1) or match.group(2) or match.group(3)
                 if ph in preview_values:
@@ -297,9 +337,11 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
 
             resolved_part = re.sub(pattern, replacer_part, part)
             resolved_parts.append(resolved_part)
-            
+
         # Preview representation for direct-array is the list of individual args
-        array_preview = "Direct Array: " + " ".join(shlex.quote(p) for p in resolved_parts)
+        array_preview = "Direct Array: " + " ".join(
+            shlex.quote(p) for p in resolved_parts
+        )
         # We can also append the list format to be 100% explicit
         array_preview += f"\nArgs List: {json.dumps(resolved_parts)}"
         return array_preview, errors
