@@ -476,3 +476,164 @@ export function parseAccel(text) {
   return [`${modifiers}${baseKey}`];
 }
 
+/**
+ * Escapes HTML/XML markup characters in a string.
+ * @param {string} text
+ * @returns {string}
+ */
+export function escapeMarkup(text) {
+  if (text === null || text === undefined) return "";
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Performs fuzzy sequence matching on text against pattern.
+ * @param {string} pattern
+ * @param {string} text
+ * @param {number} [usageCount=0]
+ * @returns {{ match: boolean, matches: number[], score: number }}
+ */
+export function fuzzyMatch(pattern, text, usageCount = 0) {
+  if (text === null || text === undefined) text = "";
+  if (pattern === null || pattern === undefined) pattern = "";
+
+  const trimmedPattern = pattern.trim();
+  if (trimmedPattern === "") {
+    return { match: true, matches: [], score: usageCount * 10 };
+  }
+
+  const pLower = trimmedPattern.toLowerCase();
+  const tLower = text.toLowerCase();
+
+  let pIdx = 0;
+  const matches = [];
+
+  for (let i = 0; i < tLower.length; i++) {
+    if (tLower[i] === pLower[pIdx]) {
+      matches.push(i);
+      pIdx++;
+      if (pIdx === pLower.length) break;
+    }
+  }
+
+  if (pIdx < pLower.length) {
+    return { match: false, matches: [], score: 0 };
+  }
+
+  let score = 100;
+  if (text.length === trimmedPattern.length) {
+    score += 50;
+  } else {
+    score += Math.max(0, 30 - (text.length - trimmedPattern.length));
+  }
+
+  for (let i = 1; i < matches.length; i++) {
+    if (matches[i] === matches[i - 1] + 1) {
+      score += 15;
+    }
+  }
+
+  score += usageCount * 10;
+
+  return { match: true, matches, score };
+}
+
+/**
+ * Highlights character matches in text using <b> tags and escaped markup.
+ * @param {string} text
+ * @param {number[]} matches
+ * @returns {string}
+ */
+export function highlightMatches(text, matches) {
+  if (!text) return "";
+  if (!matches || matches.length === 0) return escapeMarkup(text);
+
+  const sortedMatches = [...matches].sort((a, b) => a - b);
+  const matchSet = new Set(sortedMatches);
+
+  const ranges = [];
+  let currentRange = null;
+
+  for (const idx of sortedMatches) {
+    if (!currentRange) {
+      currentRange = [idx, idx];
+    } else if (idx === currentRange[1] + 1) {
+      currentRange[1] = idx;
+    } else {
+      ranges.push(currentRange);
+      currentRange = [idx, idx];
+    }
+  }
+  if (currentRange) {
+    ranges.push(currentRange);
+  }
+
+  let result = "";
+  let lastIdx = 0;
+
+  for (const [start, end] of ranges) {
+    if (start > lastIdx) {
+      result += escapeMarkup(text.substring(lastIdx, start));
+    }
+    result += "<b>" + escapeMarkup(text.substring(start, end + 1)) + "</b>";
+    lastIdx = end + 1;
+  }
+
+  if (lastIdx < text.length) {
+    result += escapeMarkup(text.substring(lastIdx));
+  }
+
+  return result;
+}
+
+/**
+ * Ranks commands based on fuzzy match score and usage frequency.
+ * @param {Array<Object>} commands
+ * @param {string} query
+ * @param {Object.<string, number>} [usageMap={}]
+ * @returns {Array<Object>}
+ */
+export function rankCommands(commands, query, usageMap = {}) {
+  if (!Array.isArray(commands)) return [];
+
+  const results = [];
+  for (const cmd of commands) {
+    const commandStr = cmd.command || "";
+    const nameStr = cmd.name || "";
+    const usage = usageMap[commandStr] || usageMap[nameStr] || 0;
+
+    const cmdMatch = fuzzyMatch(query, commandStr, usage);
+    const nameMatch = fuzzyMatch(query, nameStr, usage);
+
+    const bestMatch = (cmdMatch.match && nameMatch.match)
+      ? (cmdMatch.score >= nameMatch.score ? cmdMatch : nameMatch)
+      : (cmdMatch.match ? cmdMatch : (nameMatch.match ? nameMatch : null));
+
+    if (bestMatch) {
+      results.push({
+        command: cmd,
+        matchResult: bestMatch,
+        score: bestMatch.score,
+      });
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results;
+}
+
+export {
+  detectFormat,
+  parseCsvLine,
+  parseCsvOrTsv,
+  formatTable,
+  formatJson,
+  formatCodeBlock,
+  formatOutput,
+} from "./outputFormatter.js";
+
