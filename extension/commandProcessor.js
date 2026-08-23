@@ -628,6 +628,16 @@ export function rankCommands(commands, query, usageMap = {}) {
 }
 
 export {
+  evaluateCommandPolicy,
+  CommandPolicyManager,
+  matchPattern,
+  globToRegex,
+  resolveUserContext,
+  DEFAULT_BLACKLIST_PATTERNS,
+  DEFAULT_WHITELIST_PATTERNS,
+} from "./commandPolicy.js";
+
+export {
   detectFormat,
   parseCsvLine,
   parseCsvOrTsv,
@@ -636,4 +646,5 @@ export {
   formatCodeBlock,
   formatOutput,
 } from "./outputFormatter.js";
+
 
