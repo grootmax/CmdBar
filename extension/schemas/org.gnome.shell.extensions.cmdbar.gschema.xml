@@ -16,5 +16,10 @@
       <summary>Button Label</summary>
       <description>Customize the text displayed next to the icon in the top-bar button.</description>
     </key>
+    <key name="shortcut" type="as">
+      <default>['&lt;Super&gt;space']</default>
+      <summary>Global Shortcut</summary>
+      <description>Global keyboard shortcut to trigger CmdBar menu from anywhere.</description>
+    </key>
   </schema>
 </schemalist>

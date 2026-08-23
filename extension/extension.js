@@ -3,7 +3,7 @@ import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import * as PanelMenu from "resource:///org/gnome/shell/ui/panelMenu.js";
 import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
 import * as ModalDialog from "resource:///org/gnome/shell/ui/modalDialog.js";
-import { St, Clutter, Gio, GLib, GObject } from "gi";
+import { St, Clutter, Gio, GLib, GObject, Meta, Shell } from "gi";
 
 import {
   validateInput,
@@ -13,6 +13,8 @@ import {
   substituteTokens,
   getPlaceholders,
   getPreviewTokens,
+  formatShortcutHint,
+  parseAccel,
 } from "./commandProcessor.js";
 import { loadConfig } from "./configSync.js";
 
@@ -826,6 +828,19 @@ const CmdBarIndicator = GObject.registerClass(
       }
     }
 
+    /**
+     * Update indicator button tooltip with shortcut hint.
+     * @param {string|string[]} accelStr
+     */
+    updateShortcutTooltip(accelStr) {
+      let hint = formatShortcutHint(accelStr);
+      let tooltipText = `CmdBar (${hint})`;
+      if (typeof this.set_tooltip_text === "function") {
+        this.set_tooltip_text(tooltipText);
+      }
+      this.tooltip_text = tooltipText;
+    }
+
     _getConfigPath() {
       return GLib.build_filenamev([
         GLib.get_user_config_dir(),
@@ -1140,6 +1155,9 @@ const CmdBarIndicator = GObject.registerClass(
 );
 
 export default class CmdBarExtension extends Extension {
+  /**
+   * Enable the extension, add panel indicator, and register keybindings.
+   */
   enable() {
     this._settings = this.getSettings();
 
@@ -1152,6 +1170,15 @@ export default class CmdBarExtension extends Extension {
       this._settings.get_boolean("show-indicator"),
     );
     this._updateButtonLabel(this._settings.get_string("button-label"));
+
+    // Apply initial keybinding shortcut hint
+    const initialAccel = this._settings.get_strv("shortcut");
+    if (this._indicator) {
+      this._indicator.updateShortcutTooltip(initialAccel);
+    }
+
+    // Register global keybinding
+    this._registerKeybinding();
 
     // Listen for live GSettings changes
     this._showIndicatorId = this._settings.connect(
@@ -1178,6 +1205,75 @@ export default class CmdBarExtension extends Extension {
         }
       },
     );
+
+    this._shortcutId = this._settings.connect(
+      "changed::shortcut",
+      (settings, key) => {
+        const accel = settings.get_strv(key);
+        if (this._indicator) {
+          this._indicator.updateShortcutTooltip(accel);
+        }
+        this._registerKeybinding();
+      },
+    );
+  }
+
+  /**
+   * Register global GNOME keybinding to toggle CmdBar menu.
+   */
+  _registerKeybinding() {
+    try {
+      if (Main && Main.wm && typeof Main.wm.addKeybinding === "function") {
+        let flags =
+          typeof Meta !== "undefined" && Meta.KeyBindingFlags
+            ? Meta.KeyBindingFlags.NONE
+            : 0;
+        let mode =
+          typeof Shell !== "undefined" && Shell.ActionMode
+            ? Shell.ActionMode.ALL
+            : 1;
+
+        try {
+          if (typeof Main.wm.removeKeybinding === "function") {
+            Main.wm.removeKeybinding("shortcut");
+          }
+        } catch (e) {}
+
+        Main.wm.addKeybinding(
+          "shortcut",
+          this._settings,
+          flags,
+          mode,
+          () => {
+            this._toggleMenu();
+          },
+        );
+      }
+    } catch (e) {
+      console.error(`CmdBar: Failed to register keybinding: ${e.message}`);
+    }
+  }
+
+  /**
+   * Unregister global GNOME keybinding.
+   */
+  _unregisterKeybinding() {
+    try {
+      if (Main && Main.wm && typeof Main.wm.removeKeybinding === "function") {
+        Main.wm.removeKeybinding("shortcut");
+      }
+    } catch (e) {
+      console.error(`CmdBar: Failed to unregister keybinding: ${e.message}`);
+    }
+  }
+
+  /**
+   * Toggle opening or closing the indicator menu.
+   */
+  _toggleMenu() {
+    if (this._indicator && this._indicator.menu) {
+      this._indicator.menu.toggle();
+    }
   }
 
   _updateIndicatorVisibility(visible) {
@@ -1192,7 +1288,12 @@ export default class CmdBarExtension extends Extension {
     }
   }
 
+  /**
+   * Disable extension and clean up resources and keybindings.
+   */
   disable() {
+    this._unregisterKeybinding();
+
     // Clean up GSettings connections
     if (this._settings) {
       if (this._showIndicatorId) {
@@ -1206,6 +1307,10 @@ export default class CmdBarExtension extends Extension {
       if (this._placeholderTextId) {
         this._settings.disconnect(this._placeholderTextId);
         this._placeholderTextId = 0;
+      }
+      if (this._shortcutId) {
+        this._settings.disconnect(this._shortcutId);
+        this._shortcutId = 0;
       }
       this._settings = null;
     }
