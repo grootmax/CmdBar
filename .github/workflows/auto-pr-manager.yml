@@ -370,9 +370,11 @@ jobs:
                   echo "Resolving conflict:"
                   echo "  $FILE"
 
-                  git checkout --theirs -- "$FILE"
-
-                  git add -- "$FILE"
+                  if git checkout --theirs -- "$FILE" 2>/dev/null; then
+                    git add -- "$FILE"
+                  else
+                    git rm -f -- "$FILE" 2>/dev/null || true
+                  fi
 
                 done
 
@@ -431,7 +433,7 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              git push origin "HEAD:refs/heads/$HEAD_BRANCH"
 
               cd /
 
@@ -569,6 +571,10 @@ jobs:
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
+                  | select(
+                      ((.name // "") | ascii_downcase | contains("process jules prs") | not)
+                      and (((.workflow // "") | ascii_downcase) | contains("auto jules pr manager") | not)
+                    )
                   | select(.bucket == "fail" or .bucket == "cancel")
                 ]
                 | length
@@ -577,6 +583,10 @@ jobs:
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
+                  | select(
+                      ((.name // "") | ascii_downcase | contains("process jules prs") | not)
+                      and (((.workflow // "") | ascii_downcase) | contains("auto jules pr manager") | not)
+                    )
                   | select(.bucket == "pending")
                 ]
                 | length
