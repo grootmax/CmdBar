@@ -4,19 +4,44 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.notes_manager import (
+    create_note,
+    get_note,
+    delete_note,
+    get_scratchpad,
+    update_scratchpad,
+    search_notes,
+    generate_share_link,
+)
+
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
-    and manages signals for CommandExecuted and CommandOutput.
+    GetNotes, GetNote, AddNote, DeleteNote, GetScratchpad, UpdateScratchpad,
+    SearchNotes, ShareNoteLink, and manages signals.
     """
+
     def __init__(self, config_path=None):
+        """
+        Initializes the CmdBar D-Bus service.
+
+        :param config_path: Optional custom path to config file.
+        :visibility: public
+        """
         self.config_path = config_path
         self._executed_listeners = []
         self._output_listeners = []
 
     def add_listener(self, on_executed=None, on_output=None):
+        """
+        Adds execution/output listeners for D-Bus signals.
+
+        :param on_executed: Signal callback for executed command.
+        :param on_output: Signal callback for command output.
+        :visibility: public
+        """
         if on_executed:
             self._executed_listeners.append(on_executed)
         if on_output:
@@ -130,4 +155,131 @@ class CmdBarDBusService:
         return all_cmds
 
     def get_commands_json(self) -> str:
+        """
+        Gets list of commands serialized as JSON string.
+
+        :returns: JSON string of commands list.
+        :visibility: public
+        """
         return json.dumps(self.get_commands())
+
+    def get_notes(self) -> list:
+        """
+        Gets list of notes from config.
+
+        :returns: List of note dicts.
+        :visibility: public
+        """
+        config = load_config(self.config_path)
+        return config.get("notes", [])
+
+    def get_notes_json(self) -> str:
+        """
+        Gets list of notes serialized as JSON string.
+
+        :returns: JSON string of notes list.
+        :visibility: public
+        """
+        return json.dumps(self.get_notes())
+
+    def get_note_json(self, note_id: str) -> str:
+        """
+        Gets single note by ID serialized as JSON string.
+
+        :param note_id: Target note ID.
+        :returns: JSON string of note or empty string.
+        :visibility: public
+        """
+        notes = self.get_notes()
+        note = get_note(notes, note_id)
+        return json.dumps(note) if note else ""
+
+    def add_note(self, title: str, content: str, tags_json: str = "[]") -> str:
+        """
+        Adds a new note and saves config.
+
+        :param title: Note title string.
+        :param content: Note content string.
+        :param tags_json: JSON string of tags list.
+        :returns: JSON string of created note or empty string on failure.
+        :visibility: public
+        """
+        try:
+            tags = json.loads(tags_json) if tags_json else []
+        except Exception:
+            tags = []
+
+        config = load_config(self.config_path)
+        notes = config.setdefault("notes", [])
+        new_note = create_note(notes, title=title, content=content, tags=tags)
+        if save_config(config, self.config_path):
+            return json.dumps(new_note)
+        return ""
+
+    def delete_note(self, note_id: str) -> bool:
+        """
+        Deletes a note by ID and saves config.
+
+        :param note_id: Target note ID.
+        :returns: True if deleted and saved, False otherwise.
+        :visibility: public
+        """
+        config = load_config(self.config_path)
+        notes = config.get("notes", [])
+        if delete_note(notes, note_id):
+            return save_config(config, self.config_path)
+        return False
+
+    def get_scratchpad_json(self) -> str:
+        """
+        Gets scratchpad note serialized as JSON string.
+
+        :returns: JSON string of scratchpad note.
+        :visibility: public
+        """
+        config = load_config(self.config_path)
+        notes = config.setdefault("notes", [])
+        sp = get_scratchpad(notes)
+        save_config(config, self.config_path)
+        return json.dumps(sp)
+
+    def update_scratchpad_json(self, content: str) -> str:
+        """
+        Updates scratchpad content and saves config.
+
+        :param content: New scratchpad content.
+        :returns: JSON string of updated scratchpad note.
+        :visibility: public
+        """
+        config = load_config(self.config_path)
+        notes = config.setdefault("notes", [])
+        sp = update_scratchpad(notes, content)
+        save_config(config, self.config_path)
+        return json.dumps(sp)
+
+    def search_notes_json(self, query: str) -> str:
+        """
+        Searches notes by query string and returns JSON array string.
+
+        :param query: Search term or tag filter.
+        :returns: JSON string of matching notes array.
+        :visibility: public
+        """
+        notes = self.get_notes()
+        results = search_notes(notes, query)
+        return json.dumps(results)
+
+    def share_note_link(self, note_id: str) -> str:
+        """
+        Generates shareable link for a note by ID.
+
+        :param note_id: Target note ID.
+        :returns: Shareable link string or empty string.
+        :visibility: public
+        """
+        notes = self.get_notes()
+        note = get_note(notes, note_id)
+        if not note:
+            return ""
+        return generate_share_link(note)
+

@@ -139,11 +139,15 @@ def init_config():
     return config_path
 
 
-def load_config():
+def load_config(path=None):
     """
     Loads and parses the configuration file, verifying its signature.
+
+    :param path: Optional custom path to config file.
+    :returns: Config dict.
+    :visibility: public
     """
-    config_path = init_config()
+    config_path = path or init_config()
     key_path = get_key_path(config_path)
     key = get_or_create_signing_key(key_path)
     try:
@@ -187,13 +191,14 @@ def load_config():
                             }
                         ]
                     }
-                ]
+                ],
+                "notes": []
             }
-            save_config(config_data)
+            save_config(config_data, config_path)
             return config_data
     except (json.JSONDecodeError, OSError) as e:
         print(f"Error loading configuration: {e}", file=sys.stderr)
-        return {"categories": []}
+        return {"categories": [], "notes": []}
 
     # Normalize config_data for CLI companion compatibility
     migrated = False
@@ -227,16 +232,21 @@ def load_config():
                     migrated = True
 
     if migrated:
-        save_config(config_data)
+        save_config(config_data, config_path)
 
     return config_data
 
 
-def save_config(config_data):
+def save_config(config_data, path=None):
     """
     Saves the configuration to the file safely with a cryptographic signature.
+
+    :param config_data: Config dict to save.
+    :param path: Optional custom path to config file.
+    :returns: True on success, False otherwise.
+    :visibility: public
     """
-    config_path = get_config_path()
+    config_path = path or get_config_path()
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
     if isinstance(config_data, dict):
         key_path = get_key_path(config_path)

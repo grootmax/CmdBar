@@ -28,6 +28,54 @@
       <annotation name="org.freedesktop.DBus.Description" value="Get list of commands as JSON string"/>
       <arg name="json_commands" type="s" direction="out"/>
     </method>
+
+    <method name="GetNotes">
+      <annotation name="org.freedesktop.DBus.Description" value="Get list of notes as JSON string"/>
+      <arg name="json_notes" type="s" direction="out"/>
+    </method>
+
+    <method name="GetNote">
+      <annotation name="org.freedesktop.DBus.Description" value="Get single note by ID as JSON string"/>
+      <arg name="id" type="s" direction="in"/>
+      <arg name="json_note" type="s" direction="out"/>
+    </method>
+
+    <method name="AddNote">
+      <annotation name="org.freedesktop.DBus.Description" value="Add a new note"/>
+      <arg name="title" type="s" direction="in"/>
+      <arg name="content" type="s" direction="in"/>
+      <arg name="tags_json" type="s" direction="in"/>
+      <arg name="json_note" type="s" direction="out"/>
+    </method>
+
+    <method name="DeleteNote">
+      <annotation name="org.freedesktop.DBus.Description" value="Delete a note by ID"/>
+      <arg name="id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="GetScratchpad">
+      <annotation name="org.freedesktop.DBus.Description" value="Get scratchpad note as JSON string"/>
+      <arg name="json_scratchpad" type="s" direction="out"/>
+    </method>
+
+    <method name="UpdateScratchpad">
+      <annotation name="org.freedesktop.DBus.Description" value="Update scratchpad content"/>
+      <arg name="content" type="s" direction="in"/>
+      <arg name="json_scratchpad" type="s" direction="out"/>
+    </method>
+
+    <method name="SearchNotes">
+      <annotation name="org.freedesktop.DBus.Description" value="Search notes by query string"/>
+      <arg name="query" type="s" direction="in"/>
+      <arg name="json_notes" type="s" direction="out"/>
+    </method>
+
+    <method name="ShareNoteLink">
+      <annotation name="org.freedesktop.DBus.Description" value="Generate shareable link for a note by ID"/>
+      <arg name="id" type="s" direction="in"/>
+      <arg name="share_link" type="s" direction="out"/>
+    </method>
     
     <signal name="CommandExecuted">
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a command finishes execution"/>
