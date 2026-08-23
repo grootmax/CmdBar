@@ -146,6 +146,8 @@ export const DEFAULT_CONFIG = {
   ],
   active_profile: "Development",
   policy: DEFAULT_POLICY_CONFIG,
+  workspaces: [],
+  active_workspace_id: null,
   categories: [
     {
       name: "AI Assistant",
