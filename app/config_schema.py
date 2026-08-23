@@ -6,6 +6,7 @@ import subprocess
 import hmac
 import hashlib
 import secrets
+from companion.rbac import DEFAULT_RBAC_CONFIG
 
 def canonical_json(obj):
     if isinstance(obj, dict):
@@ -79,7 +80,8 @@ DEFAULT_CONFIG = {
         }
       ]
     }
-  ]
+  ],
+  "rbac": DEFAULT_RBAC_CONFIG
 }
 
 def get_config_path():
