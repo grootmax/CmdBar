@@ -22,3 +22,13 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### System Resource Monitors Module
+
+The System Resource Monitors module (`extension/systemMonitor.js` and `companion/system_monitor.py`) provides real-time resource tracking:
+- **Metric Collection**: Non-blocking sampling of CPU %, Memory MB/%, Disk GB/%, and Network Rx/Tx KB/s.
+- **Mini Graphs**: Renders unicode sparkline charts (` ▂▃▄▅▆▇█`) for resource history in menu items.
+- **Threshold Alerts**: Checks usage against configurable thresholds (`cpu`, `memory`, `disk`, `network`) and emits desktop notifications with cooldown throttling.
+- **CSV Export**: Formats collected history into standardized CSV format for analytical reporting.
+- **D-Bus API**: Exposes `GetSystemMetrics`, `GetResourceMonitorCSV`, `SetResourceThresholds`, and `HighResourceUsageAlert` signal over session D-Bus bus `org.gnome.CmdBar`.
+

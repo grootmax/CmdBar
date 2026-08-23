@@ -1,5 +1,6 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import { SystemMonitor, collectSystemMetrics } from "./systemMonitor.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -21,6 +22,16 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
     </method>
+    <method name="GetSystemMetrics">
+      <arg name="json_metrics" type="s" direction="out"/>
+    </method>
+    <method name="GetResourceMonitorCSV">
+      <arg name="csv_data" type="s" direction="out"/>
+    </method>
+    <method name="SetResourceThresholds">
+      <arg name="json_thresholds" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
       <arg name="exit_code" type="i"/>
@@ -30,6 +41,11 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="name" type="s"/>
       <arg name="stdout" type="s"/>
       <arg name="stderr" type="s"/>
+    </signal>
+    <signal name="HighResourceUsageAlert">
+      <arg name="resource" type="s"/>
+      <arg name="value" type="d"/>
+      <arg name="threshold" type="d"/>
     </signal>
   </interface>
 </node>`;
@@ -46,6 +62,7 @@ export class CmdBarDBusService {
     this._indicator = indicator;
     this._dbusImpl = null;
     this._busNameId = 0;
+    this._systemMonitor = new SystemMonitor();
   }
 
   export() {
@@ -253,6 +270,65 @@ export class CmdBarDBusService {
         );
       } catch (e) {
         console.error(`CmdBar D-Bus emitCommandOutput error: ${e.message}`);
+      }
+    }
+  }
+
+  async GetSystemMetrics() {
+    try {
+      const sample = collectSystemMetrics();
+      this._systemMonitor.recordSample(sample);
+      const summary = this._systemMonitor.formatMenuSummary(sample);
+      const history = this._systemMonitor.getHistory();
+
+      const alerts = this._systemMonitor.checkAndNotify(sample, (title, msg, alert) => {
+        this.emitHighResourceUsageAlert(alert.resource, alert.value, alert.threshold);
+      });
+
+      return JSON.stringify({
+        current: sample,
+        summary,
+        history,
+        alerts,
+      });
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetSystemMetrics error: ${e.message}`);
+      return JSON.stringify({});
+    }
+  }
+
+  async GetResourceMonitorCSV() {
+    try {
+      if (this._systemMonitor.getHistory().length === 0) {
+        this._systemMonitor.recordSample();
+      }
+      return this._systemMonitor.exportToCSV();
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetResourceMonitorCSV error: ${e.message}`);
+      return "";
+    }
+  }
+
+  async SetResourceThresholds(jsonThresholds) {
+    try {
+      const parsed = typeof jsonThresholds === "string" ? JSON.parse(jsonThresholds) : jsonThresholds;
+      this._systemMonitor.setThresholds(parsed);
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus SetResourceThresholds error: ${e.message}`);
+      return false;
+    }
+  }
+
+  emitHighResourceUsageAlert(resource, value, threshold) {
+    if (this._dbusImpl && GLib) {
+      try {
+        this._dbusImpl.emit_signal(
+          "HighResourceUsageAlert",
+          new GLib.Variant("(sdd)", [resource || "", Number(value) || 0, Number(threshold) || 0])
+        );
+      } catch (e) {
+        console.error(`CmdBar D-Bus emitHighResourceUsageAlert error: ${e.message}`);
       }
     }
   }
