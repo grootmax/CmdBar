@@ -12,6 +12,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 ## Features
 
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
+- **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences.
 - **Dynamic menu** – Fully driven by a simple JSON file
 - **Fuzzy search** – Search box at top of menu with real-time fuzzy matching (e.g., "gp" matches "git push origin"), character markup highlighting, relevance + usage frequency sorting, and full keyboard navigation (arrow keys, Enter, Escape)
 - **Categories** – Group commands (Projects, Infrastructure, ECS, Tickets, etc.)

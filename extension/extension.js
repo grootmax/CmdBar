@@ -3,7 +3,7 @@ import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import * as PanelMenu from "resource:///org/gnome/shell/ui/panelMenu.js";
 import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
 import * as ModalDialog from "resource:///org/gnome/shell/ui/modalDialog.js";
-import { St, Clutter, Gio, GLib, GObject } from "gi";
+import { St, Clutter, Gio, GLib, GObject, Meta, Shell } from "gi";
 
 import {
   validateInput,
@@ -13,10 +13,8 @@ import {
   substituteTokens,
   getPlaceholders,
   getPreviewTokens,
-  fuzzyMatch,
-  highlightMatches,
-  escapeMarkup,
-  writeConfigAtomically,
+  formatShortcutHint,
+  parseAccel,
 } from "./commandProcessor.js";
 import { loadConfig } from "./configSync.js";
 
@@ -31,13 +29,13 @@ const ExecutionConfirmationDialog = GObject.registerClass(
       this._executed = false;
 
       let mainBox = new St.BoxLayout({
-        orientation: Clutter.Orientation.VERTICAL,
+        vertical: true,
         style_class: "cmdbar-dialog-content",
         style: "padding: 16px; min-width: 320px;",
       });
 
       let headerBox = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         style: "margin-bottom: 8px;",
       });
 
@@ -372,7 +370,7 @@ const CommandInputMenuItem = GObject.registerClass(
       this._cmdObj = cmdObj || {};
 
       this.box = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         x_expand: true,
       });
 
@@ -396,9 +394,6 @@ const CommandInputMenuItem = GObject.registerClass(
       this.add_child(this.box);
 
       this._activateId = this.connect("activate", () => {
-        if (this._indicator && typeof this._indicator._incrementUsage === "function") {
-          this._indicator._incrementUsage(this._commandTemplate || this._commandName);
-        }
         this._onSubmit(commandName);
       });
     }
@@ -595,7 +590,7 @@ const CommandMenuItem = GObject.registerClass(
       this._cmdObj = cmdObj || {};
 
       this.box = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         x_expand: true,
       });
 
@@ -661,9 +656,6 @@ const CommandMenuItem = GObject.registerClass(
       });
 
       this.executeButton.connect("clicked", () => {
-        if (this._indicator && typeof this._indicator._incrementUsage === "function") {
-          this._indicator._incrementUsage(this._commandTemplate || this._commandName);
-        }
         runCommandAsync(this._commandName, this._commandTemplate, this._cmdObj);
         if (
           this._indicator &&
@@ -678,9 +670,6 @@ const CommandMenuItem = GObject.registerClass(
       this.add_child(this.box);
 
       this._activateId = this.connect("activate", () => {
-        if (this._indicator && typeof this._indicator._incrementUsage === "function") {
-          this._indicator._incrementUsage(this._commandTemplate || this._commandName);
-        }
         runCommandAsync(this._commandName, this._commandTemplate, this._cmdObj);
       });
     }
@@ -707,7 +696,7 @@ const JobMenuItem = GObject.registerClass(
       this.jobId = jobId;
 
       this.box = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         x_expand: true,
         style: "padding: 4px 6px;",
       });
@@ -760,7 +749,7 @@ const CategoryHeaderMenuItem = GObject.registerClass(
       });
 
       this.box = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         style_class: "cmdbar-category-header",
         x_expand: true,
       });
@@ -797,15 +786,6 @@ const CmdBarIndicator = GObject.registerClass(
       this._cachedConfig = null;
       this._timeoutId = 0;
 
-      this._usageMap = this._loadUsageMap();
-      this._commandItems = [];
-      this._categoryHeaders = [];
-      this._categorySeparators = [];
-      this._visibleCommandItems = [];
-      this._selectedIndex = -1;
-      this._searchEntry = null;
-      this._searchHeaderItem = null;
-
       // Container box to support text and icon side-by-side
       this._box = new St.BoxLayout({
         style_class: "panel-status-menu-box",
@@ -828,22 +808,6 @@ const CmdBarIndicator = GObject.registerClass(
 
       this.add_child(this._box);
 
-      if (this.menu && typeof this.menu.connect === "function") {
-        this.menu.connect("open-state-changed", (menu, open) => {
-          if (open) {
-            this._selectedIndex = -1;
-            if (this._searchEntry) {
-              this._searchEntry.text = "";
-              let clutterText = this._searchEntry.clutter_text || this._searchEntry;
-              if (clutterText && typeof clutterText.grab_key_focus === "function") {
-                clutterText.grab_key_focus();
-              }
-            }
-            this._onSearchChanged();
-          }
-        });
-      }
-
       // Harvest environment asynchronously on startup
       harvestEnvironment();
 
@@ -864,45 +828,25 @@ const CmdBarIndicator = GObject.registerClass(
       }
     }
 
+    /**
+     * Update indicator button tooltip with shortcut hint.
+     * @param {string|string[]} accelStr
+     */
+    updateShortcutTooltip(accelStr) {
+      let hint = formatShortcutHint(accelStr);
+      let tooltipText = `CmdBar (${hint})`;
+      if (typeof this.set_tooltip_text === "function") {
+        this.set_tooltip_text(tooltipText);
+      }
+      this.tooltip_text = tooltipText;
+    }
+
     _getConfigPath() {
       return GLib.build_filenamev([
         GLib.get_user_config_dir(),
         "cmdbar",
         "config.json",
       ]);
-    }
-
-    _setupSearchBox() {
-      this._searchHeaderItem = new PopupMenu.PopupBaseMenuItem({
-        reactive: false,
-        activate: false,
-        hover: false,
-        can_focus: false,
-      });
-
-      this._searchEntry = new St.Entry({
-        hint_text: "Search commands...",
-        track_hover: true,
-        can_focus: true,
-        style_class: "cmdbar-search-entry",
-        x_expand: true,
-        style: "margin: 4px 8px; min-width: 220px;",
-      });
-
-      this._searchHeaderItem.add_child(this._searchEntry);
-
-      let clutterText = this._searchEntry.clutter_text || this._searchEntry;
-      if (clutterText && typeof clutterText.connect === "function") {
-        clutterText.connect("text-changed", () => {
-          this._onSearchChanged();
-        });
-        clutterText.connect("key-press-event", (actor, event) => {
-          return this._onSearchKeyPress(event);
-        });
-      }
-
-      this.menu.addMenuItem(this._searchHeaderItem);
-      this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
     }
 
     async _reloadMenu() {
@@ -921,415 +865,44 @@ const CmdBarIndicator = GObject.registerClass(
         // Clear all current items in menu
         this.menu.removeAll();
 
-        this._commandItems = [];
-        this._categoryHeaders = [];
-        this._categorySeparators = [];
-
         if (!config || !config.categories || config.categories.length === 0) {
           let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
           this.menu.addMenuItem(infoItem);
           return;
         }
 
-        // Add search entry at top of menu
-        this._setupSearchBox();
-
         config.categories.forEach((category, catIndex) => {
-          // Category separator
-          if (catIndex > 0) {
-            let sep = new PopupMenu.PopupSeparatorMenuItem();
-            this.menu.addMenuItem(sep);
-            this._categorySeparators.push(sep);
-          }
-
           // Category header
-          let header = new CategoryHeaderMenuItem(category.name);
-          this.menu.addMenuItem(header);
-          this._categoryHeaders.push(header);
+          if (catIndex > 0) {
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+          }
+          this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
 
           // Category commands
           if (category.commands && Array.isArray(category.commands)) {
             category.commands.forEach((cmd) => {
-              let item;
-              let cmdName = cmd.name || "";
-              let cmdCommand =
-                typeof cmd.command === "string"
-                  ? cmd.command
-                  : Array.isArray(cmd.command)
-                  ? cmd.command.join(" ")
-                  : String(cmd.command || "");
-
               if (hasPlaceholder(cmd.command)) {
-                item = new CommandInputMenuItem(
-                  this,
-                  cmd.name,
-                  cmd.command,
-                  cmd.placeholder,
-                  cmd,
+                // Commands requiring text inputs (Requirement 1 & 2)
+                this.menu.addMenuItem(
+                  new CommandInputMenuItem(
+                    this,
+                    cmd.name,
+                    cmd.command,
+                    cmd.placeholder,
+                    cmd,
+                  ),
                 );
               } else {
-                item = new CommandMenuItem(this, cmd.name, cmd.command, cmd);
+                // Ordinary parameterless commands
+                this.menu.addMenuItem(
+                  new CommandMenuItem(this, cmd.name, cmd.command, cmd),
+                );
               }
-
-              item._commandName = cmdName;
-              item._commandTemplate = cmdCommand;
-              item._cmdObj = cmd;
-
-              if (typeof item.connect === "function") {
-                try {
-                  item.connect("enter-event", () => {
-                    this._setSelectedItem(item);
-                  });
-                } catch (e) {}
-              }
-
-              this.menu.addMenuItem(item);
-              this._commandItems.push({
-                item,
-                cmdName,
-                cmdCommand,
-                cmdObj: cmd,
-              });
             });
           }
         });
-
-        this._onSearchChanged();
       } catch (e) {
         console.error(`CmdBar: error reloading menu: ${e.message}`);
-      }
-    }
-
-    _onSearchChanged() {
-      let searchText = this._searchEntry ? this._searchEntry.text || "" : "";
-      let cleanQuery = searchText.trim();
-
-      let visibleItems = [];
-
-      if (cleanQuery === "") {
-        for (let catHeader of this._categoryHeaders) {
-          catHeader.visible = true;
-        }
-        for (let sep of this._categorySeparators) {
-          sep.visible = true;
-        }
-
-        for (let entry of this._commandItems) {
-          entry.item.visible = true;
-          this._resetItemLabel(entry.item);
-          visibleItems.push(entry.item);
-        }
-      } else {
-        for (let catHeader of this._categoryHeaders) {
-          catHeader.visible = false;
-        }
-        for (let sep of this._categorySeparators) {
-          sep.visible = false;
-        }
-
-        let matches = [];
-
-        for (let entry of this._commandItems) {
-          let usageCount = this._getUsageCount(entry.cmdCommand || entry.cmdName);
-          let matchName = fuzzyMatch(cleanQuery, entry.cmdName, usageCount);
-          let matchCmd = fuzzyMatch(cleanQuery, entry.cmdCommand, usageCount);
-
-          if (matchName.match || matchCmd.match) {
-            let score = Math.max(
-              matchName.match ? matchName.score : 0,
-              matchCmd.match ? matchCmd.score : 0,
-            );
-            matches.push({
-              entry,
-              score,
-              matchName,
-              matchCmd,
-            });
-          } else {
-            entry.item.visible = false;
-          }
-        }
-
-        matches.sort((a, b) => b.score - a.score);
-
-        matches.forEach((m, idx) => {
-          m.entry.item.visible = true;
-          this._updateItemLabelWithHighlight(
-            m.entry.item,
-            m.matchName,
-            m.matchCmd,
-            cleanQuery,
-          );
-          visibleItems.push(m.entry.item);
-
-          if (this.menu && this.menu.box) {
-            let childActor = m.entry.item.actor || m.entry.item;
-            if (typeof this.menu.box.set_child_at_index === "function") {
-              this.menu.box.set_child_at_index(childActor, 2 + idx);
-            } else if (typeof this.menu.box.reorder_child === "function") {
-              this.menu.box.reorder_child(childActor, 2 + idx);
-            }
-          }
-        });
-      }
-
-      this._visibleCommandItems = visibleItems;
-
-      if (visibleItems.length > 0) {
-        this._setSelectedIndex(0);
-      } else {
-        this._setSelectedIndex(-1);
-      }
-    }
-
-    _resetItemLabel(item) {
-      if (!item || !item.label) return;
-      let name = item._commandName || "";
-      let markup = escapeMarkup(name);
-
-      if (
-        item.label.clutter_text &&
-        typeof item.label.clutter_text.set_markup === "function"
-      ) {
-        try {
-          item.label.clutter_text.set_markup(markup);
-        } catch (e) {
-          item.label.text = name;
-        }
-      } else {
-        item.label.text = name;
-      }
-    }
-
-    _updateItemLabelWithHighlight(item, matchName, matchCmd, pattern) {
-      if (!item || !item.label) return;
-      let name = item._commandName || "";
-      let cmd = item._commandTemplate || "";
-      let markup = "";
-
-      if (matchName.match && matchName.matches && matchName.matches.length > 0) {
-        markup = highlightMatches(name, matchName.matches);
-      } else if (
-        matchCmd.match &&
-        matchCmd.matches &&
-        matchCmd.matches.length > 0
-      ) {
-        let highlightedCmd = highlightMatches(cmd, matchCmd.matches);
-        markup = `${escapeMarkup(name)} <span size="small" foreground="#888888">(${highlightedCmd})</span>`;
-      } else {
-        markup = escapeMarkup(name);
-      }
-
-      if (
-        item.label.clutter_text &&
-        typeof item.label.clutter_text.set_markup === "function"
-      ) {
-        try {
-          item.label.clutter_text.set_markup(markup);
-        } catch (e) {
-          item.label.text = name;
-        }
-      } else if (typeof item.label.set_markup === "function") {
-        try {
-          item.label.set_markup(markup);
-        } catch (e) {
-          item.label.text = name;
-        }
-      } else {
-        item.label.text = name;
-      }
-    }
-
-    _setSelectedIndex(index) {
-      let items = this._visibleCommandItems || [];
-
-      if (this._selectedIndex >= 0 && this._selectedIndex < items.length) {
-        let prevItem = items[this._selectedIndex];
-        this._setItemSelected(prevItem, false);
-      }
-
-      if (index >= 0 && index < items.length) {
-        this._selectedIndex = index;
-        let newItem = items[index];
-        this._setItemSelected(newItem, true);
-      } else {
-        this._selectedIndex = -1;
-      }
-    }
-
-    _setSelectedItem(item) {
-      let items = this._visibleCommandItems || [];
-      let idx = items.indexOf(item);
-      if (idx !== -1) {
-        this._setSelectedIndex(idx);
-      }
-    }
-
-    _setItemSelected(item, selected) {
-      if (!item) return;
-      if (typeof item.setActive === "function") {
-        item.setActive(selected);
-      }
-      if (selected) {
-        if (typeof item.add_style_pseudo_class === "function") {
-          item.add_style_pseudo_class("hover");
-          item.add_style_pseudo_class("active");
-        }
-        if (typeof item.add_style_class_name === "function") {
-          item.add_style_class_name("cmdbar-selected-item");
-        }
-      } else {
-        if (typeof item.remove_style_pseudo_class === "function") {
-          item.remove_style_pseudo_class("hover");
-          item.remove_style_pseudo_class("active");
-        }
-        if (typeof item.remove_style_class_name === "function") {
-          item.remove_style_class_name("cmdbar-selected-item");
-        }
-      }
-    }
-
-    _selectNextItem() {
-      let items = this._visibleCommandItems || [];
-      if (items.length === 0) return;
-      let nextIdx = (this._selectedIndex + 1) % items.length;
-      this._setSelectedIndex(nextIdx);
-    }
-
-    _selectPreviousItem() {
-      let items = this._visibleCommandItems || [];
-      if (items.length === 0) return;
-      let prevIdx =
-        this._selectedIndex <= 0 ? items.length - 1 : this._selectedIndex - 1;
-      this._setSelectedIndex(prevIdx);
-    }
-
-    _executeSelectedItem() {
-      let items = this._visibleCommandItems || [];
-      let itemToExecute = null;
-      if (this._selectedIndex >= 0 && this._selectedIndex < items.length) {
-        itemToExecute = items[this._selectedIndex];
-      } else if (items.length > 0) {
-        itemToExecute = items[0];
-      }
-
-      if (itemToExecute) {
-        this._executeItem(itemToExecute);
-      }
-    }
-
-    _executeItem(item) {
-      if (!item) return;
-      let cmdKey = item._commandTemplate || item._commandName;
-      this._incrementUsage(cmdKey);
-
-      if (item instanceof CommandInputMenuItem) {
-        item._onSubmit(item._commandName);
-      } else if (item instanceof CommandMenuItem) {
-        runCommandAsync(item._commandName, item._commandTemplate, item._cmdObj);
-        if (this.menu && typeof this.menu.close === "function") {
-          this.menu.close();
-        }
-      } else if (typeof item.activate === "function") {
-        item.activate();
-      }
-    }
-
-    _onSearchKeyPress(event) {
-      if (!event || typeof event.get_key_symbol !== "function") {
-        return Clutter.EVENT_PROPAGATE;
-      }
-      let symbol = event.get_key_symbol();
-
-      if (symbol === Clutter.KEY_Down) {
-        this._selectNextItem();
-        return Clutter.EVENT_STOP;
-      } else if (symbol === Clutter.KEY_Up) {
-        this._selectPreviousItem();
-        return Clutter.EVENT_STOP;
-      } else if (
-        symbol === Clutter.KEY_Return ||
-        symbol === Clutter.KEY_KP_Enter
-      ) {
-        this._executeSelectedItem();
-        return Clutter.EVENT_STOP;
-      } else if (symbol === Clutter.KEY_Escape) {
-        if (
-          this._searchEntry &&
-          this._searchEntry.text &&
-          this._searchEntry.text.length > 0
-        ) {
-          this._searchEntry.text = "";
-          return Clutter.EVENT_STOP;
-        } else {
-          if (this.menu && typeof this.menu.close === "function") {
-            this.menu.close();
-          }
-          return Clutter.EVENT_STOP;
-        }
-      }
-      return Clutter.EVENT_PROPAGATE;
-    }
-
-    _getUsageFilePath() {
-      return GLib.build_filenamev([
-        GLib.get_user_config_dir(),
-        "cmdbar",
-        "usage.json",
-      ]);
-    }
-
-    _loadUsageMap() {
-      try {
-        let usagePath = this._getUsageFilePath();
-        let isNode =
-          typeof process !== "undefined" &&
-          process.versions &&
-          process.versions.node;
-        if (isNode) {
-          const fs = globalThis._fs;
-          if (fs && fs.existsSync(usagePath)) {
-            return JSON.parse(fs.readFileSync(usagePath, "utf8"));
-          }
-        } else {
-          let file = Gio.File.new_for_path(usagePath);
-          if (file && file.query_exists(null)) {
-            let [success, contents] = file.load_contents(null);
-            if (success) {
-              let str =
-                typeof imports !== "undefined" && imports.byteArray
-                  ? imports.byteArray.toString(contents)
-                  : new TextDecoder().decode(contents);
-              return JSON.parse(str);
-            }
-          }
-        }
-      } catch (e) {}
-      return {};
-    }
-
-    _getUsageCount(cmdKey) {
-      if (!this._usageMap) {
-        this._usageMap = this._loadUsageMap();
-      }
-      return this._usageMap[cmdKey] || 0;
-    }
-
-    _incrementUsage(cmdKey) {
-      if (!cmdKey) return;
-      if (!this._usageMap) {
-        this._usageMap = this._loadUsageMap();
-      }
-      this._usageMap[cmdKey] = (this._usageMap[cmdKey] || 0) + 1;
-      this._saveUsageMap();
-    }
-
-    async _saveUsageMap() {
-      try {
-        let usagePath = this._getUsageFilePath();
-        await writeConfigAtomically(usagePath, this._usageMap);
-      } catch (e) {
-        console.warn(`CmdBar: could not save usage map: ${e.message}`);
       }
     }
 
@@ -1582,6 +1155,9 @@ const CmdBarIndicator = GObject.registerClass(
 );
 
 export default class CmdBarExtension extends Extension {
+  /**
+   * Enable the extension, add panel indicator, and register keybindings.
+   */
   enable() {
     this._settings = this.getSettings();
 
@@ -1594,6 +1170,15 @@ export default class CmdBarExtension extends Extension {
       this._settings.get_boolean("show-indicator"),
     );
     this._updateButtonLabel(this._settings.get_string("button-label"));
+
+    // Apply initial keybinding shortcut hint
+    const initialAccel = this._settings.get_strv("shortcut");
+    if (this._indicator) {
+      this._indicator.updateShortcutTooltip(initialAccel);
+    }
+
+    // Register global keybinding
+    this._registerKeybinding();
 
     // Listen for live GSettings changes
     this._showIndicatorId = this._settings.connect(
@@ -1620,6 +1205,75 @@ export default class CmdBarExtension extends Extension {
         }
       },
     );
+
+    this._shortcutId = this._settings.connect(
+      "changed::shortcut",
+      (settings, key) => {
+        const accel = settings.get_strv(key);
+        if (this._indicator) {
+          this._indicator.updateShortcutTooltip(accel);
+        }
+        this._registerKeybinding();
+      },
+    );
+  }
+
+  /**
+   * Register global GNOME keybinding to toggle CmdBar menu.
+   */
+  _registerKeybinding() {
+    try {
+      if (Main && Main.wm && typeof Main.wm.addKeybinding === "function") {
+        let flags =
+          typeof Meta !== "undefined" && Meta.KeyBindingFlags
+            ? Meta.KeyBindingFlags.NONE
+            : 0;
+        let mode =
+          typeof Shell !== "undefined" && Shell.ActionMode
+            ? Shell.ActionMode.ALL
+            : 1;
+
+        try {
+          if (typeof Main.wm.removeKeybinding === "function") {
+            Main.wm.removeKeybinding("shortcut");
+          }
+        } catch (e) {}
+
+        Main.wm.addKeybinding(
+          "shortcut",
+          this._settings,
+          flags,
+          mode,
+          () => {
+            this._toggleMenu();
+          },
+        );
+      }
+    } catch (e) {
+      console.error(`CmdBar: Failed to register keybinding: ${e.message}`);
+    }
+  }
+
+  /**
+   * Unregister global GNOME keybinding.
+   */
+  _unregisterKeybinding() {
+    try {
+      if (Main && Main.wm && typeof Main.wm.removeKeybinding === "function") {
+        Main.wm.removeKeybinding("shortcut");
+      }
+    } catch (e) {
+      console.error(`CmdBar: Failed to unregister keybinding: ${e.message}`);
+    }
+  }
+
+  /**
+   * Toggle opening or closing the indicator menu.
+   */
+  _toggleMenu() {
+    if (this._indicator && this._indicator.menu) {
+      this._indicator.menu.toggle();
+    }
   }
 
   _updateIndicatorVisibility(visible) {
@@ -1634,7 +1288,12 @@ export default class CmdBarExtension extends Extension {
     }
   }
 
+  /**
+   * Disable extension and clean up resources and keybindings.
+   */
   disable() {
+    this._unregisterKeybinding();
+
     // Clean up GSettings connections
     if (this._settings) {
       if (this._showIndicatorId) {
@@ -1648,6 +1307,10 @@ export default class CmdBarExtension extends Extension {
       if (this._placeholderTextId) {
         this._settings.disconnect(this._placeholderTextId);
         this._placeholderTextId = 0;
+      }
+      if (this._shortcutId) {
+        this._settings.disconnect(this._shortcutId);
+        this._shortcutId = 0;
       }
       this._settings = null;
     }
