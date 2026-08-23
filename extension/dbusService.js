@@ -21,6 +21,32 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
     </method>
+    <method name="GetSchedules">
+      <arg name="json_schedules" type="s" direction="out"/>
+    </method>
+    <method name="AddSchedule">
+      <arg name="id" type="s" direction="in"/>
+      <arg name="name" type="s" direction="in"/>
+      <arg name="command" type="s" direction="in"/>
+      <arg name="schedule" type="s" direction="in"/>
+      <arg name="timezone" type="s" direction="in"/>
+      <arg name="prevent_overlap" type="b" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="RemoveSchedule">
+      <arg name="id_or_name" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="RunScheduleNow">
+      <arg name="id_or_name" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <signal name="ScheduleExecuted">
+      <arg name="id_or_name" type="s"/>
+      <arg name="exit_code" type="i"/>
+      <arg name="success" type="b"/>
+      <arg name="status" type="s"/>
+    </signal>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
       <arg name="exit_code" type="i"/>
@@ -228,6 +254,119 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
+    }
+  }
+
+  async GetSchedules() {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      return JSON.stringify(config.schedules || []);
+    } catch (e) {
+      return JSON.stringify([]);
+    }
+  }
+
+  async AddSchedule(id, name, command, schedule, timezone, preventOverlap) {
+    if (!name || typeof name !== "string" || name.trim() === "") return false;
+    if (!command || typeof command !== "string" || command.trim() === "") return false;
+    if (!schedule || typeof schedule !== "string" || schedule.trim() === "") return false;
+
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      if (!config.schedules) config.schedules = [];
+
+      const cleanId = (id && typeof id === "string" && id.trim()) ? id.trim() : `sched-${Date.now()}`;
+      const cleanName = name.trim();
+
+      const newSched = {
+        id: cleanId,
+        name: cleanName,
+        command: command.trim(),
+        schedule: schedule.trim(),
+        timezone: (timezone && typeof timezone === "string") ? timezone.trim() : "Local",
+        enabled: true,
+        prevent_overlap: Boolean(preventOverlap),
+        email_reports: { enabled: false, recipients: [], trigger: "on_failure" },
+        last_run: null,
+        next_run: null,
+        last_status: "never_run",
+        last_output: "",
+        last_error: ""
+      };
+
+      const existingIdx = config.schedules.findIndex((s) => s.id === cleanId || s.name === cleanName);
+      if (existingIdx >= 0) {
+        config.schedules[existingIdx] = newSched;
+      } else {
+        config.schedules.push(newSched);
+      }
+
+      await saveConfig(config, configPath);
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus AddSchedule error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async RemoveSchedule(idOrName) {
+    if (!idOrName || typeof idOrName !== "string" || idOrName.trim() === "") return false;
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      if (!config.schedules) return false;
+
+      const cleanTarget = idOrName.trim();
+      const initLen = config.schedules.length;
+      config.schedules = config.schedules.filter((s) => s.id !== cleanTarget && s.name !== cleanTarget);
+
+      if (config.schedules.length < initLen) {
+        await saveConfig(config, configPath);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async RunScheduleNow(idOrName) {
+    if (!idOrName || typeof idOrName !== "string" || idOrName.trim() === "") return false;
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const target = (config.schedules || []).find((s) => s.id === idOrName || s.name === idOrName);
+
+      if (!target) return false;
+
+      if (this._indicator && typeof this._indicator.executeCommand === "function") {
+        this._indicator.executeCommand(target.name, target.command, {}, target);
+      }
+      this.emitScheduleExecuted(target.id, 0, true, "success");
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  emitScheduleExecuted(idOrName, exitCode, success, status) {
+    if (this._dbusImpl && GLib) {
+      try {
+        this._dbusImpl.emit_signal(
+          "ScheduleExecuted",
+          new GLib.Variant("(sibs)", [idOrName || "", exitCode || 0, Boolean(success), status || ""])
+        );
+      } catch (e) {}
     }
   }
 

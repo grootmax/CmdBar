@@ -93,6 +93,41 @@ class CmdBarDBusClient:
                 return []
         return []
 
+    def get_schedules(self) -> list:
+        """Retrieve all scheduled jobs from CmdBar."""
+        res = self._call_method("GetSchedules")
+        if isinstance(res, list):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return []
+        return []
+
+    def add_schedule(self, s_id: str, name: str, command: str, schedule: str, timezone: str = "Local", prevent_overlap: bool = True) -> bool:
+        """Add or update a scheduled job in CmdBar."""
+        res = self._call_method("AddSchedule", s_id, name, command, schedule, timezone, prevent_overlap)
+        return bool(res)
+
+    def remove_schedule(self, s_id_or_name: str) -> bool:
+        """Remove a scheduled job by ID or name."""
+        res = self._call_method("RemoveSchedule", s_id_or_name)
+        return bool(res)
+
+    def run_schedule_now(self, s_id_or_name: str) -> bool:
+        """Trigger immediate out-of-band execution of a scheduled job."""
+        res = self._call_method("RunScheduleNow", s_id_or_name)
+        return bool(res)
+
+    def on_schedule_executed(self, callback):
+        """Register callback for ScheduleExecuted signals: callback(s_id_or_name, exit_code, success, status)"""
+        if self.service and hasattr(self.service, "add_listener"):
+            self.service.add_listener(on_schedule_executed=callback)
+
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
         self._executed_callbacks.append(callback)

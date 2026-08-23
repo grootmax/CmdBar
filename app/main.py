@@ -4,10 +4,25 @@ import re
 import shlex
 import json
 
-import gi
-gi.require_version('Gtk', '4.0')
-gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw, Gio, GLib
+if "/usr/lib/python3/dist-packages" not in sys.path and os.path.exists("/usr/lib/python3/dist-packages"):
+    sys.path.append("/usr/lib/python3/dist-packages")
+
+GUI_AVAILABLE = False
+try:
+    import gi
+    gi.require_version('Gtk', '4.0')
+    gi.require_version('Adw', '1')
+    from gi.repository import Gtk, Adw, Gio, GLib
+    GUI_AVAILABLE = True
+except (ImportError, ValueError):
+    GUI_AVAILABLE = False
+    class DummyType(type):
+        def __getattr__(cls, name):
+            return object
+    class Gtk(metaclass=DummyType):
+        pass
+    class Adw(metaclass=DummyType):
+        pass
 
 
 def set_uniform_margin(widget, margin: int):
@@ -31,7 +46,7 @@ def set_uniform_margin(widget, margin: int):
 apply_uniform_margin = set_uniform_margin
 set_margin_all = set_uniform_margin
 
-if not hasattr(Gtk.Widget, "set_margin_all"):
+if GUI_AVAILABLE and not hasattr(Gtk.Widget, "set_margin_all"):
     Gtk.Widget.set_margin_all = set_uniform_margin
 
 from app.config_schema import (
@@ -40,6 +55,11 @@ from app.config_schema import (
     resolve_command_preview,
     validate_parameter_value,
     get_config_path
+)
+from app.cron_scheduler import (
+    is_valid_cron_expression,
+    get_next_run_time,
+    CronScheduler
 )
 
 class CmdBarApp(Adw.Application):
@@ -51,6 +71,7 @@ class CmdBarApp(Adw.Application):
         self.config = load_config()
         self.selected_category_idx = None
         self.selected_shortcut_idx = None
+        self.selected_sched_idx = None
         self.sample_inputs = {}
 
     def do_activate(self):
@@ -196,6 +217,52 @@ class CmdBarWindow(Adw.ApplicationWindow):
                 if self.app.selected_category_idx == c_idx and self.app.selected_shortcut_idx == s_idx:
                     self.sidebar_list.select_row(sc_row)
 
+        # Cron Schedules Section
+        sched_header_row = Gtk.ListBoxRow()
+        sched_header_row.set_selectable(False)
+        sched_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        sched_box.set_margin_top(14)
+        sched_box.set_margin_bottom(4)
+        sched_box.set_margin_start(8)
+
+        sched_label = Gtk.Label()
+        sched_label.set_markup("<b>Cron Schedules</b>")
+        sched_label.set_hexpand(True)
+        sched_label.set_xalign(0)
+        sched_box.append(sched_label)
+
+        add_sched_btn = Gtk.Button(icon_name="list-add-symbolic")
+        add_sched_btn.set_has_frame(False)
+        add_sched_btn.set_tooltip_text("Add Scheduled Command")
+        add_sched_btn.connect("clicked", self._on_add_schedule_clicked)
+        sched_box.append(add_sched_btn)
+
+        sched_header_row.set_child(sched_box)
+        self.sidebar_list.append(sched_header_row)
+
+        schedules = self.app.config.get("schedules", [])
+        for sched_idx, sched in enumerate(schedules):
+            sc_row = Gtk.ListBoxRow()
+            sc_row.sched_idx = sched_idx
+
+            sc_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            sc_box.set_margin_start(20)
+            sc_box.set_margin_top(6)
+            sc_box.set_margin_bottom(6)
+
+            sc_icon = Gtk.Image.new_from_icon_name("preferences-system-time-symbolic")
+            sc_box.append(sc_icon)
+
+            sc_label = Gtk.Label(label=sched.get("name", "Untitled Schedule"))
+            sc_label.set_xalign(0)
+            sc_box.append(sc_label)
+
+            sc_row.set_child(sc_box)
+            self.sidebar_list.append(sc_row)
+
+            if getattr(self.app, "selected_sched_idx", None) == sched_idx:
+                self.sidebar_list.select_row(sc_row)
+
     def _show_empty_state(self):
         # Clear content page
         child = self.content_box.get_first_child()
@@ -212,9 +279,20 @@ class CmdBarWindow(Adw.ApplicationWindow):
         self.content_box.append(status_page)
 
     def _on_sidebar_row_selected(self, listbox, row):
-        if row is None or not hasattr(row, "c_idx"):
+        if row is None:
             return
-        
+
+        if hasattr(row, "sched_idx"):
+            self.app.selected_category_idx = None
+            self.app.selected_shortcut_idx = None
+            self.app.selected_sched_idx = row.sched_idx
+            self._load_schedule_editor()
+            return
+
+        if not hasattr(row, "c_idx"):
+            return
+
+        self.app.selected_sched_idx = None
         self.app.selected_category_idx = row.c_idx
         self.app.selected_shortcut_idx = row.s_idx
         self._load_shortcut_editor()
@@ -596,7 +674,249 @@ class CmdBarWindow(Adw.ApplicationWindow):
         self._render_test_preview_section()
 
     # --- Button & Menu Click Handlers ---
-    def _on_add_category_clicked(self, btn):
+    def _on_add_schedule_clicked(self, btn):
+        schedules = self.app.config.setdefault("schedules", [])
+        new_sched = {
+            "id": f"sched-{len(schedules) + 1}",
+            "name": f"New Schedule {len(schedules) + 1}",
+            "command": "echo 'Scheduled task executed'",
+            "schedule": "0 0 * * *",
+            "timezone": "Local",
+            "enabled": True,
+            "prevent_overlap": True,
+            "email_reports": {
+                "enabled": False,
+                "recipients": [],
+                "trigger": "on_failure"
+            },
+            "last_run": None,
+            "next_run": None,
+            "last_status": "never_run",
+            "last_output": "",
+            "last_error": ""
+        }
+        schedules.append(new_sched)
+        self.app.selected_sched_idx = len(schedules) - 1
+        self.app.selected_category_idx = None
+        self.app.selected_shortcut_idx = None
+        self._refresh_sidebar()
+        self._load_schedule_editor()
+        self._show_toast("Added new schedule!")
+
+    def _on_delete_schedule_clicked(self, btn, sched_idx):
+        schedules = self.app.config.get("schedules", [])
+        if 0 <= sched_idx < len(schedules):
+            sched = schedules.pop(sched_idx)
+            self.app.selected_sched_idx = None
+            self._refresh_sidebar()
+            self._show_empty_state()
+            self._show_toast(f"Deleted schedule '{sched.get('name')}'")
+
+    def _on_run_schedule_now(self, btn, sched_idx):
+        schedules = self.app.config.get("schedules", [])
+        if 0 <= sched_idx < len(schedules):
+            sched = schedules[sched_idx]
+            scheduler = CronScheduler()
+            res = scheduler.run_job_now(sched.get("id"))
+            sched["last_run"] = res.get("timestamp")
+            sched["last_status"] = res.get("status")
+            sched["last_output"] = res.get("stdout")
+            sched["last_error"] = res.get("stderr")
+            self._show_toast(f"Executed schedule '{sched.get('name')}': {res.get('status').upper()}")
+            self._load_schedule_editor()
+
+    def _load_schedule_editor(self):
+        # Clear content box
+        child = self.content_box.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.content_box.remove(child)
+            child = next_child
+
+        sched_idx = getattr(self.app, "selected_sched_idx", None)
+        schedules = self.app.config.get("schedules", [])
+        if sched_idx is None or sched_idx >= len(schedules):
+            self._show_empty_state()
+            return
+
+        sched = schedules[sched_idx]
+
+        content_header = Gtk.HeaderBar()
+        content_header.set_show_title_buttons(False)
+
+        sched_title = Gtk.Label(label=f"Edit Schedule: {sched.get('name', '')}")
+        sched_title.add_css_class("title")
+        sched_title.add_css_class("bold")
+        content_header.set_title_widget(sched_title)
+
+        run_now_btn = Gtk.Button(label="Run Now")
+        run_now_btn.add_css_class("suggested-action")
+        run_now_btn.connect("clicked", self._on_run_schedule_now, sched_idx)
+        content_header.pack_start(run_now_btn)
+
+        del_sched_btn = Gtk.Button(label="Delete Schedule")
+        del_sched_btn.add_css_class("destructive-action")
+        del_sched_btn.connect("clicked", self._on_delete_schedule_clicked, sched_idx)
+        content_header.pack_end(del_sched_btn)
+
+        self.content_box.append(content_header)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_vexpand(True)
+        pref_page = Adw.PreferencesPage()
+        scrolled.set_child(pref_page)
+        self.content_box.append(scrolled)
+
+        grp = Adw.PreferencesGroup()
+        grp.set_title("Schedule Configuration")
+        pref_page.add(grp)
+
+        name_row = Adw.EntryRow()
+        name_row.set_title("Schedule Name")
+        name_row.set_text(sched.get("name", ""))
+        def _on_name_changed(entry):
+            sched["name"] = entry.get_text()
+            sched_title.set_label(f"Edit Schedule: {sched['name']}")
+        name_row.connect("changed", _on_name_changed)
+        grp.add(name_row)
+
+        cmd_row = Adw.EntryRow()
+        cmd_row.set_title("Command")
+        cmd_row.set_text(sched.get("command", ""))
+        def _on_cmd_changed(entry):
+            sched["command"] = entry.get_text()
+        cmd_row.connect("changed", _on_cmd_changed)
+        grp.add(cmd_row)
+
+        preset_row = Adw.ComboRow()
+        preset_row.set_title("Frequency Preset")
+        preset_list = Gtk.StringList()
+        presets_data = [
+            ("Every Minute", "* * * * *"),
+            ("Every 5 Minutes", "*/5 * * * *"),
+            ("Every 15 Minutes", "*/15 * * * *"),
+            ("Every 30 Minutes", "*/30 * * * *"),
+            ("Every Hour", "0 * * * *"),
+            ("Daily at Midnight", "0 0 * * *"),
+            ("Daily at 12:00 PM", "0 12 * * *"),
+            ("Weekly on Sunday", "0 0 * * 0"),
+            ("Monthly on 1st", "0 0 1 * *"),
+            ("Custom Cron Expression", "custom")
+        ]
+        for p_label, _ in presets_data:
+            preset_list.append(p_label)
+        preset_row.set_model(preset_list)
+
+        curr_expr = sched.get("schedule", "0 0 * * *")
+        match_preset_idx = 9
+        for p_idx, (_, p_expr) in enumerate(presets_data):
+            if p_expr == curr_expr:
+                match_preset_idx = p_idx
+                break
+        preset_row.set_selected(match_preset_idx)
+        grp.add(preset_row)
+
+        expr_row = Adw.EntryRow()
+        expr_row.set_title("Cron Expression")
+        expr_row.set_text(curr_expr)
+        grp.add(expr_row)
+
+        tz_row = Adw.ComboRow()
+        tz_row.set_title("Timezone")
+        tz_list = Gtk.StringList()
+        tz_options = ["Local", "UTC", "America/New_York", "Europe/London", "Asia/Tokyo", "Australia/Sydney"]
+        for tz in tz_options:
+            tz_list.append(tz)
+        tz_row.set_model(tz_list)
+        curr_tz = sched.get("timezone", "Local")
+        tz_idx = tz_options.index(curr_tz) if curr_tz in tz_options else 0
+        tz_row.set_selected(tz_idx)
+        grp.add(tz_row)
+
+        preview_row = Adw.ActionRow()
+        preview_row.set_title("Next Scheduled Run")
+        try:
+            next_dt = get_next_run_time(curr_expr, tz_str=curr_tz)
+            preview_row.set_subtitle(next_dt.strftime("%Y-%m-%d %H:%M:%S %Z"))
+        except Exception as e:
+            preview_row.set_subtitle(f"Invalid Schedule: {e}")
+        grp.add(preview_row)
+
+        def _update_preview():
+            ex = expr_row.get_text().strip()
+            tz_sel = tz_options[tz_row.get_selected()]
+            sched["schedule"] = ex
+            sched["timezone"] = tz_sel
+            try:
+                nxt = get_next_run_time(ex, tz_str=tz_sel)
+                preview_row.set_subtitle(nxt.strftime("%Y-%m-%d %H:%M:%S %Z"))
+            except Exception as e:
+                preview_row.set_subtitle(f"Invalid Schedule: {e}")
+
+        def _on_preset_changed(combo, param):
+            idx = combo.get_selected()
+            if idx < len(presets_data) - 1:
+                selected_expr = presets_data[idx][1]
+                expr_row.set_text(selected_expr)
+                expr_row.set_sensitive(False)
+            else:
+                expr_row.set_sensitive(True)
+            _update_preview()
+
+        preset_row.connect("notify::selected", _on_preset_changed)
+        expr_row.connect("changed", lambda e: _update_preview())
+        tz_row.connect("notify::selected", lambda c, p: _update_preview())
+
+        overlap_row = Adw.SwitchRow()
+        overlap_row.set_title("Prevent Overlap")
+        overlap_row.set_subtitle("Skip execution if previous run is still in progress")
+        overlap_row.set_active(sched.get("prevent_overlap", True))
+        def _on_overlap_toggled(switch, gparam):
+            sched["prevent_overlap"] = switch.get_active()
+        overlap_row.connect("notify::active", _on_overlap_toggled)
+        grp.add(overlap_row)
+
+        email_grp = Adw.PreferencesGroup()
+        email_grp.set_title("Email Reports")
+        pref_page.add(email_grp)
+
+        email_cfg = sched.get("email_reports", {})
+        if isinstance(email_cfg, bool):
+            email_cfg = {"enabled": email_cfg, "recipients": [], "trigger": "on_failure"}
+            sched["email_reports"] = email_cfg
+
+        email_switch = Adw.SwitchRow()
+        email_switch.set_title("Enable Email Reports")
+        email_switch.set_active(email_cfg.get("enabled", False))
+        def _on_email_switch_toggled(switch, gparam):
+            email_cfg["enabled"] = switch.get_active()
+        email_switch.connect("notify::active", _on_email_switch_toggled)
+        email_grp.add(email_switch)
+
+        email_recip = Adw.EntryRow()
+        email_recip.set_title("Recipient Email(s)")
+        recip_list = email_cfg.get("recipients", [])
+        email_recip.set_text(", ".join(recip_list) if isinstance(recip_list, list) else str(recip_list))
+        def _on_recip_changed(entry):
+            email_cfg["recipients"] = [r.strip() for r in entry.get_text().split(",") if r.strip()]
+        email_recip.connect("changed", _on_recip_changed)
+        email_grp.add(email_recip)
+
+        logs_grp = Adw.PreferencesGroup()
+        logs_grp.set_title("Execution History & Output")
+        pref_page.add(logs_grp)
+
+        status_row = Adw.ActionRow()
+        status_row.set_title("Last Execution Status")
+        status_row.set_subtitle(f"Status: {sched.get('last_status', 'never_run').upper()} | Last Run: {sched.get('last_run') or 'Never'}")
+        logs_grp.add(status_row)
+
+        if sched.get("last_output") or sched.get("last_error"):
+            logs_row = Adw.ActionRow()
+            logs_row.set_title("Last Output / Logs")
+            logs_text = f"STDOUT:\n{sched.get('last_output', '')}\n\nSTDERR:\n{sched.get('last_error', '')}"
+            logs_row.set_subtitle(logs_text)
+            logs_grp.add(logs_row)
         # Create small dialog to input category name or use default name
         self._prompt_category_name()
 
@@ -747,8 +1067,8 @@ class CmdBarWindow(Adw.ApplicationWindow):
 
 
 if __name__ == "__main__":
-    # Handle headless environments with a beautiful CLI summary
-    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+    # Handle headless environments with a CLI summary
+    if not GUI_AVAILABLE or (not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY")):
         print("="*60)
         print("CmdBar Companion Application (Headless Mode)")
         print("="*60)
@@ -772,6 +1092,17 @@ if __name__ == "__main__":
                     elif isinstance(params, list):
                         for p in params:
                             print(f"      * {p.get('name')} (regex: '{p.get('regex', '')}')")
+
+        print("\nConfigured Cron Schedules:")
+        schedules = config.get("schedules", [])
+        if not schedules:
+            print("  (No schedules configured)")
+        for sched in schedules:
+            print(f"  - Schedule: {sched.get('name')}")
+            print(f"    Command : {sched.get('command')}")
+            print(f"    Cron    : {sched.get('schedule')}")
+            print(f"    Timezone: {sched.get('timezone', 'Local')}")
+            print(f"    Status  : {sched.get('last_status', 'never_run')}")
         print("="*60)
         sys.exit(0)
 
