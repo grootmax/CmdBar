@@ -4,17 +4,25 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from app.workspace_config import (
+    WorkspaceManager,
+    init_workspace_config,
+    find_workspace_config_path,
+    detect_project_type,
+    PROJECT_TEMPLATES
+)
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
-    and manages signals for CommandExecuted and CommandOutput.
+    workspace management, and manages signals for CommandExecuted and CommandOutput.
     """
     def __init__(self, config_path=None):
         self.config_path = config_path
         self._executed_listeners = []
         self._output_listeners = []
+        self.workspace_manager = WorkspaceManager()
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
@@ -131,3 +139,34 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def detect_workspace(self, cwd: str) -> tuple:
+        path = find_workspace_config_path(cwd)
+        has_ws = path is not None
+        return has_ws, path or ""
+
+    def init_workspace(self, cwd: str, template_name: str = None) -> tuple:
+        try:
+            cfg, path = init_workspace_config(cwd, template_name)
+            self.workspace_manager.register_workspace(cwd)
+            return True, path
+        except Exception:
+            return False, ""
+
+    def switch_workspace(self, cwd: str) -> bool:
+        try:
+            global_cfg = load_config()
+            self.workspace_manager.set_global_config(global_cfg)
+            ws_cfg = self.workspace_manager.switch_workspace(cwd)
+            return ws_cfg is not None
+        except Exception:
+            return False
+
+    def list_workspaces(self) -> list:
+        return self.workspace_manager.list_workspaces()
+
+    def list_workspaces_json(self) -> str:
+        return json.dumps(self.list_workspaces())
+
+    def get_workspace_templates(self) -> dict:
+        return PROJECT_TEMPLATES

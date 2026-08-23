@@ -10,6 +10,13 @@ import hmac
 import hashlib
 import secrets
 from companion.ai_translator import is_ai_command, translate_natural_language_to_command
+from app.workspace_config import (
+    init_workspace_config,
+    find_workspace_config_path,
+    detect_project_type,
+    load_workspace_config,
+    PROJECT_TEMPLATES,
+)
 from app.template_manager import (
     load_all_templates,
     load_template_file,
@@ -371,6 +378,32 @@ def run_command_in_shell(command_str):
 # CLI / INTERACTIVE COMPANION APP MODE
 # =====================================================================
 
+def manage_workspace_configs():
+    print("\nWorkspace Configuration Management:")
+    print("a. Auto-detect workspace config in directory")
+    print("b. Initialize workspace config from template")
+    sub_choice = input("Enter choice [a/b]: ").strip().lower()
+
+    if sub_choice == "a":
+        target_dir = input("Enter directory path (default current dir): ").strip() or os.getcwd()
+        found_path = find_workspace_config_path(target_dir)
+        if found_path:
+            print(f"✅ Found workspace config at: {found_path}")
+            cfg = load_workspace_config(found_path)
+            if cfg and "workspace" in cfg:
+                print(f"Workspace Info: {json.dumps(cfg['workspace'], indent=2)}")
+        else:
+            print(f"❌ No workspace config found in {target_dir} or parent git repo.")
+    elif sub_choice == "b":
+        target_dir = input("Enter workspace directory: ").strip() or os.getcwd()
+        print("Available templates: node, python, rust, go, generic")
+        template = input("Enter template name (leave empty for auto-detect): ").strip()
+        try:
+            cfg, path = init_workspace_config(target_dir, template or None)
+            print(f"✅ Successfully initialized workspace config at: {path}")
+        except Exception as e:
+            print(f"❌ Error initializing workspace config: {e}")
+
 def run_cli_mode():
     print("===============================================")
     print("   CmdBar Companion Management App (CLI Mode)   ")
@@ -387,9 +420,10 @@ def run_cli_mode():
         print("6. Test-Run Command Template")
         print("7. Import from Template Library")
         print("8. Export Custom Commands as Template")
-        print("9. Exit")
+        print("9. Workspace Config Management")
+        print("10. Exit")
         
-        choice = input("\nEnter choice [1-9]: ").strip()
+        choice = input("\nEnter choice [1-10]: ").strip()
         if choice == "1":
             list_categories_and_commands(config_data)
         elif choice == "2":
@@ -407,6 +441,8 @@ def run_cli_mode():
         elif choice == "8":
             export_templates_cli_flow(config_data)
         elif choice == "9":
+            manage_workspace_configs()
+        elif choice == "10":
             print("Goodbye!")
             break
         else:
