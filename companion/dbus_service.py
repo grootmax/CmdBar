@@ -131,3 +131,21 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def process_midi_event(self, bytes_data, device_id="dbus", midi_manager=None) -> str:
+        if midi_manager:
+            res = midi_manager.process_midi_event(bytes_data, device_id=device_id)
+            return json.dumps(res)
+        return json.dumps({"executed": False, "error": "MIDI Manager not provided"})
+
+    def set_midi_bank(self, bank: str, midi_manager=None) -> bool:
+        if midi_manager:
+            midi_manager.set_active_bank(bank)
+            return True
+        return False
+
+    def toggle_performance_mode(self, enabled: bool, midi_manager=None) -> bool:
+        if midi_manager:
+            midi_manager.set_performance_mode(enabled)
+            return midi_manager.is_performance_mode()
+        return False
