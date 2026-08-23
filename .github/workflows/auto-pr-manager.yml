@@ -132,7 +132,14 @@ jobs:
           # We process them strictly in this order.
           # ==================================================
 
-          jq -c '.[]' /tmp/jules-prs.json | while read -r PR; do
+          jq -c '.[]' /tmp/jules-prs.json > /tmp/jules-prs-lines.json
+          mapfile -t JULES_PRS < /tmp/jules-prs-lines.json
+
+          for PR in "${JULES_PRS[@]}"; do
+
+            if [ -z "$PR" ]; then
+              continue
+            fi
 
             PR_NUMBER=$(echo "$PR" | jq -r '.number')
             TITLE=$(echo "$PR" | jq -r '.title')
@@ -263,9 +270,15 @@ jobs:
               echo ""
               echo "Cloning repository..."
 
-              git clone \
+              if ! git clone \
                 "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" \
-                "$WORKDIR"
+                "$WORKDIR"; then
+
+                echo "Failed to clone repository for PR #$PR_NUMBER."
+                rm -rf "$WORKDIR"
+                break
+
+              fi
 
               cd "$WORKDIR"
 
@@ -288,11 +301,25 @@ jobs:
               echo ""
               echo "Fetching base branch..."
 
-              git fetch origin "$BASE_BRANCH"
+              if ! git fetch origin "$BASE_BRANCH"; then
+
+                echo "Failed to fetch base branch $BASE_BRANCH for PR #$PR_NUMBER."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+
+              fi
 
               echo "Fetching Jules branch..."
 
-              git fetch origin "$HEAD_BRANCH"
+              if ! git fetch origin "$HEAD_BRANCH"; then
+
+                echo "Failed to fetch Jules branch $HEAD_BRANCH for PR #$PR_NUMBER."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+
+              fi
 
               # ==================================================
               # CHECKOUT JULES BRANCH
@@ -301,9 +328,16 @@ jobs:
               echo ""
               echo "Checking out Jules branch..."
 
-              git checkout -B \
+              if ! git checkout -B \
                 "$HEAD_BRANCH" \
-                "origin/$HEAD_BRANCH"
+                "origin/$HEAD_BRANCH"; then
+
+                echo "Failed to checkout branch origin/$HEAD_BRANCH for PR #$PR_NUMBER."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+
+              fi
 
               # ==================================================
               # MERGE BASE INTO JULES BRANCH
@@ -347,7 +381,7 @@ jobs:
 
                 git diff \
                   --name-only \
-                  --diff-filter=U
+                  --diff-filter=U || true
 
                 echo ""
 
@@ -362,17 +396,21 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
-                git diff \
-                  --name-only \
-                  --diff-filter=U |
-                while IFS= read -r FILE; do
+                git diff --name-only --diff-filter=U > /tmp/conflict-files.txt || true
+                mapfile -t CONFLICT_FILES < /tmp/conflict-files.txt
+
+                for FILE in "${CONFLICT_FILES[@]}"; do
+
+                  if [ -z "$FILE" ]; then
+                    continue
+                  fi
 
                   echo "Resolving conflict:"
                   echo "  $FILE"
 
-                  git checkout --theirs -- "$FILE"
+                  git checkout --theirs -- "$FILE" || true
 
-                  git add -- "$FILE"
+                  git add -- "$FILE" || true
 
                 done
 
@@ -380,10 +418,15 @@ jobs:
                 # VERIFY NO CONFLICTS REMAIN
                 # ==================================================
 
-                REMAINING_CONFLICTS=$(git diff \
-                  --name-only \
-                  --diff-filter=U |
-                  wc -l)
+                git diff --name-only --diff-filter=U > /tmp/remaining-conflicts.txt || true
+                mapfile -t REMAINING_FILES < /tmp/remaining-conflicts.txt
+
+                REMAINING_CONFLICTS=0
+                for RFILE in "${REMAINING_FILES[@]}"; do
+                  if [ -n "$RFILE" ]; then
+                    REMAINING_CONFLICTS=$((REMAINING_CONFLICTS + 1))
+                  fi
+                done
 
                 if [ "$REMAINING_CONFLICTS" -ne 0 ]; then
 
@@ -416,7 +459,7 @@ jobs:
                 echo "Committing conflict resolution..."
 
                 git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                  -m "chore: auto-resolve merge conflicts" || true
 
               fi
 
@@ -427,7 +470,14 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "$HEAD_BRANCH"; then
+
+                echo "Failed to push updated branch $HEAD_BRANCH for PR #$PR_NUMBER."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+
+              fi
 
               cd /
 
