@@ -362,18 +362,18 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
-                git diff \
-                  --name-only \
-                  --diff-filter=U |
-                while IFS= read -r FILE; do
+                mapfile -t CONFLICTED_FILES < <(git diff --name-only --diff-filter=U)
+                for FILE in "${CONFLICTED_FILES[@]}"; do
+                  if [ -n "$FILE" ]; then
+                    echo "Resolving conflict:"
+                    echo "  $FILE"
 
-                  echo "Resolving conflict:"
-                  echo "  $FILE"
+                    if ! git checkout --theirs -- "$FILE" 2>/dev/null; then
+                      git rm -f -- "$FILE" 2>/dev/null || true
+                    fi
 
-                  git checkout --theirs -- "$FILE"
-
-                  git add -- "$FILE"
-
+                    git add -A -- "$FILE" 2>/dev/null || true
+                  fi
                 done
 
                 # ==================================================
@@ -478,9 +478,10 @@ jobs:
               echo "Checking status checks for PR #$PR_NUMBER..."
 
               CHECK_OUTPUT=$(
-                gh pr checks "$PR_NUMBER" \
+                gh pr view "$PR_NUMBER" \
                   --repo "$GH_REPO" \
-                  --json name,state,bucket,workflow \
+                  --json statusCheckRollup \
+                  --jq '[.statusCheckRollup[]? | {name: (.name // .context // ""), workflow: (.workflowName // ""), status: (.status // ""), conclusion: (.conclusion // .state // ""), bucket: (if (.conclusion == "SUCCESS" or .state == "SUCCESS" or .conclusion == "NEUTRAL" or .conclusion == "SKIPPED") then "pass" elif (.conclusion == "FAILURE" or .conclusion == "ACTION_REQUIRED" or .conclusion == "TIMED_OUT" or .state == "FAILURE" or .state == "ERROR") then "fail" elif (.conclusion == "CANCELLED") then "cancel" else "pending" end)}]' \
                   2>/dev/null || true
               )
 
@@ -565,7 +566,12 @@ jobs:
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      ((.name | ascii_downcase | contains("process jules prs")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("auto jules pr manager")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("auto pr manager")) | not)
+                      and (.bucket == "fail" or .bucket == "cancel")
+                    )
                 ]
                 | length
               ')
@@ -573,7 +579,12 @@ jobs:
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "pending")
+                  | select(
+                      ((.name | ascii_downcase | contains("process jules prs")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("auto jules pr manager")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("auto pr manager")) | not)
+                      and (.bucket == "pending")
+                    )
                 ]
                 | length
               ')
