@@ -1,5 +1,5 @@
 import { loadConfig, saveConfig, getDefaultConfigPath, validateBrandingConfig, getEffectiveBranding } from "./configSync.js";
-import { tokenizeCommand } from "./commandProcessor.js";
+import { tokenizeCommand, evaluateCommandPolicy, CommandPolicyManager } from "./commandProcessor.js";
 import { SSOManager, PROVIDER_PRESETS } from "./ssoManager.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
@@ -53,6 +53,16 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="session_id" type="s" direction="in"/>
       <arg name="category_name" type="s" direction="in"/>
       <arg name="allowed" type="b" direction="out"/>
+    </method>
+    <method name="EvaluatePolicy">
+      <arg name="command" type="s" direction="in"/>
+      <arg name="context_json" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+    <method name="RequestApproval">
+      <arg name="command" type="s" direction="in"/>
+      <arg name="reason" type="s" direction="in"/>
+      <arg name="request_id" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -375,6 +385,37 @@ export class CmdBarDBusService {
       } catch (e) {
         console.error(`CmdBar D-Bus emitSSOSessionStateChanged error: ${e.message}`);
       }
+    }
+  }
+
+  async EvaluatePolicy(command, contextJson) {
+    try {
+      let ctx = {};
+      if (contextJson) {
+        try {
+          ctx = JSON.parse(contextJson);
+        } catch (e) {}
+      }
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const res = evaluateCommandPolicy(command, ctx, config ? config.policy : null);
+      return JSON.stringify(res);
+    } catch (e) {
+      console.error(`CmdBar D-Bus EvaluatePolicy error: ${e.message}`);
+      return JSON.stringify({ allowed: false, reason: e.message });
+    }
+  }
+
+  async RequestApproval(command, reason) {
+    try {
+      const pm = new CommandPolicyManager();
+      const req = pm.requestApproval(command, {}, reason);
+      return req.id;
+    } catch (e) {
+      console.error(`CmdBar D-Bus RequestApproval error: ${e.message}`);
+      return "";
     }
   }
 

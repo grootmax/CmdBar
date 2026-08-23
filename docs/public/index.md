@@ -21,5 +21,49 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
 - **Command Audit Logging**: Log command executions to `~/.local/share/cmdbar/audit.log` with ISO timestamp, user, exit code, and execution duration. Includes Privacy Mode to automatically exclude sensitive commands and parameters, daily log rotation, and an in-app Audit Log Viewer.
+- **Command Security Policy**: Enterprise-grade Whitelist/Blacklist command filtering with wildcard, glob, and regex pattern matching.
+- **User & Group Scoped Rules**: Restrict command permissions per user or group role.
+- **Approval & Override Workflows**: Request and grant temporary command execution overrides.
 - **Local Live Reload**: Configuration changes sync instantly.
 - **Enterprise White Label & Custom Branding**: Rebrand the top panel indicator with custom enterprise logo, application name, primary brand colors, domain alias endpoints, and custom SSL certificate bundles.
+
+## Command Security Policy (Whitelist & Blacklist)
+
+CmdBar features a built-in security policy engine to protect enterprise environments from accidental or malicious execution of dangerous system commands.
+
+### Policy Modes
+
+- **Blacklist Mode** (`mode: "blacklist"`): Blocks dangerous commands matching specified blacklisted patterns while allowing standard commands.
+- **Whitelist Mode** (`mode: "whitelist"`): Restricts execution to explicitly permitted command patterns only.
+- **Combined Mode** (`mode: "combined"`): Enforces blacklist restrictions first, followed by whitelist validation.
+
+### Pattern Matching Syntax
+
+- **Wildcards & Globs**: Use `*` to match any sequence of characters and `?` to match a single character (e.g. `rm -rf *`, `shutdown*`, `ping -c ? 127.0.0.1`).
+- **Regular Expressions**: Prefix pattern with `regex:` (e.g. `regex:^rm\s+-rf`).
+
+### User and Group Scoped Rules
+
+Rules can be configured per user or group role in `config.json`:
+
+```json
+"policy": {
+  "enabled": true,
+  "mode": "blacklist",
+  "rules": [
+    {
+      "id": "contractor-aws-deny",
+      "user": "alice",
+      "action": "deny",
+      "pattern": "aws *",
+      "reason": "Contractors cannot invoke AWS infrastructure commands"
+    }
+  ]
+}
+```
+
+### Approval & Override Workflow
+
+When a command is blocked by security policy, users can submit an approval request. Authorized administrators can issue single-use or time-bound approval tokens to override restrictions.
+
+>>>>>>> 5ebcf78 (feat: implement command whitelist/blacklist security policy engine with user/group rules and overrides)

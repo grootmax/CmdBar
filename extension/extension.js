@@ -16,6 +16,7 @@ import {
   formatShortcutHint,
   parseAccel,
   formatOutput,
+  evaluateCommandPolicy,
 } from "./commandProcessor.js";
 import { wrapCommandInSandbox, isSandboxEnabled } from "./sandboxWrapper.js";
 import { loadConfig, saveConfig, getEffectiveBranding, getEffectiveDomainUrl } from "./configSync.js";
@@ -1754,6 +1755,22 @@ const CmdBarIndicator = GObject.registerClass(
         this._showNotification(
           "Execution Error",
           "Command template parsed to empty argument list.",
+        );
+        return;
+      }
+
+      let fullCmdStr = argv.join(" ");
+      let policyEval = evaluateCommandPolicy(
+        fullCmdStr,
+        {},
+        this._cachedConfig ? this._cachedConfig.policy : (this._config ? this._config.policy : null),
+        cmdObj ? cmdObj.approvalToken : null
+      );
+
+      if (!policyEval.allowed) {
+        this._showNotification(
+          "Security Policy Violation",
+          policyEval.reason || "Command execution blocked by security policy."
         );
         return;
       }
