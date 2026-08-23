@@ -375,9 +375,6 @@ jobs:
                     echo "Resolving conflict:"
                     echo "  $FILE"
 
-                  echo "Resolving conflict:"
-                  echo "  $FILE"
-
                   if git checkout --theirs -- "$FILE" 2>/dev/null; then
                     git add -- "$FILE"
                   else
