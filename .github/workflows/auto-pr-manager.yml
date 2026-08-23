@@ -496,8 +496,8 @@ jobs:
                   | select(
                       (.name | ascii_downcase | contains("accessibility"))
                       or (.name | ascii_downcase | contains("a11y"))
-                      or (((.workflow // "") | ascii_downcase) | contains("accessibility"))
-                      or (((.workflow // "") | ascii_downcase) | contains("a11y"))
+                      or (((.workflow | if type == "object" then .name else . end) // "") | ascii_downcase | contains("accessibility"))
+                      or (((.workflow | if type == "object" then .name else . end) // "") | ascii_downcase | contains("a11y"))
                     )
                 ]
               ')
