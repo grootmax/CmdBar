@@ -18,7 +18,7 @@ import {
   formatOutput,
 } from "./commandProcessor.js";
 import { wrapCommandInSandbox, isSandboxEnabled } from "./sandboxWrapper.js";
-import { loadConfig, getEffectiveBranding, getEffectiveDomainUrl } from "./configSync.js";
+import { loadConfig, saveConfig, getEffectiveBranding, getEffectiveDomainUrl } from "./configSync.js";
 import {
   translateNaturalLanguageToCommand,
   isAICommand,
@@ -1185,7 +1185,7 @@ const JobMenuItem = GObject.registerClass(
 // Menu item for group/category headers
 const CategoryHeaderMenuItem = GObject.registerClass(
   class CategoryHeaderMenuItem extends PopupMenu.PopupBaseMenuItem {
-    _init(categoryName) {
+    _init(categoryName, iconName) {
       super._init({
         reactive: false,
         activate: false,
@@ -1198,7 +1198,7 @@ const CategoryHeaderMenuItem = GObject.registerClass(
       });
 
       this.icon = new St.Icon({
-        icon_name: "folder-symbolic",
+        icon_name: iconName || "folder-symbolic",
         style_class: "popup-menu-icon",
         style: "margin-right: 8px; margin-top: 6px; margin-bottom: 2px;",
         y_align: Clutter.ActorAlign.CENTER,
@@ -1262,6 +1262,7 @@ const CmdBarIndicator = GObject.registerClass(
     }
 
     setButtonLabel(labelText) {
+      if (!this._label) return;
       if (labelText && labelText.trim().length > 0) {
         this._label.text = labelText.trim();
         this._label.visible = true;
@@ -1280,34 +1281,38 @@ const CmdBarIndicator = GObject.registerClass(
       this._effectiveBranding = branding;
 
       // Custom icon / logo
-      if (branding.enabled && branding.logo_path && branding.logo_path.trim()) {
-        const logo = branding.logo_path.trim();
-        if (logo.includes("/") && Gio.File && Gio.File.new_for_path(logo).query_exists(null)) {
-          try {
-            let gicon = new Gio.FileIcon({ file: Gio.File.new_for_path(logo) });
-            this._icon.gicon = gicon;
-          } catch (e) {
+      if (this._icon) {
+        if (branding.enabled && branding.logo_path && branding.logo_path.trim()) {
+          const logo = branding.logo_path.trim();
+          if (logo.includes("/") && Gio.File && Gio.File.new_for_path(logo).query_exists(null)) {
+            try {
+              let gicon = new Gio.FileIcon({ file: Gio.File.new_for_path(logo) });
+              this._icon.gicon = gicon;
+            } catch (e) {
+              this._icon.icon_name = logo;
+            }
+          } else {
             this._icon.icon_name = logo;
           }
         } else {
-          this._icon.icon_name = logo;
+          this._icon.icon_name = "system-run-symbolic";
         }
-      } else {
-        this._icon.icon_name = "system-run-symbolic";
       }
 
       // Custom brand color styling
-      if (branding.enabled && branding.brand_colors) {
-        const primary = branding.brand_colors.primary || "#3584e4";
-        const text = branding.brand_colors.text || "#ffffff";
-        this._box.style = `color: ${text};`;
-        if (this.menu && this.menu.actor) {
-          this.menu.actor.style = `border-top: 2px solid ${primary};`;
-        }
-      } else {
-        this._box.style = null;
-        if (this.menu && this.menu.actor) {
-          this.menu.actor.style = null;
+      if (this._box) {
+        if (branding.enabled && branding.brand_colors) {
+          const primary = branding.brand_colors.primary || "#3584e4";
+          const text = branding.brand_colors.text || "#ffffff";
+          this._box.style = `color: ${text};`;
+          if (this.menu && this.menu.actor) {
+            this.menu.actor.style = `border-top: 2px solid ${primary};`;
+          }
+        } else {
+          this._box.style = null;
+          if (this.menu && this.menu.actor) {
+            this.menu.actor.style = null;
+          }
         }
       }
     }
@@ -1334,10 +1339,61 @@ const CmdBarIndicator = GObject.registerClass(
       ]);
     }
 
+    async toggleFavorite(cmdObj) {
+      if (!cmdObj) return;
+      try {
+        let configPath = this._getConfigPath();
+        let extensionPath =
+          this._extension && this._extension.dir
+            ? this._extension.dir.get_path()
+            : null;
+        let config = await loadConfig(configPath, extensionPath);
+
+        if (!config || !config.categories) return;
+
+        let found = false;
+        let newFavState = false;
+
+        for (let cat of config.categories) {
+          if (!cat.commands) continue;
+          for (let cmd of cat.commands) {
+            if (
+              cmd === cmdObj ||
+              (cmd.name === cmdObj.name && cmd.command === cmdObj.command)
+            ) {
+              const current = Boolean(cmd.favorite || cmd.pinned);
+              cmd.favorite = !current;
+              cmd.pinned = !current;
+              newFavState = !current;
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
+        }
+
+        if (found) {
+          await saveConfig(config, configPath);
+          this._cachedConfig = config;
+          await this._reloadMenu();
+          let stateText = newFavState ? "added to" : "removed from";
+          this._showNotification(
+            "Command Favorites",
+            `'${cmdObj.name}' ${stateText} Favorites.`,
+          );
+        }
+      } catch (e) {
+        console.error(`CmdBar: error toggling favorite: ${e.message}`);
+      }
+    }
+
     async _reloadMenu() {
       try {
         let configPath = this._getConfigPath();
-        let extensionPath = this._extension.dir.get_path();
+        let extensionPath =
+          this._extension && this._extension.dir
+            ? this._extension.dir.get_path()
+            : null;
         let config = await loadConfig(configPath, extensionPath);
 
         let branding = getEffectiveBranding(config);
@@ -1357,6 +1413,45 @@ const CmdBarIndicator = GObject.registerClass(
           let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
           this.menu.addMenuItem(infoItem);
           return;
+        }
+
+        // 1. Gather all favorite commands across all categories
+        let favoriteCommands = [];
+        config.categories.forEach((category) => {
+          if (category.commands && Array.isArray(category.commands)) {
+            category.commands.forEach((cmd) => {
+              if (cmd && (cmd.favorite || cmd.pinned)) {
+                favoriteCommands.push(cmd);
+              }
+            });
+          }
+        });
+
+        // 2. Add "Favorites" category section at top if any favorites exist
+        if (favoriteCommands.length > 0) {
+          this.menu.addMenuItem(
+            new CategoryHeaderMenuItem("Favorites", "starred-symbolic"),
+          );
+
+          favoriteCommands.forEach((cmd) => {
+            if (hasPlaceholder(cmd.command)) {
+              this.menu.addMenuItem(
+                new CommandInputMenuItem(
+                  this,
+                  cmd.name,
+                  cmd.command,
+                  cmd.placeholder,
+                  cmd,
+                ),
+              );
+            } else {
+              this.menu.addMenuItem(
+                new CommandMenuItem(this, cmd.name, cmd.command, cmd),
+              );
+            }
+          });
+
+          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         }
 
         config.categories.forEach((category, catIndex) => {
