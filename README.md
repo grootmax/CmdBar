@@ -227,6 +227,20 @@ CmdBar exposes a full D-Bus API on the Session Bus under bus name `org.gnome.Cmd
 | `RemoveCommand` | `string name` | `boolean` | Remove a command by name |
 | `ExecuteCommand` | `string name` | `boolean` | Execute a command by name or direct command string |
 | `GetCommands` | *None* | `string` (JSON) | Get all registered commands as a JSON array |
+| `RegisterMobileDevice` | `string device_id, string name, string platform, string push_token` | `boolean` | Register or pair a mobile device (iOS/Android) |
+| `GetMobileDevices` | *None* | `string` (JSON) | Get list of paired mobile devices |
+| `GetMobileWidgetPayload` | `string platform, string family` | `string` (JSON) | Get widget payload dictionary for iOS/Android widgets |
+| `ProcessMobileOfflineQueue` | `int32 max_items` | `string` (JSON) | Process pending offline queue items |
+| `SendMobilePushNotification` | `string device_id, string title, string body` | `boolean` | Dispatch push notification to a registered device |
+
+### Mobile Companion App Integration
+
+CmdBar provides an iOS & Android Mobile Companion service (`companion/mobile_companion.py` & `companion/mobileSync.js`) with the following features:
+- **Push Notifications**: APNs (iOS) and FCM (Android) notification dispatch for execution alerts and command outputs.
+- **Quick Actions**: Platform-specific quick action formatters for iOS Home Screen Quick Actions and Android App Shortcuts.
+- **Widget Support**: Real-time widget state provider for iOS WidgetKit (`TimelineEntry`) and Android App Widgets (`RemoteViews`).
+- **Biometric Authentication**: Time-bound challenge/response protocol with single-use HMAC tokens verifying Face ID, Touch ID, Android Biometrics, or PIN.
+- **Offline Action Queue**: Asynchronous queue manager supporting offline queuing, batch synchronization, retry logic, and status tracking.
 
 ### Signals
 

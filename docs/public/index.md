@@ -15,3 +15,10 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
 - **Local Live Reload**: Configuration changes sync instantly.
+- **iOS & Android Companion App**:
+  - **Push Notifications**: Receive real-time command execution alerts and status updates on your mobile devices via APNs and FCM.
+  - **Quick Actions**: Trigger favorite commands from iOS Home Screen Quick Actions or Android App Shortcuts.
+  - **Widget Support**: Display real-time command status and quick triggers on iOS WidgetKit and Android Home Screen Widgets.
+  - **Biometric Authentication**: Secure high-privilege commands with Face ID, Touch ID, or Android Biometrics.
+  - **Offline Action Queue**: Queue actions when offline and automatically synchronize and execute when reconnected.
+

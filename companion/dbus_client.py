@@ -93,6 +93,62 @@ class CmdBarDBusClient:
                 return []
         return []
 
+    def register_mobile_device(self, device_id: str, name: str, platform: str, push_token: str = "") -> bool:
+        """Register or pair a mobile device (iOS/Android) via D-Bus."""
+        res = self._call_method("RegisterMobileDevice", device_id, name, platform, push_token)
+        return bool(res)
+
+    def get_mobile_devices(self) -> list:
+        """Get list of paired mobile devices via D-Bus."""
+        res = self._call_method("GetMobileDevices")
+        if isinstance(res, list):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return []
+        return []
+
+    def get_mobile_widget_payload(self, platform: str = "ios", family: str = "medium") -> dict:
+        """Get mobile widget payload dictionary via D-Bus."""
+        res = self._call_method("GetMobileWidgetPayload", platform, family)
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def process_mobile_offline_queue(self, max_items: int = 50) -> list:
+        """Process queued mobile offline actions via D-Bus."""
+        res = self._call_method("ProcessMobileOfflineQueue", max_items)
+        if isinstance(res, list):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return []
+        return []
+
+    def send_mobile_push_notification(self, device_id: str, title: str, body: str) -> bool:
+        """Send a push notification to a registered device via D-Bus."""
+        res = self._call_method("SendMobilePushNotification", device_id, title, body)
+        return bool(res)
+
+
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
         self._executed_callbacks.append(callback)
