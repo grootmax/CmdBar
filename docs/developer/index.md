@@ -22,3 +22,12 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Live Terminal Sharing Architecture
+
+The Live Terminal Sharing system (`extension/terminalSharing.js` & `companion/terminal_sharing.py`) provides real-time collaborative shell sessions:
+- **WebRTC DataChannel Signaling**: P2P connection establishment with SDP offer/answer exchange and ICE candidate handling.
+- **Real-Time Cursor Tracking**: Manages participant cursor positions (line, column, selection) and custom display colors.
+- **Role-Based Permission Control**: Controls participant capabilities (`Host`, `Editor`, `Viewer`) with request/grant/revoke controls.
+- **E2E Encryption**: Protects output and input streams via AES-256-GCM symmetric encryption with derived session keys.
+- **Session Recording**: Captures frame events with relative timestamps and exports to Asciinema v2 and JSON log formats.

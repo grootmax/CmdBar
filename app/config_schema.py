@@ -51,6 +51,14 @@ DEFAULT_CONFIG = {
     "fallback_provider": "ollama",
     "fallback_model": "llama3"
   },
+  "live_terminal_sharing": {
+    "enabled": True,
+    "default_role": "viewer",
+    "e2e_encryption": True,
+    "record_sessions": False,
+    "max_participants": 10,
+    "signaling_server": "wss://signaling.cmdbar.local"
+  },
   "categories": [
     {
       "name": "System Utilities",

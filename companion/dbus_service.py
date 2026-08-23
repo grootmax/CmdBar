@@ -15,6 +15,7 @@ class CmdBarDBusService:
         self.config_path = config_path
         self._executed_listeners = []
         self._output_listeners = []
+        self.active_terminal_sessions = {}
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
@@ -131,3 +132,21 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def start_terminal_sharing(self, session_id: str, title: str = "CmdBar Shared Terminal") -> str:
+        from companion.terminal_sharing import TerminalSharingSession
+        session = TerminalSharingSession(session_id=session_id, title=title)
+        session.start()
+        self.active_terminal_sessions[session.session_id] = session
+        return json.dumps(session.get_metrics())
+
+    def stop_terminal_sharing(self, session_id: str) -> bool:
+        if session_id in self.active_terminal_sessions:
+            session = self.active_terminal_sessions.pop(session_id)
+            session.end_session()
+            return True
+        return False
+
+    def get_terminal_sharing_sessions(self) -> str:
+        sessions_info = [s.get_metrics() for s in self.active_terminal_sessions.values()]
+        return json.dumps(sessions_info)

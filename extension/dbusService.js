@@ -1,5 +1,6 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import { TerminalSharingSession } from "./terminalSharing.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -20,6 +21,18 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
+    </method>
+    <method name="StartTerminalSharing">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="title" type="s" direction="in"/>
+      <arg name="json_session_info" type="s" direction="out"/>
+    </method>
+    <method name="StopTerminalSharing">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetTerminalSharingSessions">
+      <arg name="json_sessions" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -46,6 +59,7 @@ export class CmdBarDBusService {
     this._indicator = indicator;
     this._dbusImpl = null;
     this._busNameId = 0;
+    this._terminalSessions = new Map();
   }
 
   export() {
@@ -229,6 +243,36 @@ export class CmdBarDBusService {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
     }
+  }
+
+  async StartTerminalSharing(sessionId, title) {
+    try {
+      const session = new TerminalSharingSession({
+        sessionId: sessionId || undefined,
+        title: title || "CmdBar Shared Terminal",
+      });
+      session.start();
+      this._terminalSessions.set(session.sessionId, session);
+      return JSON.stringify(session.getMetrics());
+    } catch (e) {
+      console.error(`CmdBar D-Bus StartTerminalSharing error: ${e.message}`);
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async StopTerminalSharing(sessionId) {
+    if (this._terminalSessions.has(sessionId)) {
+      const session = this._terminalSessions.get(sessionId);
+      session.endSession();
+      this._terminalSessions.delete(sessionId);
+      return true;
+    }
+    return false;
+  }
+
+  async GetTerminalSharingSessions() {
+    const sessionsInfo = Array.from(this._terminalSessions.values()).map((s) => s.getMetrics());
+    return JSON.stringify(sessionsInfo);
   }
 
   emitCommandExecuted(name, exitCode, success) {
