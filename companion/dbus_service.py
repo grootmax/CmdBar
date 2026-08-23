@@ -3,7 +3,9 @@ import json
 import os
 import sys
 import subprocess
+from typing import Optional, Dict, Any, List
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.rate_limiter import ApiRateLimiter
 
 class CmdBarDBusService:
     """
@@ -11,10 +13,21 @@ class CmdBarDBusService:
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     and manages signals for CommandExecuted and CommandOutput.
     """
-    def __init__(self, config_path=None):
+    def __init__(self, config_path=None, rate_limiter: Optional[ApiRateLimiter] = None):
         self.config_path = config_path
+        self.rate_limiter = rate_limiter
         self._executed_listeners = []
         self._output_listeners = []
+
+    def set_rate_limiter(self, rate_limiter: ApiRateLimiter):
+        """Sets or updates rate limiter instance."""
+        self.rate_limiter = rate_limiter
+
+    def _check_rate_limit(self, endpoint: str, client_id: str = "dbus-client") -> bool:
+        if not self.rate_limiter:
+            return True
+        res = self.rate_limiter.check_rate_limit(client_id, endpoint=endpoint)
+        return res["allowed"]
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
@@ -23,6 +36,8 @@ class CmdBarDBusService:
             self._output_listeners.append(on_output)
 
     def add_command(self, name: str, command: str, category: str = "External") -> bool:
+        if not self._check_rate_limit("add_command"):
+            return False
         if not name or not str(name).strip():
             return False
         if not command or not str(command).strip():
@@ -61,6 +76,8 @@ class CmdBarDBusService:
         return save_config(config)
 
     def remove_command(self, name: str) -> bool:
+        if not self._check_rate_limit("remove_command"):
+            return False
         if not name or not str(name).strip():
             return False
         clean_name = str(name).strip()
@@ -80,9 +97,12 @@ class CmdBarDBusService:
         return removed
 
     def execute_command(self, name: str) -> bool:
+        if not self._check_rate_limit("execute_command"):
+            return False
         if not name or not str(name).strip():
             return False
         clean_name = str(name).strip()
+
         config = load_config()
 
         found_cmd = None
@@ -115,6 +135,8 @@ class CmdBarDBusService:
         return True
 
     def get_commands(self) -> list:
+        if not self._check_rate_limit("get_commands"):
+            return []
         config = load_config()
         all_cmds = []
         for cat in config.get("categories", []):

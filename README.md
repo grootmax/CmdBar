@@ -11,6 +11,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
+- **Enterprise API Rate Limiting** – High-performance Token Bucket rate limiting for D-Bus methods, AI translation prompts, and extension APIs. Includes burst handling, fair-usage isolation, tier presets (`enterprise`, `pro`, `free`), custom rules, standard response headers, and real-time usage analytics.
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Output Formatters** – Automatically parse and nicely format command outputs: JSON pretty-printing with Pango markup & ANSI syntax highlighting, ASCII table rendering for CSV/TSV data, and monospaced boxed code blocks
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
