@@ -22,3 +22,13 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Numeric Keypad Shortcuts & Macro Pad Module
+
+The Numpad Macro Pad module (`extension/numpadManager.js`) transforms physical 10-key numeric keypads into dedicated macro controllers:
+- **Instant Key Execution**: 10 instant command shortcuts (`KP_0` through `KP_9` with modifier binding `Super+KP_*`).
+- **Configurable Multi-Layer Pads**: Unlimited macro pad layers (e.g. Default, Gaming, Dev) defined in `config.json` with active layer selection.
+- **Visual Overlay HUD**: A centered modal HUD dialog rendering a 3x4 Numpad tile layout showing key numbers, labels, command previews, and active layer tabs. Triggered via `Super+KP_Multiply` shortcut or D-Bus API.
+- **Layer Switching**: Rapid layer cycling via `Super+KP_Divide` shortcut, visual overlay controls, or D-Bus method `SetActiveNumpadLayer`.
+- **D-Bus Integration**: Exposes `GetNumpadLayers`, `SetActiveNumpadLayer`, `ExecuteNumpadKey`, `ToggleNumpadOverlay` and signal `NumpadLayerChanged` for external tool automation.
+

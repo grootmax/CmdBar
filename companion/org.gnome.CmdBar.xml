@@ -42,5 +42,33 @@
       <arg name="stdout" type="s"/>
       <arg name="stderr" type="s"/>
     </signal>
+    
+    <method name="GetNumpadLayers">
+      <annotation name="org.freedesktop.DBus.Description" value="Get numpad macro pad configuration and active layer as JSON string"/>
+      <arg name="json_numpad" type="s" direction="out"/>
+    </method>
+    
+    <method name="SetActiveNumpadLayer">
+      <annotation name="org.freedesktop.DBus.Description" value="Set active numpad macro pad layer index"/>
+      <arg name="layer_index" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="ExecuteNumpadKey">
+      <annotation name="org.freedesktop.DBus.Description" value="Execute instant command for numpad key index (0-9) on active layer"/>
+      <arg name="key_index" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="ToggleNumpadOverlay">
+      <annotation name="org.freedesktop.DBus.Description" value="Toggle visual numpad macro pad overlay HUD"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <signal name="NumpadLayerChanged">
+      <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when the active numpad layer changes"/>
+      <arg name="layer_index" type="i"/>
+      <arg name="layer_name" type="s"/>
+    </signal>
   </interface>
 </node>

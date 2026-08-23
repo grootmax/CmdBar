@@ -17,12 +17,19 @@ import {
   parseAccel,
   formatOutput,
 } from "./commandProcessor.js";
-import { loadConfig } from "./configSync.js";
+import { loadConfig, saveConfig } from "./configSync.js";
 import {
   translateNaturalLanguageToCommand,
   isAICommand,
   cleanAIPrompt,
 } from "./aiTranslator.js";
+import {
+  NumpadOverlay,
+  getNormalizedNumpadConfig,
+  getActiveLayer,
+  cycleActiveLayer,
+  getNumpadKeyCommand,
+} from "./numpadManager.js";
 
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
@@ -971,6 +978,8 @@ const CmdBarIndicator = GObject.registerClass(
 
       this.add_child(this._box);
 
+      this._numpadOverlay = new NumpadOverlay(this);
+
       // Harvest environment asynchronously on startup
       harvestEnvironment();
 
@@ -1012,6 +1021,18 @@ const CmdBarIndicator = GObject.registerClass(
       ]);
     }
 
+    async _getConfig() {
+      let configPath = this._getConfigPath();
+      let extensionPath = this._extension ? this._extension.dir.get_path() : "";
+      return await loadConfig(configPath, extensionPath);
+    }
+
+    async _saveCurrentConfig(config) {
+      let configPath = this._getConfigPath();
+      await saveConfig(config, configPath);
+      this._reloadMenu();
+    }
+
     async _reloadMenu() {
       try {
         let configPath = this._getConfigPath();
@@ -1031,39 +1052,53 @@ const CmdBarIndicator = GObject.registerClass(
         if (!config || !config.categories || config.categories.length === 0) {
           let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
           this.menu.addMenuItem(infoItem);
-          return;
+        } else {
+          config.categories.forEach((category, catIndex) => {
+            // Category header
+            if (catIndex > 0) {
+              this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+            }
+            this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
+
+            // Category commands
+            if (category.commands && Array.isArray(category.commands)) {
+              category.commands.forEach((cmd) => {
+                if (hasPlaceholder(cmd.command)) {
+                  // Commands requiring text inputs (Requirement 1 & 2)
+                  this.menu.addMenuItem(
+                    new CommandInputMenuItem(
+                      this,
+                      cmd.name,
+                      cmd.command,
+                      cmd.placeholder,
+                      cmd,
+                    ),
+                  );
+                } else {
+                  // Ordinary parameterless commands
+                  this.menu.addMenuItem(
+                    new CommandMenuItem(this, cmd.name, cmd.command, cmd),
+                  );
+                }
+              });
+            }
+          });
         }
 
-        config.categories.forEach((category, catIndex) => {
-          // Category header
-          if (catIndex > 0) {
-            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-          }
-          this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
+        const numpad = getNormalizedNumpadConfig(config);
+        if (numpad && numpad.enabled) {
+          const activeLayer = getActiveLayer(config);
+          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+          this.menu.addMenuItem(new CategoryHeaderMenuItem(`Numpad Macro Pad (${activeLayer.name})`));
 
-          // Category commands
-          if (category.commands && Array.isArray(category.commands)) {
-            category.commands.forEach((cmd) => {
-              if (hasPlaceholder(cmd.command)) {
-                // Commands requiring text inputs (Requirement 1 & 2)
-                this.menu.addMenuItem(
-                  new CommandInputMenuItem(
-                    this,
-                    cmd.name,
-                    cmd.command,
-                    cmd.placeholder,
-                    cmd,
-                  ),
-                );
-              } else {
-                // Ordinary parameterless commands
-                this.menu.addMenuItem(
-                  new CommandMenuItem(this, cmd.name, cmd.command, cmd),
-                );
-              }
-            });
-          }
-        });
+          let overlayItem = new PopupMenu.PopupMenuItem("Open Visual Numpad Overlay");
+          overlayItem.connect("activate", () => {
+            if (this._numpadOverlay) {
+              this._numpadOverlay.toggle();
+            }
+          });
+          this.menu.addMenuItem(overlayItem);
+        }
       } catch (e) {
         console.error(`CmdBar: error reloading menu: ${e.message}`);
       }
@@ -1382,7 +1417,7 @@ export default class CmdBarExtension extends Extension {
   }
 
   /**
-   * Register global GNOME keybinding to toggle CmdBar menu.
+   * Register global GNOME keybindings to toggle CmdBar menu and numpad macro pad.
    */
   _registerKeybinding() {
     try {
@@ -1396,11 +1431,7 @@ export default class CmdBarExtension extends Extension {
             ? Shell.ActionMode.ALL
             : 1;
 
-        try {
-          if (typeof Main.wm.removeKeybinding === "function") {
-            Main.wm.removeKeybinding("shortcut");
-          }
-        } catch (e) {}
+        this._unregisterKeybinding();
 
         Main.wm.addKeybinding(
           "shortcut",
@@ -1411,22 +1442,74 @@ export default class CmdBarExtension extends Extension {
             this._toggleMenu();
           },
         );
+
+        Main.wm.addKeybinding(
+          "numpad-overlay-shortcut",
+          this._settings,
+          flags,
+          mode,
+          () => {
+            if (this._indicator && this._indicator._numpadOverlay) {
+              this._indicator._numpadOverlay.toggle();
+            }
+          },
+        );
+
+        Main.wm.addKeybinding(
+          "numpad-layer-switch",
+          this._settings,
+          flags,
+          mode,
+          async () => {
+            if (this._indicator) {
+              const config = await this._indicator._getConfig();
+              cycleActiveLayer(config);
+              await this._indicator._saveCurrentConfig(config);
+              if (this._indicator._numpadOverlay && this._indicator._numpadOverlay.isShowing()) {
+                this._indicator._numpadOverlay.refresh();
+              }
+            }
+          },
+        );
+
+        for (let k = 0; k <= 9; k++) {
+          Main.wm.addKeybinding(
+            `numpad-key-${k}`,
+            this._settings,
+            flags,
+            mode,
+            async () => {
+              if (this._indicator) {
+                const config = await this._indicator._getConfig();
+                const cmdInfo = getNumpadKeyCommand(config, k);
+                if (cmdInfo && cmdInfo.command) {
+                  this._indicator.executeCommand(cmdInfo.name, cmdInfo.command, {}, { name: cmdInfo.name, command: cmdInfo.command });
+                }
+              }
+            },
+          );
+        }
       }
     } catch (e) {
-      console.error(`CmdBar: Failed to register keybinding: ${e.message}`);
+      console.error(`CmdBar: Failed to register keybindings: ${e.message}`);
     }
   }
 
   /**
-   * Unregister global GNOME keybinding.
+   * Unregister global GNOME keybindings.
    */
   _unregisterKeybinding() {
     try {
       if (Main && Main.wm && typeof Main.wm.removeKeybinding === "function") {
         Main.wm.removeKeybinding("shortcut");
+        Main.wm.removeKeybinding("numpad-overlay-shortcut");
+        Main.wm.removeKeybinding("numpad-layer-switch");
+        for (let k = 0; k <= 9; k++) {
+          Main.wm.removeKeybinding(`numpad-key-${k}`);
+        }
       }
     } catch (e) {
-      console.error(`CmdBar: Failed to unregister keybinding: ${e.message}`);
+      console.error(`CmdBar: Failed to unregister keybindings: ${e.message}`);
     }
   }
 

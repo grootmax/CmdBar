@@ -26,5 +26,75 @@
       <summary>Auto-Format Command Output</summary>
       <description>Automatically format command output into pretty JSON, CSV/TSV tables, or code blocks.</description>
     </key>
+    <key name="numpad-enabled" type="b">
+      <default>true</default>
+      <summary>Enable Numpad Macro Pad</summary>
+      <description>Toggle dedicated numeric keypad shortcuts and macro pad.</description>
+    </key>
+    <key name="numpad-active-layer" type="i">
+      <default>0</default>
+      <summary>Active Numpad Layer Index</summary>
+      <description>The index of the currently active numpad macro layer.</description>
+    </key>
+    <key name="numpad-overlay-shortcut" type="as">
+      <default>['&lt;Super&gt;KP_Multiply']</default>
+      <summary>Numpad Visual Overlay Shortcut</summary>
+      <description>Global keyboard shortcut to open the visual numpad macro pad overlay.</description>
+    </key>
+    <key name="numpad-layer-switch" type="as">
+      <default>['&lt;Super&gt;KP_Divide']</default>
+      <summary>Numpad Layer Switch Shortcut</summary>
+      <description>Global keyboard shortcut to cycle through numpad macro pad layers.</description>
+    </key>
+    <key name="numpad-key-0" type="as">
+      <default>['&lt;Super&gt;KP_0']</default>
+      <summary>Numpad Key 0 Shortcut</summary>
+      <description>Keyboard shortcut for Numpad Key 0 instant command.</description>
+    </key>
+    <key name="numpad-key-1" type="as">
+      <default>['&lt;Super&gt;KP_1']</default>
+      <summary>Numpad Key 1 Shortcut</summary>
+      <description>Keyboard shortcut for Numpad Key 1 instant command.</description>
+    </key>
+    <key name="numpad-key-2" type="as">
+      <default>['&lt;Super&gt;KP_2']</default>
+      <summary>Numpad Key 2 Shortcut</summary>
+      <description>Keyboard shortcut for Numpad Key 2 instant command.</description>
+    </key>
+    <key name="numpad-key-3" type="as">
+      <default>['&lt;Super&gt;KP_3']</default>
+      <summary>Numpad Key 3 Shortcut</summary>
+      <description>Keyboard shortcut for Numpad Key 3 instant command.</description>
+    </key>
+    <key name="numpad-key-4" type="as">
+      <default>['&lt;Super&gt;KP_4']</default>
+      <summary>Numpad Key 4 Shortcut</summary>
+      <description>Keyboard shortcut for Numpad Key 4 instant command.</description>
+    </key>
+    <key name="numpad-key-5" type="as">
+      <default>['&lt;Super&gt;KP_5']</default>
+      <summary>Numpad Key 5 Shortcut</summary>
+      <description>Keyboard shortcut for Numpad Key 5 instant command.</description>
+    </key>
+    <key name="numpad-key-6" type="as">
+      <default>['&lt;Super&gt;KP_6']</default>
+      <summary>Numpad Key 6 Shortcut</summary>
+      <description>Keyboard shortcut for Numpad Key 6 instant command.</description>
+    </key>
+    <key name="numpad-key-7" type="as">
+      <default>['&lt;Super&gt;KP_7']</default>
+      <summary>Numpad Key 7 Shortcut</summary>
+      <description>Keyboard shortcut for Numpad Key 7 instant command.</description>
+    </key>
+    <key name="numpad-key-8" type="as">
+      <default>['&lt;Super&gt;KP_8']</default>
+      <summary>Numpad Key 8 Shortcut</summary>
+      <description>Keyboard shortcut for Numpad Key 8 instant command.</description>
+    </key>
+    <key name="numpad-key-9" type="as">
+      <default>['&lt;Super&gt;KP_9']</default>
+      <summary>Numpad Key 9 Shortcut</summary>
+      <description>Keyboard shortcut for Numpad Key 9 instant command.</description>
+    </key>
   </schema>
 </schemalist>

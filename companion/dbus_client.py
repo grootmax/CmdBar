@@ -93,6 +93,44 @@ class CmdBarDBusClient:
                 return []
         return []
 
+    def get_numpad_layers(self) -> dict:
+        """Retrieve numpad configuration and active layer."""
+        res = self._call_method("GetNumpadLayers")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def set_active_numpad_layer(self, layer_index: int) -> bool:
+        """Set active numpad layer index."""
+        res = self._call_method("SetActiveNumpadLayer", int(layer_index))
+        return bool(res)
+
+    def execute_numpad_key(self, key_index: int) -> bool:
+        """Execute instant command for numpad key index (0-9) on active layer."""
+        res = self._call_method("ExecuteNumpadKey", int(key_index))
+        return bool(res)
+
+    def toggle_numpad_overlay(self) -> bool:
+        """Toggle visual numpad macro pad overlay."""
+        res = self._call_method("ToggleNumpadOverlay")
+        return bool(res)
+
+    def on_numpad_layer_changed(self, callback):
+        """Register callback for NumpadLayerChanged signals: callback(layer_index, layer_name)"""
+        if not hasattr(self, "_numpad_layer_callbacks"):
+            self._numpad_layer_callbacks = []
+        self._numpad_layer_callbacks.append(callback)
+        if self.service and hasattr(self.service, "add_listener"):
+            self.service.add_listener(on_numpad_layer=callback)
+
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
         self._executed_callbacks.append(callback)
