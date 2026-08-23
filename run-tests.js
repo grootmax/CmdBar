@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands, detectFormat, formatOutput } from './extension/commandProcessor.js';
 import { saveConfigAtomically, saveConfigAtomicallyAsync } from './companion/configStore.js';
+import { createWorkspaceConfig, findWorkspaceConfig, mergeConfigs } from './extension/workspaceConfig.js';
 
 console.log('Running standalone verification tests...');
 
@@ -73,6 +74,20 @@ try {
     assert.strictEqual(fs.existsSync(tempFile), true, 'Temp file should be created asynchronously');
     const readDataAsync = JSON.parse(fs.readFileSync(tempFile, 'utf8'));
     assert.deepStrictEqual(readDataAsync, testDataAsync, 'Written data should match source data (async)');
+
+    // 7. Workspace-Specific Config Tests
+    const wsDir = path.join(tempDir, 'ws-test');
+    fs.mkdirSync(wsDir, { recursive: true });
+    const wsResult = await createWorkspaceConfig(wsDir, 'python');
+    assert.strictEqual(fs.existsSync(wsResult.configPath), true, 'Workspace config file should exist');
+    
+    const detectedWs = findWorkspaceConfig(wsDir);
+    assert.ok(detectedWs, 'Should detect created workspace config');
+    assert.strictEqual(detectedWs.workspaceDir, wsDir.replace(/\\/g, '/'), 'Workspace dir should match');
+
+    const merged = mergeConfigs({ categories: [{ name: 'Global', commands: [] }] }, wsResult.config);
+    assert.strictEqual(merged._workspace.active, true, 'Merged config should mark active workspace');
+    assert.strictEqual(merged.categories[0].name, 'Python', 'Workspace categories should come first');
 
     // Cleanup temp files & dir
     if (fs.existsSync(tempDir)) {

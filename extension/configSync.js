@@ -889,3 +889,15 @@ export async function saveClipboardHistory(history, clipboardPath) {
     await releaseLock(lockPath);
   }
 }
+
+export {
+  findGitRoot,
+  findWorkspaceConfig,
+  createWorkspaceConfig,
+  mergeConfigs,
+  getEffectiveConfig,
+  switchWorkspace,
+  PROJECT_TEMPLATES,
+  WORKSPACE_FILE_NAMES,
+} from "./workspaceConfig.js";
+

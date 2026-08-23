@@ -10,6 +10,12 @@ import hmac
 import hashlib
 import secrets
 from companion.ai_translator import is_ai_command, translate_natural_language_to_command
+from companion.workspace_config import (
+    find_workspace_config,
+    create_workspace_config,
+    get_effective_config,
+    PROJECT_TEMPLATES,
+)
 
 def canonical_json(obj):
     if isinstance(obj, dict):
@@ -132,11 +138,11 @@ def init_config():
     return config_path
 
 
-def load_config():
+def load_config(path=None):
     """
     Loads and parses the configuration file, verifying its signature.
     """
-    config_path = init_config()
+    config_path = path if path else init_config()
     key_path = get_key_path(config_path)
     key = get_or_create_signing_key(key_path)
     try:
@@ -182,7 +188,7 @@ def load_config():
                     }
                 ]
             }
-            save_config(config_data)
+            save_config(config_data, config_path)
             return config_data
     except (json.JSONDecodeError, OSError) as e:
         print(f"Error loading configuration: {e}", file=sys.stderr)
@@ -220,16 +226,16 @@ def load_config():
                     migrated = True
 
     if migrated:
-        save_config(config_data)
+        save_config(config_data, config_path)
 
     return config_data
 
 
-def save_config(config_data):
+def save_config(config_data, path=None):
     """
     Saves the configuration to the file safely with a cryptographic signature.
     """
-    config_path = get_config_path()
+    config_path = path if path else get_config_path()
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
     if isinstance(config_data, dict):
         key_path = get_key_path(config_path)
@@ -1114,11 +1120,27 @@ if GUI_AVAILABLE:
 def main():
     parser = argparse.ArgumentParser(description="CmdBar Companion App")
     parser.add_argument("--cli", action="store_true", help="Force running in Command Line Interface mode")
+    parser.add_argument("--init-workspace", type=str, metavar="DIR", help="Initialize workspace config in specified directory")
+    parser.add_argument("--template", type=str, default="generic", help="Template name (node, python, rust, go, docker, generic)")
+    parser.add_argument("--cwd", type=str, help="Directory to detect workspace config from")
+    parser.add_argument("--show-effective", action="store_true", help="Print effective merged configuration for cwd")
     args = parser.parse_args()
     
     # Initialize config directory/file
     init_config()
-    
+
+    if args.init_workspace:
+        target_dir = args.init_workspace
+        tmpl = args.template or "generic"
+        res = create_workspace_config(target_dir=target_dir, template_name=tmpl)
+        print(f"Initialized workspace config at: {res['config_path']}")
+        return
+
+    if args.show_effective or args.cwd:
+        effective_cfg = get_effective_config(cwd=args.cwd)
+        print(json.dumps(effective_cfg, indent=2))
+        return
+
     if args.cli or not GUI_AVAILABLE:
         if not GUI_AVAILABLE and not args.cli:
             print("GUI libraries (GTK4 / Libadwaita) are not available. Falling back to CLI mode.\n")
