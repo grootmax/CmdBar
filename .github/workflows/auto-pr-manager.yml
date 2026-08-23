@@ -29,6 +29,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Process Jules pull requests
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -427,7 +430,14 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo ""
+                echo "WARNING: Failed to push updated Jules branch."
+                echo "Aborting and stopping processing for PR #$PR_NUMBER."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               cd /
 
@@ -477,14 +487,31 @@ jobs:
               echo ""
               echo "Checking status checks for PR #$PR_NUMBER..."
 
-              CHECK_OUTPUT=$(
-                gh pr checks "$PR_NUMBER" \
-                  --repo "$GH_REPO" \
-                  --json name,state,bucket,workflow \
-                  2>/dev/null || true
-              )
+              API_CHECK_RESPONSE=$(gh api "repos/$GH_REPO/commits/$HEAD_BRANCH/check-runs" 2>/dev/null || echo "")
 
-              if [ -z "$CHECK_OUTPUT" ]; then
+              if [ -n "$API_CHECK_RESPONSE" ]; then
+                CHECK_OUTPUT=$(echo "$API_CHECK_RESPONSE" | jq '
+                  [
+                    .check_runs[]?
+                    | select((.name | ascii_downcase | contains("process jules prs") or contains("auto jules pr manager")) | not)
+                    | {
+                        name: .name,
+                        state: (if .status == "completed" then .conclusion else .status end),
+                        bucket: (
+                          if .status != "completed" then "pending"
+                          elif .conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped" then "pass"
+                          else "fail"
+                          end
+                        ),
+                        workflow: .name
+                      }
+                  ]
+                ' 2>/dev/null || echo "[]")
+              else
+                CHECK_OUTPUT="[]"
+              fi
+
+              if [ -z "$CHECK_OUTPUT" ] || ! echo "$CHECK_OUTPUT" | jq . >/dev/null 2>&1; then
                 CHECK_OUTPUT="[]"
               fi
 
@@ -604,10 +631,9 @@ jobs:
               echo ""
               echo "Merging Jules PR #$PR_NUMBER..."
 
-              if gh pr merge "$PR_NUMBER" \
-                --repo "$GH_REPO" \
-                --merge \
-                --delete-branch; then
+              MERGE_RESPONSE=$(gh api -X PUT "repos/$GH_REPO/pulls/$PR_NUMBER/merge" -f merge_method=merge 2>/dev/null || echo "FAILED")
+
+              if [ "$MERGE_RESPONSE" != "FAILED" ] && echo "$MERGE_RESPONSE" | jq -e '.merged == true' >/dev/null 2>&1; then
 
                 echo ""
                 echo "=========================================="
@@ -615,7 +641,8 @@ jobs:
                 echo "=========================================="
                 echo ""
 
-                echo "Branch deletion requested."
+                echo "Deleting branch $HEAD_BRANCH..."
+                gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$HEAD_BRANCH" >/dev/null 2>&1 || true
 
               else
 

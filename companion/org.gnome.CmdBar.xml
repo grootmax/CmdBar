@@ -29,6 +29,36 @@
       <arg name="json_commands" type="s" direction="out"/>
     </method>
     
+    <method name="TriggerNumpadKey">
+      <annotation name="org.freedesktop.DBus.Description" value="Trigger a numpad macro key (0-9) in current active layer"/>
+      <arg name="key" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+      <arg name="command_name" type="s" direction="out"/>
+    </method>
+    
+    <method name="SwitchNumpadLayer">
+      <annotation name="org.freedesktop.DBus.Description" value="Switch or cycle active numpad macro layer by layer index or layer ID/name"/>
+      <arg name="layer" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+      <arg name="active_layer" type="i" direction="out"/>
+    </method>
+    
+    <method name="ToggleNumpadOverlay">
+      <annotation name="org.freedesktop.DBus.Description" value="Toggle visual numpad overlay HUD"/>
+      <arg name="visible" type="b" direction="out"/>
+    </method>
+    
+    <method name="GetNumpadConfig">
+      <annotation name="org.freedesktop.DBus.Description" value="Get complete numpad configuration as JSON string"/>
+      <arg name="json_config" type="s" direction="out"/>
+    </method>
+    
+    <method name="SetNumpadConfig">
+      <annotation name="org.freedesktop.DBus.Description" value="Set numpad configuration from JSON string"/>
+      <arg name="json_config" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    
     <signal name="CommandExecuted">
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a command finishes execution"/>
       <arg name="name" type="s"/>
@@ -41,6 +71,19 @@
       <arg name="name" type="s"/>
       <arg name="stdout" type="s"/>
       <arg name="stderr" type="s"/>
+    </signal>
+    
+    <signal name="NumpadLayerChanged">
+      <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when active numpad layer changes"/>
+      <arg name="active_layer" type="i"/>
+      <arg name="layer_name" type="s"/>
+    </signal>
+    
+    <signal name="NumpadCommandTriggered">
+      <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a numpad macro key triggers a command"/>
+      <arg name="key" type="i"/>
+      <arg name="name" type="s"/>
+      <arg name="command" type="s"/>
     </signal>
   </interface>
 </node>

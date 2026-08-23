@@ -3,6 +3,8 @@
  * Runs in both GJS (GNOME Shell) and Node.js (Testing/Companion app) environments.
  */
 
+import { DEFAULT_NUMPAD_CONFIG } from "./numpadManager.js";
+
 export const DEFAULT_CONFIG = {
   ai: {
     provider: "openai",
@@ -12,6 +14,7 @@ export const DEFAULT_CONFIG = {
     fallback_provider: "ollama",
     fallback_model: "llama3",
   },
+  numpad: DEFAULT_NUMPAD_CONFIG,
   categories: [
     {
       name: "AI Assistant",
@@ -104,6 +107,10 @@ function sleep(ms) {
 export function validateConfigSchema(config) {
   if (!config || typeof config !== "object") return false;
   if (!Array.isArray(config.categories)) return false;
+  if (config.numpad !== undefined) {
+    if (typeof config.numpad !== "object" || config.numpad === null) return false;
+    if (config.numpad.layers !== undefined && !Array.isArray(config.numpad.layers)) return false;
+  }
   for (const category of config.categories) {
     if (!category || typeof category !== "object") return false;
     if (typeof category.name !== "string" || category.name.trim() === "")

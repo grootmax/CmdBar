@@ -6,6 +6,7 @@ import subprocess
 import hmac
 import hashlib
 import secrets
+from companion.numpad_manager import DEFAULT_NUMPAD_CONFIG
 
 def canonical_json(obj):
     if isinstance(obj, dict):
@@ -51,6 +52,7 @@ DEFAULT_CONFIG = {
     "fallback_provider": "ollama",
     "fallback_model": "llama3"
   },
+  "numpad": DEFAULT_NUMPAD_CONFIG,
   "categories": [
     {
       "name": "System Utilities",
@@ -150,6 +152,10 @@ def load_config(path=None):
 
         # Normalize and migrate loaded configuration
         migrated = False
+        if "numpad" not in config_data or not isinstance(config_data["numpad"], dict):
+            config_data["numpad"] = json.loads(json.dumps(DEFAULT_NUMPAD_CONFIG))
+            migrated = True
+
         for cat in config_data.get("categories", []):
             # Migrate shortcuts to commands
             if "shortcuts" in cat:
