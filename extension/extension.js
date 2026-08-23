@@ -27,14 +27,23 @@ import {
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
     if (Main && typeof Main.notify === "function") {
-      Main.notify("CmdBar AI Assistant", "Translating prompt to shell command...");
+      Main.notify(
+        "CmdBar AI Assistant",
+        "Translating prompt to shell command...",
+      );
     }
 
-    const generatedCmd = await translateNaturalLanguageToCommand(commandStr, config || {});
+    const generatedCmd = await translateNaturalLanguageToCommand(
+      commandStr,
+      config || {},
+    );
 
     if (!generatedCmd) {
       if (Main && typeof Main.notify === "function") {
-        Main.notify("AI Translation Failed", "AI model returned an empty command.");
+        Main.notify(
+          "AI Translation Failed",
+          "AI model returned an empty command.",
+        );
       }
       return;
     }
@@ -54,9 +63,11 @@ async function handleAICommandExecution(commandStr, config, onComplete) {
           if (onComplete) onComplete();
         },
         () => {
-          console.log("CmdBar AI: User cancelled execution of AI generated command.");
+          console.log(
+            "CmdBar AI: User cancelled execution of AI generated command.",
+          );
           if (onComplete) onComplete();
-        }
+        },
       );
     } else {
       _executeDirectTokens(tokens, "AI Command");
@@ -74,7 +85,7 @@ function _executeDirectTokens(argv, commandName) {
   try {
     let proc = Gio.Subprocess.new(
       argv,
-      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
     );
 
     proc.communicate_utf8_async(null, null, (subprocess, result) => {
@@ -273,7 +284,13 @@ function requestCommandConfirmation(
  * @param {object} [cmdObj]
  * @param {object} [placeholderMap]
  */
-function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, config) {
+function runCommandAsync(
+  commandName,
+  commandString,
+  cmdObj,
+  placeholderMap,
+  config,
+) {
   let rawCmdStr = Array.isArray(commandString)
     ? commandString.join(" ")
     : String(commandString || "");
@@ -535,7 +552,11 @@ const CommandInputMenuItem = GObject.registerClass(
                 let argv = substituteTokens(tokens, placeholderMap);
                 let fullCmdStr = argv.join(" ");
 
-                if (isAICommand(fullCmdStr) || isAICommand(this._commandTemplate) || isAICommand(text)) {
+                if (
+                  isAICommand(fullCmdStr) ||
+                  isAICommand(this._commandTemplate) ||
+                  isAICommand(text)
+                ) {
                   let promptText = isAICommand(text) ? text : fullCmdStr;
                   handleAICommandExecution(
                     promptText,
@@ -548,7 +569,7 @@ const CommandInputMenuItem = GObject.registerClass(
                       ) {
                         this._indicator.menu.close();
                       }
-                    }
+                    },
                   );
                   return;
                 }
@@ -670,14 +691,8 @@ export function copyToClipboard(text) {
   } catch (e) {}
 
   let tools = isWayland
-    ? [
-        ["wl-copy"],
-        ["xclip", "-selection", "clipboard"],
-      ]
-    : [
-        ["xclip", "-selection", "clipboard"],
-        ["wl-copy"],
-      ];
+    ? [["wl-copy"], ["xclip", "-selection", "clipboard"]]
+    : [["xclip", "-selection", "clipboard"], ["wl-copy"]];
 
   let success = false;
   for (let argv of tools) {
@@ -725,7 +740,7 @@ export function pasteClipboardText(text) {
   try {
     let proc = Gio.Subprocess.new(
       argv,
-      Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+      Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
     );
     proc.communicate_utf8_async(null, null, (subprocess, result) => {
       try {
@@ -1236,7 +1251,9 @@ const CmdBarIndicator = GObject.registerClass(
         body = `The process was stopped by the user.`;
       } else if (success) {
         title = `Command Succeeded: ${job.commandName}`;
-        body = stdout ? formatOutput(stdout).text : "Execution completed successfully.";
+        body = stdout
+          ? formatOutput(stdout).text
+          : "Execution completed successfully.";
       } else {
         title = `Command Failed: ${job.commandName}`;
         body = stderr
@@ -1402,15 +1419,9 @@ export default class CmdBarExtension extends Extension {
           }
         } catch (e) {}
 
-        Main.wm.addKeybinding(
-          "shortcut",
-          this._settings,
-          flags,
-          mode,
-          () => {
-            this._toggleMenu();
-          },
-        );
+        Main.wm.addKeybinding("shortcut", this._settings, flags, mode, () => {
+          this._toggleMenu();
+        });
       }
     } catch (e) {
       console.error(`CmdBar: Failed to register keybinding: ${e.message}`);

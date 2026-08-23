@@ -3,6 +3,8 @@
  * Runs in both GJS (GNOME Shell) and Node.js (Testing/Companion app) environments.
  */
 
+import { DEFAULT_POLICY_CONFIG } from "./policyEngine.js";
+
 export const DEFAULT_CONFIG = {
   ai: {
     provider: "openai",
@@ -12,6 +14,7 @@ export const DEFAULT_CONFIG = {
     fallback_provider: "ollama",
     fallback_model: "llama3",
   },
+  policy: DEFAULT_POLICY_CONFIG,
   categories: [
     {
       name: "AI Assistant",
@@ -63,7 +66,10 @@ let Gio, GLib;
 if (!isNode) {
   try {
     const giModule = await import("gi");
-    Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
+    Gio =
+      giModule.Gio ||
+      (giModule.default && giModule.default.Gio) ||
+      giModule.default;
     GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
   } catch (e) {
     console.error(
@@ -852,7 +858,10 @@ export async function loadClipboardHistory(clipboardPath) {
     let parsed = JSON.parse(content);
     if (!Array.isArray(parsed)) return [];
     return parsed
-      .filter((item) => item && (typeof item === "string" || typeof item.text === "string"))
+      .filter(
+        (item) =>
+          item && (typeof item === "string" || typeof item.text === "string"),
+      )
       .map((item) => {
         if (typeof item === "string") {
           return { text: item, pinned: false, timestamp: Date.now() };
@@ -860,7 +869,8 @@ export async function loadClipboardHistory(clipboardPath) {
         return {
           text: item.text,
           pinned: Boolean(item.pinned),
-          timestamp: typeof item.timestamp === "number" ? item.timestamp : Date.now(),
+          timestamp:
+            typeof item.timestamp === "number" ? item.timestamp : Date.now(),
         };
       });
   } catch (e) {

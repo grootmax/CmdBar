@@ -22,3 +22,12 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Policy Enforcement Engine Module
+
+The policy enforcement engine (`extension/policyEngine.js` and `app/policy_engine.py`) provides enterprise security controls:
+- **Multi-Factor Authentication (MFA)**: Enforces RFC 6238 TOTP verification for sensitive commands and sensitive operations.
+- **Data Loss Prevention (DLP)**: Scans commands, parameters, and outputs for sensitive patterns (AWS keys, private keys, SSNs, credit cards, tokens) with block, redact, and warn actions.
+- **Geographic Restrictions**: Restricts command execution by country code or IP CIDR ranges.
+- **Time-Based Access Controls**: Limits command execution to designated days and time windows.
+

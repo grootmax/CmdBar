@@ -25,10 +25,13 @@ class MockApplicationWindow:
 class MockGtkWindow:
     def __init__(self, *args, **kwargs):
         pass
+
     def set_default_size(self, *args, **kwargs):
         pass
+
     def set_child(self, *args, **kwargs):
         pass
+
     def connect(self, *args, **kwargs):
         pass
 

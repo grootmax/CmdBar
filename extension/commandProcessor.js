@@ -112,7 +112,10 @@ export async function writeConfigAtomically(targetPath, data) {
   } else {
     // GJS (GNOME Shell) environment
     const giModule = await import("gi");
-    const Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
+    const Gio =
+      giModule.Gio ||
+      (giModule.default && giModule.default.Gio) ||
+      giModule.default;
     const GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
     const file = Gio.File.new_for_path(targetPath);
     const tmpPath = targetPath + ".tmp";
@@ -413,7 +416,7 @@ export function getPreviewTokens(argv, placeholderMap, parametersSchema) {
  * @returns {string}
  */
 export function formatShortcutHint(accel) {
-  let str = Array.isArray(accel) ? (accel[0] || "") : (accel || "");
+  let str = Array.isArray(accel) ? accel[0] || "" : accel || "";
   if (!str) return "Super+Space";
 
   let parts = [];
@@ -610,9 +613,16 @@ export function rankCommands(commands, query, usageMap = {}) {
     const cmdMatch = fuzzyMatch(query, commandStr, usage);
     const nameMatch = fuzzyMatch(query, nameStr, usage);
 
-    const bestMatch = (cmdMatch.match && nameMatch.match)
-      ? (cmdMatch.score >= nameMatch.score ? cmdMatch : nameMatch)
-      : (cmdMatch.match ? cmdMatch : (nameMatch.match ? nameMatch : null));
+    const bestMatch =
+      cmdMatch.match && nameMatch.match
+        ? cmdMatch.score >= nameMatch.score
+          ? cmdMatch
+          : nameMatch
+        : cmdMatch.match
+          ? cmdMatch
+          : nameMatch.match
+            ? nameMatch
+            : null;
 
     if (bestMatch) {
       results.push({

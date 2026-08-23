@@ -1,5 +1,6 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import { evaluatePolicy } from "./policyEngine.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -17,6 +18,12 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="ExecuteCommand">
       <arg name="name" type="s" direction="in"/>
       <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="EvaluatePolicy">
+      <arg name="command" type="s" direction="in"/>
+      <arg name="params_json" type="s" direction="in"/>
+      <arg name="context_json" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
@@ -37,7 +44,10 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
 let Gio, GLib;
 try {
   const giModule = await import("gi");
-  Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
+  Gio =
+    giModule.Gio ||
+    (giModule.default && giModule.default.Gio) ||
+    giModule.default;
   GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
 } catch (e) {}
 
@@ -63,7 +73,7 @@ export class CmdBarDBusService {
         Gio.BusNameOwnerFlags.NONE,
         null,
         null,
-        null
+        null,
       );
       return true;
     } catch (e) {
@@ -89,16 +99,19 @@ export class CmdBarDBusService {
 
   async AddCommand(name, command, category) {
     if (!name || typeof name !== "string" || name.trim() === "") return false;
-    if (!command || typeof command !== "string" || command.trim() === "") return false;
+    if (!command || typeof command !== "string" || command.trim() === "")
+      return false;
 
-    const catName = (category && typeof category === "string" && category.trim())
-      ? category.trim()
-      : "External";
+    const catName =
+      category && typeof category === "string" && category.trim()
+        ? category.trim()
+        : "External";
 
     try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
+      const configPath =
+        this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
       const config = await loadConfig(configPath);
       if (!config.categories) config.categories = [];
 
@@ -120,7 +133,10 @@ export class CmdBarDBusService {
       }
 
       await saveConfig(config, configPath);
-      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+      if (
+        this._indicator &&
+        typeof this._indicator._reloadMenu === "function"
+      ) {
         this._indicator._reloadMenu();
       }
       return true;
@@ -135,9 +151,10 @@ export class CmdBarDBusService {
     const cleanName = name.trim();
 
     try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
+      const configPath =
+        this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
       const config = await loadConfig(configPath);
       if (!config.categories) return false;
 
@@ -152,7 +169,10 @@ export class CmdBarDBusService {
 
       if (removed) {
         await saveConfig(config, configPath);
-        if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        if (
+          this._indicator &&
+          typeof this._indicator._reloadMenu === "function"
+        ) {
           this._indicator._reloadMenu();
         }
       }
@@ -168,9 +188,10 @@ export class CmdBarDBusService {
     const cleanName = name.trim();
 
     try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
+      const configPath =
+        this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
       const config = await loadConfig(configPath);
 
       let foundCmd = null;
@@ -178,7 +199,10 @@ export class CmdBarDBusService {
         for (const cat of config.categories) {
           if (cat.commands) {
             const match = cat.commands.find(
-              (c) => c.name === cleanName || c.command === cleanName || c.template === cleanName
+              (c) =>
+                c.name === cleanName ||
+                c.command === cleanName ||
+                c.template === cleanName,
             );
             if (match) {
               foundCmd = match;
@@ -189,10 +213,43 @@ export class CmdBarDBusService {
       }
 
       const cmdName = foundCmd ? foundCmd.name : cleanName;
-      const cmdStr = foundCmd ? (foundCmd.command || foundCmd.template) : cleanName;
+      let cmdStr = foundCmd ? foundCmd.command || foundCmd.template : cleanName;
 
-      if (this._indicator && typeof this._indicator.executeCommand === "function") {
-        this._indicator.executeCommand(cmdName, cmdStr, {}, foundCmd);
+      // Evaluate Security Policy
+      const evalResult = evaluatePolicy(
+        foundCmd || { name: cmdName, command: cmdStr },
+        {},
+        {},
+        config.policy,
+      );
+
+      if (!evalResult.allowed) {
+        console.warn(
+          `CmdBar D-Bus ExecuteCommand blocked by policy: ${evalResult.reasons.join(", ")}`,
+        );
+        this.emitCommandOutput(
+          cmdName,
+          "",
+          `Policy enforcement error: ${evalResult.reasons.join(", ")}`,
+        );
+        this.emitCommandExecuted(cmdName, 1, false);
+        return false;
+      }
+
+      if (evalResult.sanitized_command) {
+        cmdStr = evalResult.sanitized_command;
+      }
+
+      if (
+        this._indicator &&
+        typeof this._indicator.executeCommand === "function"
+      ) {
+        this._indicator.executeCommand(
+          cmdName,
+          cmdStr,
+          evalResult.sanitized_params || {},
+          foundCmd,
+        );
       }
       return true;
     } catch (e) {
@@ -201,11 +258,50 @@ export class CmdBarDBusService {
     }
   }
 
+  async EvaluatePolicy(command, paramsJson, contextJson) {
+    try {
+      let params = {};
+      let context = {};
+      if (paramsJson) {
+        try {
+          params = JSON.parse(paramsJson);
+        } catch (e) {}
+      }
+      if (contextJson) {
+        try {
+          context = JSON.parse(contextJson);
+        } catch (e) {}
+      }
+
+      const configPath =
+        this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+
+      const result = evaluatePolicy(
+        command || "",
+        params,
+        context,
+        config.policy,
+      );
+      return JSON.stringify(result);
+    } catch (e) {
+      console.error(`CmdBar D-Bus EvaluatePolicy error: ${e.message}`);
+      return JSON.stringify({
+        allowed: false,
+        action: "block",
+        reasons: [`Policy evaluation internal error: ${e.message}`],
+      });
+    }
+  }
+
   async GetCommands() {
     try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
+      const configPath =
+        this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
       const config = await loadConfig(configPath);
 
       const allCmds = [];
@@ -236,7 +332,11 @@ export class CmdBarDBusService {
       try {
         this._dbusImpl.emit_signal(
           "CommandExecuted",
-          new GLib.Variant("(sib)", [name || "", exitCode || 0, Boolean(success)])
+          new GLib.Variant("(sib)", [
+            name || "",
+            exitCode || 0,
+            Boolean(success),
+          ]),
         );
       } catch (e) {
         console.error(`CmdBar D-Bus emitCommandExecuted error: ${e.message}`);
@@ -249,7 +349,7 @@ export class CmdBarDBusService {
       try {
         this._dbusImpl.emit_signal(
           "CommandOutput",
-          new GLib.Variant("(sss)", [name || "", stdout || "", stderr || ""])
+          new GLib.Variant("(sss)", [name || "", stdout || "", stderr || ""]),
         );
       } catch (e) {
         console.error(`CmdBar D-Bus emitCommandOutput error: ${e.message}`);
