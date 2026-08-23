@@ -95,3 +95,14 @@ The policy enforcement engine (`extension/policyEngine.js` and `app/policy_engin
 - **Data Loss Prevention (DLP)**: Scans commands, parameters, and outputs for sensitive patterns (AWS keys, private keys, SSNs, credit cards, tokens) with block, redact, and warn actions.
 - **Geographic Restrictions**: Restricts command execution by country code or IP CIDR ranges.
 - **Time-Based Access Controls**: Limits command execution to designated days and time windows.
+
+### Screenshot & Screen Capture Module (`extension/screenshotManager.js`)
+
+The screenshot manager module provides screen capture, image editing, metadata stripping, and URL sharing capabilities:
+- **Capture Modes**: Fullscreen, Window, and Region modes (`captureScreenshot`, `captureMode`).
+- **Destinations**: Save to filesystem (default `~/Pictures/Screenshots`), copy to system clipboard, or both.
+- **Annotations**: Supports text overlays, shapes (rectangles, arrows, highlights), blur/redact areas, and cropping (`applyAnnotations`).
+- **Metadata Removal**: Strips EXIF chunks and headers (tEXt, zTXt, iTXt, tIME, pHYs, eXIf in PNG; APP1 / COM in JPEG) before saving or sharing (`stripMetadata`).
+- **URL Sharing**: Uploads screenshot data to URL endpoints and returns share links (`shareScreenshotUrl`).
+- **Configurable Shortcuts**: Default accelerators (`Super+Shift+3`, `Super+Shift+4`, `Super+Shift+5`) managed via `getScreenshotShortcuts` and `setScreenshotShortcut`.
+- **D-Bus API Integration**: Exposes `CaptureScreenshot(s mode, s saveTo, s optionsJson)` and emits signal `ScreenshotCaptured(s filePath, s shareUrl, b success)` on `org.gnome.CmdBar`.

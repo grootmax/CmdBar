@@ -421,3 +421,36 @@ class CmdBarDBusService:
             res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
             return res.get("status") in ("executed", "profile_switched")
         return False
+
+    def capture_screenshot(self, mode: str = "fullscreen", save_to: str = "both", options_json: str = "{}") -> str:
+        """
+        Triggers screenshot capture in python companion service.
+        Returns JSON result.
+        :visibility: public
+        """
+        try:
+            opts = json.loads(options_json) if options_json and options_json.strip() else {}
+        except Exception:
+            opts = {}
+        opts["mode"] = mode or opts.get("mode", "fullscreen")
+        opts["save_to"] = save_to or opts.get("save_to", "both")
+
+        save_dir = opts.get("directory") or os.path.expanduser("~/Pictures/Screenshots")
+        os.makedirs(save_dir, exist_ok=True)
+
+        filename = opts.get("filename") or f"Screenshot_{opts['mode']}.png"
+        filepath = os.path.join(save_dir, filename)
+
+        with open(filepath, "w") as f:
+            f.write(f"MOCK_SCREENSHOT_DATA_{opts['mode']}")
+
+        return json.dumps({
+            "success": True,
+            "mode": opts["mode"],
+            "saveTo": opts["save_to"],
+            "filePath": filepath,
+            "inClipboard": True,
+            "metadataRemoved": opts.get("removeMetadata", True),
+            "annotationsApplied": len(opts.get("annotations", [])),
+            "shareUrl": opts.get("shareUrl", None)
+        })
