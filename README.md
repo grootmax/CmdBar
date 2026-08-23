@@ -12,6 +12,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 ## Features
 
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
+- **Git Repository Integration** – Auto-detects Git repositories upon menu open, displays a visual branch indicator header with repository branch and status, provides placeholders (`{git-branch}`, `{git-status}`, `{git-last-commit}`) for command templates, and includes default Git-aware templates (push, pull, commit, status)
 - **Sandboxed Execution Mode** – Option to execute commands in a sandbox container using `bwrap` (Bubblewrap), `flatpak-spawn`, or `firejail` with configurable security profiles (`strict`, `permissive`, `custom`), filesystem isolation, and network isolation toggles
 - **Pre-built Snippet & Template Library** – Includes pre-built, ready-to-use command templates for Git workflows, Docker operations, Kubernetes (`kubectl`), AWS CLI, `npm`/`pnpm`, and System utilities.
 - **Import Wizard & Community Template Sharing** – Easily import templates from the built-in library, local JSON files, or remote URLs, and export custom commands into template schema JSON files.

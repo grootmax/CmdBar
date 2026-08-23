@@ -16,6 +16,11 @@ import {
   formatShortcutHint,
   parseAccel,
   formatOutput,
+  detectGitRepo,
+  getGitStateSync,
+  getGitStateAsync,
+  substituteGitPlaceholders,
+  hasNonGitPlaceholders,
 } from "./commandProcessor.js";
 import { wrapCommandInSandbox, isSandboxEnabled } from "./sandboxWrapper.js";
 import { loadConfig } from "./configSync.js";
@@ -714,11 +719,13 @@ export function copyToClipboard(text) {
 }
 
 /**
- * Helper function supporting pasting clipboard text via wtype (Wayland) or xdotool (X11).
- * @param {string} [text]
+ * Helper function supporting wl-copy/wtype/ydotool (Wayland) and xclip/xdotool/xte (X11) to paste/type text.
+ * @param {string} text
  * @returns {boolean}
  */
 export function pasteClipboardText(text) {
+  copyToClipboard(text);
+
   let isWayland = false;
   try {
     let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
@@ -731,24 +738,37 @@ export function pasteClipboardText(text) {
     }
   } catch (e) {}
 
-  let argv = isWayland
-    ? ["wtype", "-M", "ctrl", "v"]
-    : ["xdotool", "key", "--clearmodifiers", "ctrl+v"];
+  let commands = isWayland
+    ? [
+        ["wtype", "-M", "ctrl", "v"],
+        ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
+        ["xdotool", "key", "ctrl+v"],
+      ]
+    : [
+        ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
+        ["xdotool", "type", text],
+        ["xte", "kd Control_L", "k v", "ku Control_L"],
+      ];
 
-  try {
-    let proc = Gio.Subprocess.new(
-      argv,
-      Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-    );
-    proc.communicate_utf8_async(null, null, (subprocess, result) => {
-      try {
-        subprocess.communicate_utf8_finish(result);
-      } catch (err) {}
-    });
-    return true;
-  } catch (e) {
-    return false;
+  let success = false;
+  for (let argv of commands) {
+    try {
+      let proc = Gio.Subprocess.new(
+        argv,
+        Gio.SubprocessFlags.NONE,
+      );
+      proc.communicate_utf8_async(null, null, (subprocess, result) => {
+        try {
+          subprocess.communicate_utf8_finish(result);
+        } catch (err) {}
+      });
+      success = true;
+      break;
+    } catch (e) {
+      continue;
+    }
   }
+  return success;
 }
 
 // Standard menu item for parameterless or parameter-prompting commands
@@ -951,6 +971,60 @@ const CategoryHeaderMenuItem = GObject.registerClass(
   },
 );
 
+// Visual Branch Indicator Menu Item
+const GitHeaderMenuItem = GObject.registerClass(
+  class GitHeaderMenuItem extends PopupMenu.PopupBaseMenuItem {
+    _init(gitState) {
+      super._init({
+        reactive: false,
+        activate: false,
+      });
+
+      this.box = new St.BoxLayout({
+        vertical: false,
+        style_class: "cmdbar-git-header",
+        x_expand: true,
+      });
+
+      this.icon = new St.Icon({
+        icon_name: "code-branches-symbolic",
+        style_class: "popup-menu-icon",
+        style: "margin-right: 8px; color: #3584e4;",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      this.box.add_child(this.icon);
+
+      let branchText = gitState.branch ? `Git: ${gitState.branch}` : "Git Repository";
+      if (gitState.status) {
+        branchText += ` (${gitState.status})`;
+      }
+
+      this.label = new St.Label({
+        text: branchText,
+        style_class: "cmdbar-git-branch-label",
+        y_align: Clutter.ActorAlign.CENTER,
+        x_expand: true,
+      });
+      this.box.add_child(this.label);
+
+      if (gitState.lastCommit) {
+        let commitText = gitState.lastCommit;
+        if (commitText.length > 28) {
+          commitText = commitText.substring(0, 25) + "...";
+        }
+        this.commitLabel = new St.Label({
+          text: commitText,
+          style_class: "cmdbar-git-status-label",
+          y_align: Clutter.ActorAlign.CENTER,
+        });
+        this.box.add_child(this.commitLabel);
+      }
+
+      this.add_child(this.box);
+    }
+  },
+);
+
 // The top bar status area panel indicator
 const CmdBarIndicator = GObject.registerClass(
   class CmdBarIndicator extends PanelMenu.Button {
@@ -961,6 +1035,24 @@ const CmdBarIndicator = GObject.registerClass(
       this._monitor = null;
       this._cachedConfig = null;
       this._timeoutId = 0;
+
+      this._gitState = {
+        isGitRepo: false,
+        branch: "",
+        status: "",
+        lastCommit: "",
+        repoPath: "",
+      };
+
+      if (this.menu && typeof this.menu.connect === "function") {
+        this.menu.connect("open-state-changed", (menu, open) => {
+          if (open) {
+            this._updateGitState();
+          }
+        });
+      }
+
+      this._updateGitState();
 
       // Container box to support text and icon side-by-side
       this._box = new St.BoxLayout({
@@ -1017,6 +1109,98 @@ const CmdBarIndicator = GObject.registerClass(
       this.tooltip_text = tooltipText;
     }
 
+    _getGitPlaceholderMap() {
+      if (!this._gitState || !this._gitState.isGitRepo) {
+        return {};
+      }
+      return {
+        'git-branch': this._gitState.branch,
+        '{git-branch}': this._gitState.branch,
+        'git-status': this._gitState.status,
+        '{git-status}': this._gitState.status,
+        'git-last-commit': this._gitState.lastCommit,
+        '{git-last-commit}': this._gitState.lastCommit,
+      };
+    }
+
+    _updateGitState() {
+      let enableGit = true;
+      let targetPath = typeof GLib !== "undefined" && GLib.get_current_dir ? GLib.get_current_dir() : (typeof process !== "undefined" ? process.cwd() : ".");
+
+      if (this._extension && this._extension._settings) {
+        try {
+          enableGit = this._extension._settings.get_boolean("enable-git-integration");
+          let customPath = this._extension._settings.get_string("git-repo-path");
+          if (customPath && customPath.trim()) {
+            targetPath = customPath.trim();
+          }
+        } catch (e) {}
+      }
+
+      if (!enableGit) {
+        this._gitState = { isGitRepo: false, branch: "", status: "N/A", lastCommit: "", repoPath: targetPath };
+        return;
+      }
+
+      let isRepo = detectGitRepo(targetPath);
+      if (!isRepo) {
+        this._gitState = { isGitRepo: false, branch: "", status: "N/A", lastCommit: "", repoPath: targetPath };
+        return;
+      }
+
+      this._gitState.isGitRepo = true;
+      this._gitState.repoPath = targetPath;
+
+      this._execGitCommand(["git", "branch", "--show-current"], targetPath, (branchOut) => {
+        let b = branchOut ? branchOut.trim() : "";
+        if (!b) {
+          this._execGitCommand(["git", "rev-parse", "--abbrev-ref", "HEAD"], targetPath, (revOut) => {
+            this._gitState.branch = revOut ? revOut.trim() : "main";
+            this._reloadMenu();
+          });
+        } else {
+          this._gitState.branch = b;
+          this._reloadMenu();
+        }
+      });
+
+      this._execGitCommand(["git", "status", "--short"], targetPath, (statusOut) => {
+        let st = statusOut ? statusOut.trim() : "";
+        this._gitState.status = st ? `dirty (${st.split("\n").length} modified)` : "clean";
+      });
+
+      this._execGitCommand(["git", "log", "-1", "--format=%h %s"], targetPath, (logOut) => {
+        this._gitState.lastCommit = logOut ? logOut.trim() : "";
+      });
+    }
+
+    _execGitCommand(argv, cwd, callback) {
+      try {
+        if (typeof Gio !== "undefined" && Gio.Subprocess) {
+          let proc = Gio.Subprocess.new(
+            argv,
+            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+          );
+          proc.communicate_utf8_async(null, null, (subprocess, res) => {
+            try {
+              let [stdout] = subprocess.communicate_utf8_finish(res);
+              if (subprocess.get_successful() && callback) {
+                callback(stdout);
+              } else if (callback) {
+                callback("");
+              }
+            } catch (e) {
+              if (callback) callback("");
+            }
+          });
+        } else if (callback) {
+          callback("");
+        }
+      } catch (e) {
+        if (callback) callback("");
+      }
+    }
+
     _getConfigPath() {
       return GLib.build_filenamev([
         GLib.get_user_config_dir(),
@@ -1041,6 +1225,11 @@ const CmdBarIndicator = GObject.registerClass(
         // Clear all current items in menu
         this.menu.removeAll();
 
+        if (this._gitState && this._gitState.isGitRepo) {
+          this.menu.addMenuItem(new GitHeaderMenuItem(this._gitState));
+          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        }
+
         if (!config || !config.categories || config.categories.length === 0) {
           let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
           this.menu.addMenuItem(infoItem);
@@ -1057,21 +1246,27 @@ const CmdBarIndicator = GObject.registerClass(
           // Category commands
           if (category.commands && Array.isArray(category.commands)) {
             category.commands.forEach((cmd) => {
-              if (hasPlaceholder(cmd.command)) {
+              let rawCmd = cmd.command;
+              let substitutedCmd = rawCmd;
+              if (this._gitState && this._gitState.isGitRepo) {
+                substitutedCmd = substituteGitPlaceholders(rawCmd, this._gitState);
+              }
+
+              if (hasNonGitPlaceholders(rawCmd)) {
                 // Commands requiring text inputs (Requirement 1 & 2)
                 this.menu.addMenuItem(
                   new CommandInputMenuItem(
                     this,
                     cmd.name,
-                    cmd.command,
+                    substitutedCmd,
                     cmd.placeholder,
                     cmd,
                   ),
                 );
               } else {
-                // Ordinary parameterless commands
+                // Parameterless or Git-substituted commands
                 this.menu.addMenuItem(
-                  new CommandMenuItem(this, cmd.name, cmd.command, cmd),
+                  new CommandMenuItem(this, cmd.name, substitutedCmd, cmd),
                 );
               }
             });
@@ -1396,6 +1591,26 @@ export default class CmdBarExtension extends Extension {
         this._registerKeybinding();
       },
     );
+
+    this._enableGitId = this._settings.connect(
+      "changed::enable-git-integration",
+      () => {
+        if (this._indicator) {
+          this._indicator._updateGitState();
+          this._indicator._reloadMenu();
+        }
+      },
+    );
+
+    this._gitRepoPathId = this._settings.connect(
+      "changed::git-repo-path",
+      () => {
+        if (this._indicator) {
+          this._indicator._updateGitState();
+          this._indicator._reloadMenu();
+        }
+      },
+    );
   }
 
   /**
@@ -1491,6 +1706,14 @@ export default class CmdBarExtension extends Extension {
       if (this._shortcutId) {
         this._settings.disconnect(this._shortcutId);
         this._shortcutId = 0;
+      }
+      if (this._enableGitId) {
+        this._settings.disconnect(this._enableGitId);
+        this._enableGitId = 0;
+      }
+      if (this._gitRepoPathId) {
+        this._settings.disconnect(this._gitRepoPathId);
+        this._gitRepoPathId = 0;
       }
       this._settings = null;
     }

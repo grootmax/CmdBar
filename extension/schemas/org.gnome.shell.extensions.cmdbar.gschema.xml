@@ -36,5 +36,15 @@
       <summary>Auto-Format Command Output</summary>
       <description>Automatically format command output into pretty JSON, CSV/TSV tables, or code blocks.</description>
     </key>
+    <key name="enable-git-integration" type="b">
+      <default>true</default>
+      <summary>Enable Git Integration</summary>
+      <description>Auto-detect git repositories and enable git placeholders and branch indicators.</description>
+    </key>
+    <key name="git-repo-path" type="s">
+      <default>''</default>
+      <summary>Git Repository Path</summary>
+      <description>Optional custom path for git repository detection. If empty, uses current directory.</description>
+    </key>
   </schema>
 </schemalist>
