@@ -93,6 +93,21 @@ class CmdBarDBusClient:
                 return []
         return []
 
+    def get_resource_metrics(self) -> dict:
+        """Retrieve live resource monitor metrics from CmdBar."""
+        res = self._call_method("GetResourceMetrics")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
         self._executed_callbacks.append(callback)

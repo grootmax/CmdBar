@@ -23,6 +23,12 @@ import {
   isAICommand,
   cleanAIPrompt,
 } from "./aiTranslator.js";
+import {
+  SystemResourceMonitor,
+  renderSparkline,
+  formatBytes,
+  formatRate,
+} from "./systemResourceMonitor.js";
 
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
@@ -949,6 +955,14 @@ const CmdBarIndicator = GObject.registerClass(
       this._cachedConfig = null;
       this._timeoutId = 0;
 
+      // Initialize System Resource Monitor
+      this._resourceMonitor = new SystemResourceMonitor({
+        onNotification: (alert) => {
+          this._showNotification(alert.title, alert.message);
+        },
+      });
+      this._resourceMonitor.start();
+
       // Container box to support text and icon side-by-side
       this._box = new St.BoxLayout({
         style_class: "panel-status-menu-box",
@@ -1064,6 +1078,58 @@ const CmdBarIndicator = GObject.registerClass(
             });
           }
         });
+
+        // System Resource Monitor Section
+        if (this._resourceMonitor) {
+          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+          this.menu.addMenuItem(new CategoryHeaderMenuItem("Resource Monitor"));
+
+          const latest = this._resourceMonitor.getLatestMetrics() || {
+            cpu: { usagePercent: 0.0 },
+            memory: { usedMB: 0.0, totalMB: 0.0, usagePercent: 0.0 },
+            disk: { usedGB: 0.0, totalGB: 0.0, usagePercent: 0.0 },
+            network: { rxRateKBps: 0.0, txRateKBps: 0.0, totalRateKBps: 0.0 },
+          };
+
+          const cpuSpark = this._resourceMonitor.getSparkline("cpu", 8);
+          const memSpark = this._resourceMonitor.getSparkline("memory", 8);
+          const diskSpark = this._resourceMonitor.getSparkline("disk", 8);
+          const netSpark = this._resourceMonitor.getSparkline("networkTotal", 8);
+
+          const cpuLabel = `CPU: ${latest.cpu.usagePercent.toFixed(1)}% [${cpuSpark}]`;
+          const memLabel = `Mem: ${(latest.memory.usedMB / 1024).toFixed(1)}G/${(latest.memory.totalMB / 1024).toFixed(1)}G (${latest.memory.usagePercent.toFixed(1)}%) [${memSpark}]`;
+          const diskLabel = `Disk: ${latest.disk.usedGB.toFixed(1)}G/${latest.disk.totalGB.toFixed(1)}G (${latest.disk.usagePercent.toFixed(1)}%) [${diskSpark}]`;
+          const netLabel = `Net: Rx ${formatRate(latest.network.rxRateKBps * 1024)} | Tx ${formatRate(latest.network.txRateKBps * 1024)} [${netSpark}]`;
+
+          const cpuItem = new PopupMenu.PopupMenuItem(cpuLabel, { reactive: false });
+          const memItem = new PopupMenu.PopupMenuItem(memLabel, { reactive: false });
+          const diskItem = new PopupMenu.PopupMenuItem(diskLabel, { reactive: false });
+          const netItem = new PopupMenu.PopupMenuItem(netLabel, { reactive: false });
+
+          this.menu.addMenuItem(cpuItem);
+          this.menu.addMenuItem(memItem);
+          this.menu.addMenuItem(diskItem);
+          this.menu.addMenuItem(netItem);
+
+          const exportItem = new PopupMenu.PopupMenuItem("Export Metrics to CSV");
+          exportItem.connect("activate", () => {
+            const userConfigDir = GLib ? GLib.get_user_config_dir() : "/tmp";
+            const csvPath = `${userConfigDir}/cmdbar/resource_metrics.csv`;
+            const ok = this._resourceMonitor.exportToCSVFile(csvPath);
+            if (ok) {
+              this._showNotification(
+                "Resource Metrics Exported",
+                `Exported metrics history to ${csvPath}`
+              );
+            } else {
+              this._showNotification(
+                "Export Failed",
+                "Unable to write CSV file."
+              );
+            }
+          });
+          this.menu.addMenuItem(exportItem);
+        }
       } catch (e) {
         console.error(`CmdBar: error reloading menu: ${e.message}`);
       }
@@ -1300,6 +1366,10 @@ const CmdBarIndicator = GObject.registerClass(
     }
 
     destroy() {
+      if (this._resourceMonitor) {
+        this._resourceMonitor.stop();
+        this._resourceMonitor = null;
+      }
       if (this._timeoutId) {
         GLib.Source.remove(this._timeoutId);
         this._timeoutId = 0;

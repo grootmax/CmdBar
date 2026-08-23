@@ -11,6 +11,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
+- **System Resource Monitors** – Live CPU, memory, disk, and network monitoring with mini sparkline graphs in menu, configurable warning thresholds, high usage notifications, CSV history export, and D-Bus integration
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Pre-built Snippet & Template Library** – Includes pre-built, ready-to-use command templates for Git workflows, Docker operations, Kubernetes (`kubectl`), AWS CLI, `npm`/`pnpm`, and System utilities.
 - **Import Wizard & Community Template Sharing** – Easily import templates from the built-in library, local JSON files, or remote URLs, and export custom commands into template schema JSON files.
@@ -229,6 +230,7 @@ CmdBar exposes a full D-Bus API on the Session Bus under bus name `org.gnome.Cmd
 | `RemoveCommand` | `string name` | `boolean` | Remove a command by name |
 | `ExecuteCommand` | `string name` | `boolean` | Execute a command by name or direct command string |
 | `GetCommands` | *None* | `string` (JSON) | Get all registered commands as a JSON array |
+| `GetResourceMetrics` | *None* | `string` (JSON) | Retrieve live CPU, memory, disk, and network metrics, sparklines, and history |
 
 ### Signals
 
