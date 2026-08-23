@@ -12,6 +12,14 @@ export const DEFAULT_CONFIG = {
     fallback_provider: "ollama",
     fallback_model: "llama3",
   },
+  yubikey: {
+    enabled: false,
+    mode: "touch",
+    require_for_sensitive: true,
+    timeout_seconds: 30,
+    keys: [],
+    emergency_codes: [],
+  },
   categories: [
     {
       name: "AI Assistant",

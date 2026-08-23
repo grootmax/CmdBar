@@ -12,6 +12,7 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 ## Core Features
 
 - **Dynamic Menu**: Fully driven by JSON config files.
+- **YubiKey 2FA Security**: Hardware-backed authentication for sensitive commands with Touch-to-Confirm, Yubico OTP, FIDO2/U2F, and single-use emergency recovery codes.
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
 - **Local Live Reload**: Configuration changes sync instantly.
