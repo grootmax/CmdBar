@@ -1,5 +1,6 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import { SSOManager, PROVIDER_PRESETS } from "./ssoManager.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -21,6 +22,28 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
     </method>
+    <method name="SSOLogin">
+      <arg name="provider" type="s" direction="in"/>
+      <arg name="protocol" type="s" direction="in"/>
+      <arg name="credentials_json" type="s" direction="in"/>
+      <arg name="response_json" type="s" direction="out"/>
+    </method>
+    <method name="SSOLogout">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetSSOSession">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="session_json" type="s" direction="out"/>
+    </method>
+    <method name="GetSSOProviders">
+      <arg name="providers_json" type="s" direction="out"/>
+    </method>
+    <method name="ValidateSSOAccess">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="category_name" type="s" direction="in"/>
+      <arg name="allowed" type="b" direction="out"/>
+    </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
       <arg name="exit_code" type="i"/>
@@ -30,6 +53,10 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="name" type="s"/>
       <arg name="stdout" type="s"/>
       <arg name="stderr" type="s"/>
+    </signal>
+    <signal name="SSOSessionStateChanged">
+      <arg name="session_id" type="s"/>
+      <arg name="state" type="s"/>
     </signal>
   </interface>
 </node>`;
@@ -46,6 +73,7 @@ export class CmdBarDBusService {
     this._indicator = indicator;
     this._dbusImpl = null;
     this._busNameId = 0;
+    this._ssoManager = new SSOManager();
   }
 
   export() {
@@ -228,6 +256,63 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
+    }
+  }
+
+  async SSOLogin(provider, protocol, credentials_json) {
+    try {
+      let creds = {};
+      try {
+        creds = JSON.parse(credentials_json || "{}");
+      } catch (e) {}
+
+      let result;
+      if (protocol === "saml") {
+        result = this._ssoManager.loginSaml(provider, creds.saml_response || "");
+      } else {
+        result = this._ssoManager.loginOidcClaims(provider, creds.claims || creds, creds.tokens || {});
+      }
+
+      if (result.success && result.session) {
+        this.emitSSOSessionStateChanged(result.session.session_id, "active");
+      }
+      return JSON.stringify(result);
+    } catch (e) {
+      return JSON.stringify({ success: false, error: e.message });
+    }
+  }
+
+  async SSOLogout(session_id) {
+    const success = this._ssoManager.sessionManager.revokeSession(session_id);
+    if (success) {
+      this.emitSSOSessionStateChanged(session_id, "revoked");
+    }
+    return success;
+  }
+
+  async GetSSOSession(session_id) {
+    const session = this._ssoManager.sessionManager.getSession(session_id);
+    return JSON.stringify(session || null);
+  }
+
+  async GetSSOProviders() {
+    return JSON.stringify(PROVIDER_PRESETS);
+  }
+
+  async ValidateSSOAccess(session_id, category_name) {
+    return this._ssoManager.validateCategoryAccess(session_id, category_name);
+  }
+
+  emitSSOSessionStateChanged(sessionId, state) {
+    if (this._dbusImpl && GLib) {
+      try {
+        this._dbusImpl.emit_signal(
+          "SSOSessionStateChanged",
+          new GLib.Variant("(ss)", [sessionId || "", state || ""])
+        );
+      } catch (e) {
+        console.error(`CmdBar D-Bus emitSSOSessionStateChanged error: ${e.message}`);
+      }
     }
   }
 
