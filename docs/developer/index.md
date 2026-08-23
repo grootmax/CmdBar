@@ -108,3 +108,11 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 
 The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
 For full details, see [Team Command Sharing Specification](team_command_sharing.md).
+
+### IoT Trigger Subsystem
+
+The IoT Trigger subsystem (`companion/iot_service.py` and `extension/iotTrigger.js`) enables triggering commands via:
+- **MQTT Integration**: Message parsing for `cmdbar/trigger/<command>` and telemetry topics.
+- **Webhook Listeners**: HTTP POST server with secret token / HMAC SHA-256 validation.
+- **Home Automation Bridge**: State and action translation for Home Assistant and openHAB.
+- **Sensor Rules**: Condition operators and cooldown deduplication for threshold alerts.
