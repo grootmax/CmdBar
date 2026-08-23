@@ -20,6 +20,7 @@ import {
   parseShareUrl,
   ROLES,
 } from "./teamSharing.js";
+import { ApiRateLimiter } from "./rateLimiter.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -189,11 +190,13 @@ try {
 
 export class CmdBarDBusService {
   /**
-   * Initializes D-Bus service for CmdBar.
-   * @param {object} [indicator] - Reference to indicator instance.
+   * Constructs CmdBarDBusService.
+   * @param {Object} [indicator] - Parent indicator object.
+   * @param {ApiRateLimiter} [rateLimiter] - Optional rate limiter instance.
    */
-  constructor(indicator) {
+  constructor(indicator, rateLimiter = null) {
     this._indicator = indicator;
+    this._rateLimiter = rateLimiter;
     this._dbusImpl = null;
     this._busNameId = 0;
     this._ssoManager = new SSOManager();
@@ -201,6 +204,30 @@ export class CmdBarDBusService {
     this.workspaceManager = new WorkspaceManager();
     this._teamSharingService = new TeamSharingService({ baseDir: "/tmp/cmdbar-dbus-team" });
     this._terminalSessions = new Map();
+  }
+
+  /**
+  /**
+   * Sets or updates the rate limiter instance.
+   * @param {ApiRateLimiter} rateLimiter - Rate limiter instance.
+   */
+  setRateLimiter(rateLimiter) {
+    this._rateLimiter = rateLimiter;
+  }
+
+  /**
+   * Helper method to verify rate limit before handling D-Bus requests.
+   * @private
+   * @param {string} endpoint - Name of the method being called.
+   * @param {string} [clientId='dbus-client'] - Client ID.
+   * @returns {boolean} True if allowed, false if rate limited.
+   */
+  _checkRateLimit(endpoint, clientId = "dbus-client") {
+    if (!this._rateLimiter) return true;
+    const res = this._rateLimiter.checkRateLimit(clientId, {
+      endpoint,
+    });
+    return res.allowed;
   }
 
   /**
@@ -248,6 +275,7 @@ export class CmdBarDBusService {
   }
 
   async AddCommand(name, command, category) {
+    if (!this._checkRateLimit("AddCommand")) return false;
     if (!name || typeof name !== "string" || name.trim() === "") return false;
     if (!command || typeof command !== "string" || command.trim() === "")
       return false;
@@ -297,6 +325,7 @@ export class CmdBarDBusService {
   }
 
   async RemoveCommand(name) {
+    if (!this._checkRateLimit("RemoveCommand")) return false;
     if (!name || typeof name !== "string" || name.trim() === "") return false;
     const cleanName = name.trim();
 
@@ -334,6 +363,7 @@ export class CmdBarDBusService {
   }
 
   async ExecuteCommand(name) {
+    if (!this._checkRateLimit("ExecuteCommand")) return false;
     if (!name || typeof name !== "string" || name.trim() === "") return false;
     const cleanName = name.trim();
 
@@ -381,6 +411,7 @@ export class CmdBarDBusService {
   }
 
   async GetCommands() {
+    if (!this._checkRateLimit("GetCommands")) return JSON.stringify([]);
     try {
       const configPath =
         this._indicator && typeof this._indicator._getConfigPath === "function"
