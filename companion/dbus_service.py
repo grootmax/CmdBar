@@ -36,6 +36,7 @@ class CmdBarDBusService:
         self._event_triggered_listeners = []
         self.trigger_engine = EventTriggerEngine()
         self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
+        self.active_terminal_sessions = {}
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:
@@ -421,3 +422,21 @@ class CmdBarDBusService:
             res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
             return res.get("status") in ("executed", "profile_switched")
         return False
+
+    def start_terminal_sharing(self, session_id: str, title: str = "CmdBar Shared Terminal") -> str:
+        from companion.terminal_sharing import TerminalSharingSession
+        session = TerminalSharingSession(session_id=session_id, title=title)
+        session.start()
+        self.active_terminal_sessions[session.session_id] = session
+        return json.dumps(session.get_metrics())
+
+    def stop_terminal_sharing(self, session_id: str) -> bool:
+        if session_id in self.active_terminal_sessions:
+            session = self.active_terminal_sessions.pop(session_id)
+            session.end_session()
+            return True
+        return False
+
+    def get_terminal_sharing_sessions(self) -> str:
+        sessions_info = [s.get_metrics() for s in self.active_terminal_sessions.values()]
+        return json.dumps(sessions_info)
