@@ -22,6 +22,10 @@ import {
   verifyAndConsumeEmergencyCode,
   authenticateCommand,
   benchmarkYubikeyAuth,
+  isCICDCommand,
+  parseCICDCommand,
+  resolveSecrets,
+  redactSecrets,
 } from "./extension/commandProcessor.js";
 import {
   saveConfigAtomically,
@@ -191,7 +195,52 @@ try {
   assert.strictEqual(hasNonGitPlaceholders('git push origin {git-branch}'), false, 'Should have no non-git placeholders');
   assert.strictEqual(hasNonGitPlaceholders('git commit -m "<msg>" on {git-branch}'), true, 'Should detect <msg> non-git placeholder');
 
-  // 7. Atomic Persistence Tests (Sync & Async)
+  // 7. CI/CD Integration Pipeline Tests
+  assert.strictEqual(
+    isCICDCommand("/cicd status github owner/repo"),
+    true,
+    "Should detect /cicd prefix",
+  );
+  const cicdParsed = parseCICDCommand("/cicd trigger gitlab 123 branch=main");
+  assert.strictEqual(
+    cicdParsed.action,
+    "trigger",
+    "Should parse trigger action",
+  );
+  assert.strictEqual(
+    cicdParsed.provider,
+    "gitlab",
+    "Should parse gitlab provider",
+  );
+  assert.strictEqual(
+    cicdParsed.options.projectId,
+    "123",
+    "Should parse project ID",
+  );
+  assert.strictEqual(
+    cicdParsed.options.branch,
+    "main",
+    "Should parse branch option",
+  );
+
+  const secretsResolved = resolveSecrets("github", {
+    cicd: { github: { token: "token-abc" } },
+  });
+  assert.strictEqual(
+    secretsResolved.token,
+    "token-abc",
+    "Should resolve token from config",
+  );
+
+  const redacted = redactSecrets("Authorization: Bearer token-abc", [
+    "token-abc",
+  ]);
+  assert.ok(
+    redacted.includes("[REDACTED]"),
+    "Should redact token from string",
+  );
+
+  // 8. Atomic Persistence Tests (Sync & Async)
   const tempDir = path.join(
     os.tmpdir(),
     `cmdbar-standalone-test-${Date.now()}`,

@@ -1516,3 +1516,14 @@ export function hasNonGitPlaceholders(commandTemplate) {
 
   return hasPlaceholder(stripped);
 }
+
+export {
+  isCICDCommand,
+  parseCICDCommand,
+  CICDPipelineManager,
+  triggerPipeline,
+  getPipelineStatus,
+  rollbackPipeline,
+  resolveSecrets,
+  redactSecrets,
+} from "./cicdPipeline.js";
