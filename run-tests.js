@@ -2,7 +2,7 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands, detectFormat, formatOutput } from './extension/commandProcessor.js';
+import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands, detectFormat, formatOutput, isCICDCommand, parseCICDCommand, resolveSecrets, redactSecrets } from './extension/commandProcessor.js';
 import { saveConfigAtomically, saveConfigAtomicallyAsync } from './companion/configStore.js';
 
 console.log('Running standalone verification tests...');
@@ -56,7 +56,21 @@ try {
     assert.strictEqual(csvFmt.format, 'csv', 'formatOutput should detect csv');
     assert.ok(csvFmt.text.includes('+-------+-------+'), 'CSV should render table border');
 
-    // 6. Atomic Persistence Tests (Sync & Async)
+    // 6. CI/CD Integration Pipeline Tests
+    assert.strictEqual(isCICDCommand('/cicd status github owner/repo'), true, 'Should detect /cicd prefix');
+    const cicdParsed = parseCICDCommand('/cicd trigger gitlab 123 branch=main');
+    assert.strictEqual(cicdParsed.action, 'trigger', 'Should parse trigger action');
+    assert.strictEqual(cicdParsed.provider, 'gitlab', 'Should parse gitlab provider');
+    assert.strictEqual(cicdParsed.options.projectId, '123', 'Should parse project ID');
+    assert.strictEqual(cicdParsed.options.branch, 'main', 'Should parse branch option');
+
+    const secretsResolved = resolveSecrets('github', { cicd: { github: { token: 'token-abc' } } });
+    assert.strictEqual(secretsResolved.token, 'token-abc', 'Should resolve token from config');
+
+    const redacted = redactSecrets('Authorization: Bearer token-abc', ['token-abc']);
+    assert.ok(redacted.includes('[REDACTED]'), 'Should redact token from string');
+
+    // 7. Atomic Persistence Tests (Sync & Async)
     const tempDir = path.join(os.tmpdir(), `cmdbar-standalone-test-${Date.now()}`);
     const tempFile = path.join(tempDir, 'config.json');
 

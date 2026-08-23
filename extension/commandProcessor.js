@@ -637,3 +637,14 @@ export {
   formatOutput,
 } from "./outputFormatter.js";
 
+export {
+  isCICDCommand,
+  parseCICDCommand,
+  CICDPipelineManager,
+  triggerPipeline,
+  getPipelineStatus,
+  rollbackPipeline,
+  resolveSecrets,
+  redactSecrets,
+} from "./cicdPipeline.js";
+

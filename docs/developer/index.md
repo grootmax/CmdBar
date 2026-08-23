@@ -22,3 +22,11 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### CI/CD Integration Pipeline Module
+
+The CI/CD module (`extension/cicdPipeline.js`) provides unified pipeline management for GitHub Actions, GitLab CI, and Jenkins:
+- **Pipeline Triggers**: Triggers deployments, workflow dispatches, or parameter builds across providers.
+- **Status Monitoring**: Queries real-time pipeline, job, or build status and normalizes statuses into standard states (`success`, `failed`, `running`, `queued`, `cancelled`, `unknown`).
+- **Rollback Commands**: Executes rollback workflows or re-runs prior successful release builds.
+- **Secrets Management & Redaction**: Resolves tokens from configuration or environment variables (`GITHUB_TOKEN`, `GITLAB_TOKEN`, `JENKINS_TOKEN`) and redacts tokens and passwords from strings, previews, and objects (`[REDACTED]`).
