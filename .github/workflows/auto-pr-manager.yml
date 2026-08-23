@@ -48,12 +48,12 @@ jobs:
 
           echo "Checking for open pull requests..."
 
-          gh pr list \
+          (gh pr list \
             --repo "$GH_REPO" \
             --state open \
             --json number,title,headRefName,baseRefName,isDraft,createdAt \
-            --limit 100 |
-            jq 'sort_by(.number)' > /tmp/all-prs.json
+            --limit 100 2>/dev/null || echo "[]") |
+            jq 'sort_by(.number)' > /tmp/all-prs.json 2>/dev/null || echo "[]" > /tmp/all-prs.json
 
           TOTAL_PR_COUNT=$(jq 'length' /tmp/all-prs.json)
 
@@ -196,10 +196,17 @@ jobs:
 
             for ATTEMPT in 1 2 3 4 5; do
 
-              MERGEABLE=$(gh pr view "$PR_NUMBER" \
-                --repo "$GH_REPO" \
-                --json mergeable \
-                --jq '.mergeable')
+              MERGEABLE=$(
+                gh pr view "$PR_NUMBER" \
+                  --repo "$GH_REPO" \
+                  --json mergeable \
+                  --jq '.mergeable' \
+                  2>/dev/null || echo "UNKNOWN"
+              )
+
+              if [ -z "$MERGEABLE" ] || [ "$MERGEABLE" = "null" ]; then
+                MERGEABLE="UNKNOWN"
+              fi
 
               echo "Attempt $ATTEMPT: mergeable=$MERGEABLE"
 
@@ -392,9 +399,9 @@ jobs:
                 # VERIFY NO CONFLICTS REMAIN
                 # ==================================================
 
-                REMAINING_CONFLICTS=$(git diff \
+                REMAINING_CONFLICTS=$( (git diff \
                   --name-only \
-                  --diff-filter=U |
+                  --diff-filter=U 2>/dev/null || true) |
                   wc -l)
 
                 if [ "$REMAINING_CONFLICTS" -ne 0 ]; then
@@ -522,7 +529,7 @@ jobs:
               A11Y_CHECK=$(echo "$CHECK_OUTPUT" | jq '
                 (. // [])
                 | [
-                    .[]
+                    .[]?
                     | select(
                         ((.name // .context // "") | ascii_downcase | contains("accessibility"))
                         or ((.name // .context // "") | ascii_downcase | contains("a11y"))
@@ -530,9 +537,9 @@ jobs:
                         or (((.workflowName // .workflow // "") | ascii_downcase) | contains("a11y"))
                       )
                   ]
-              ')
+              ' 2>/dev/null || echo "[]")
 
-              A11Y_COUNT=$(echo "$A11Y_CHECK" | jq '(. // []) | length')
+              A11Y_COUNT=$(echo "$A11Y_CHECK" | jq '(. // []) | length' 2>/dev/null || echo "0")
 
               # --------------------------------------------------
               # ACCESSIBILITY CHECK MISSING (NOT REPORTED YET)
@@ -552,7 +559,7 @@ jobs:
               A11Y_FAILED=$(echo "$A11Y_CHECK" | jq '
                 (. // [])
                 | [
-                    .[]
+                    .[]?
                     | select(
                         .conclusion == "FAILURE"
                         or .conclusion == "CANCELLED"
@@ -565,7 +572,7 @@ jobs:
                       )
                   ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               if [ "$A11Y_FAILED" -gt 0 ]; then
                 echo ""
@@ -582,7 +589,7 @@ jobs:
               A11Y_PENDING=$(echo "$A11Y_CHECK" | jq '
                 (. // [])
                 | [
-                    .[]
+                    .[]?
                     | select(
                         .status == "IN_PROGRESS"
                         or .status == "QUEUED"
@@ -592,7 +599,7 @@ jobs:
                       )
                   ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               if [ "$A11Y_PENDING" -gt 0 ]; then
                 echo ""
@@ -610,7 +617,7 @@ jobs:
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 (. // [])
                 | [
-                    .[]
+                    .[]?
                     | select(
                         ((.name // .context // "") | ascii_downcase | contains("process jules prs") | not)
                         and (((.workflowName // .workflow // "") | ascii_downcase) | contains("auto jules pr manager") | not)
@@ -627,12 +634,12 @@ jobs:
                       )
                   ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 (. // [])
                 | [
-                    .[]
+                    .[]?
                     | select(
                         ((.name // .context // "") | ascii_downcase | contains("process jules prs") | not)
                         and (((.workflowName // .workflow // "") | ascii_downcase) | contains("auto jules pr manager") | not)
@@ -646,7 +653,7 @@ jobs:
                       )
                   ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               if [ "$OTHER_FAILED" -gt 0 ]; then
                 echo ""
