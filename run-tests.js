@@ -2,7 +2,7 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { validateInput, hasPlaceholder, substituteCommand } from './extension/commandProcessor.js';
+import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands } from './extension/commandProcessor.js';
 import { saveConfigAtomically, saveConfigAtomicallyAsync } from './companion/configStore.js';
 
 console.log('Running standalone verification tests...');
@@ -29,6 +29,18 @@ try {
     assert.strictEqual(substituteCommand('git checkout {branch}', 'main'), 'git checkout main', 'Should replace single curly placeholder');
     assert.strictEqual(substituteCommand('echo <task-id> and <task-id>', '123'), 'echo 123 and 123', 'Should replace multiple placeholders');
     assert.strictEqual(substituteCommand(null, 'val'), '', 'Should handle null template gracefully');
+
+    // 4. Fuzzy Matching & Highlighting Tests
+    const res = fuzzyMatch('gp', 'git push origin');
+    assert.strictEqual(res.match, true, 'gp should match git push origin');
+    assert.deepStrictEqual(res.matches, [0, 4], 'gp should match indices 0 and 4');
+    assert.strictEqual(highlightMatches('git push origin', res.matches), '<b>g</b>it <b>p</b>ush origin', 'Should highlight matched chars');
+
+    const ranked = rankCommands([
+        { name: 'Git Push', command: 'git push origin' },
+        { name: 'Git Pull', command: 'git pull origin' }
+    ], 'gp', { 'git pull origin': 5 });
+    assert.strictEqual(ranked[0].command.name, 'Git Pull', 'Should rank higher usage frequency first');
 
     // 4. Atomic Persistence Tests (Sync & Async)
     const tempDir = path.join(os.tmpdir(), `cmdbar-standalone-test-${Date.now()}`);
