@@ -1,8 +1,8 @@
 # CmdBar
 
-**Quick commands in your GNOME top bar.**
+**Quick commands in your GNOME top bar & KDE Plasma system tray.**
 
-CmdBar is a modern GNOME Shell extension + companion app that puts your most-used commands right in the system status area.  
+CmdBar is a modern GNOME Shell extension & KDE Plasma Plasmoid companion app that puts your most-used commands right in the system status area.  
 Click the indicator → choose a command → done.
 
 Perfect for developers who live in the terminal and want one-click access to project shortcuts, infrastructure tools, and parameterized actions (ticket IDs, ECS tasks, etc.).
@@ -11,12 +11,13 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
-- **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
+- **KDE Plasma Support** – Native Plasmoid applet, StatusNotifierItem system tray integration, KWin global shortcut bindings (`Meta+Space`), KWallet API key storage, and Plasma Breeze theme sync
+- **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage in KWallet / Keyring and mandatory execution confirmation
 - **Pre-built Snippet & Template Library** – Includes pre-built, ready-to-use command templates for Git workflows, Docker operations, Kubernetes (`kubectl`), AWS CLI, `npm`/`pnpm`, and System utilities.
 - **Import Wizard & Community Template Sharing** – Easily import templates from the built-in library, local JSON files, or remote URLs, and export custom commands into template schema JSON files.
 - **Output Formatters** – Automatically parse and nicely format command outputs: JSON pretty-printing with Pango markup & ANSI syntax highlighting, ASCII table rendering for CSV/TSV data, and monospaced boxed code blocks
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
-- **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences.
+- **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` / `Meta+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences / KWin.
 - **Dynamic menu** – Fully driven by a simple JSON file
 - **Fuzzy search** – Search box at top of menu with real-time fuzzy matching (e.g., "gp" matches "git push origin"), character markup highlighting, relevance + usage frequency sorting, and full keyboard navigation (arrow keys, Enter, Escape)
 - **Categories** – Group commands (Projects, Infrastructure, ECS, Tickets, etc.)
