@@ -29,6 +29,55 @@
       <arg name="json_commands" type="s" direction="out"/>
     </method>
     
+    <method name="RegisterMobileDevice">
+      <annotation name="org.freedesktop.DBus.Description" value="Register or pair a mobile device (iOS/Android)"/>
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="name" type="s" direction="in"/>
+      <arg name="platform" type="s" direction="in"/>
+      <arg name="push_token" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="GetMobileDevices">
+      <annotation name="org.freedesktop.DBus.Description" value="Get list of paired mobile devices as JSON string"/>
+      <arg name="json_devices" type="s" direction="out"/>
+    </method>
+
+    <method name="GetMobileWidgetPayload">
+      <annotation name="org.freedesktop.DBus.Description" value="Get mobile widget data payload for iOS/Android"/>
+      <arg name="platform" type="s" direction="in"/>
+      <arg name="family" type="s" direction="in"/>
+      <arg name="json_payload" type="s" direction="out"/>
+    </method>
+
+    <method name="ProcessMobileOfflineQueue">
+      <annotation name="org.freedesktop.DBus.Description" value="Process queued mobile offline actions"/>
+      <arg name="max_items" type="i" direction="in"/>
+      <arg name="json_results" type="s" direction="out"/>
+    </method>
+
+    <method name="SendMobilePushNotification">
+      <annotation name="org.freedesktop.DBus.Description" value="Send a push notification to a registered mobile device"/>
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="title" type="s" direction="in"/>
+      <arg name="body" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <signal name="MobileDeviceRegistered">
+      <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a new mobile device is registered"/>
+      <arg name="device_id" type="s"/>
+      <arg name="name" type="s"/>
+      <arg name="platform" type="s"/>
+    </signal>
+
+    <signal name="MobileQueueActionProcessed">
+      <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when an offline queue action is processed"/>
+      <arg name="queue_id" type="s"/>
+      <arg name="command_name" type="s"/>
+      <arg name="status" type="s"/>
+    </signal>
+    
     <signal name="CommandExecuted">
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a command finishes execution"/>
       <arg name="name" type="s"/>
