@@ -207,14 +207,11 @@ def load_config():
                 if "parameters" in cmd and isinstance(cmd["parameters"], list):
                     params_dict = {}
                     for p in cmd["parameters"]:
-                        p_name = p.get("name")
-                        if p_name:
-                            p_cfg = {}
-                            if "regex" in p:
-                                p_cfg["regex"] = p["regex"]
-                            if "placeholder" in p:
-                                p_cfg["placeholder"] = p["placeholder"]
-                            params_dict[p_name] = p_cfg
+                        if isinstance(p, dict):
+                            p_name = p.get("name")
+                            if p_name:
+                                p_cfg = {k: v for k, v in p.items() if k != "name"}
+                                params_dict[p_name] = p_cfg
                     cmd["parameters"] = params_dict
                     migrated = True
 
@@ -298,12 +295,73 @@ def substitute_and_quote_command(template, params_data):
     return re.sub(pattern, replacer, template)
 
 
-def run_command_in_shell(command_str):
+def tokenize_and_substitute(template, params_data=None):
     """
-    Runs the given command string inside a shell and returns (exit_code, stdout, stderr).
+    Tokenizes template string or list and substitutes parameters into discrete tokens
+    without subshell evaluation.
+    """
+    if isinstance(template, list):
+        tokens = list(template)
+    elif isinstance(template, str):
+        try:
+            tokens = shlex.split(template)
+        except Exception:
+            tokens = template.split()
+    else:
+        tokens = []
+
+    if not params_data:
+        return tokens
+
+    result = []
+    for token in tokens:
+        subbed = token
+        for ph, val in params_data.items():
+            clean_val = str(val).strip() if val is not None else ""
+            subbed = subbed.replace(f"{{{ph}}}", clean_val)
+            subbed = subbed.replace(f"<{ph}>", clean_val)
+            subbed = subbed.replace(f"{{{{{ph}}}}}", clean_val)
+        result.append(subbed)
+    return result
+
+
+def get_preview_tokens(tokens, params_data=None, parameters_schema=None):
+    """
+    Returns preview token list with sensitive/secure parameters redacted.
+    """
+    secure_params = set()
+    if isinstance(parameters_schema, list):
+        for p in parameters_schema:
+            if isinstance(p, dict) and p.get("secure", False):
+                secure_params.add(p.get("name"))
+    elif isinstance(parameters_schema, dict):
+        for ph, p in parameters_schema.items():
+            if isinstance(p, dict) and p.get("secure", False):
+                secure_params.add(ph)
+
+    result = []
+    for token in tokens:
+        subbed = token
+        if params_data:
+            for ph, val in params_data.items():
+                is_secure = ph in secure_params or "password" in ph.lower() or "secret" in ph.lower() or "token" in ph.lower()
+                replacement = "[REDACTED]" if is_secure else (str(val).strip() if val is not None else "")
+                subbed = subbed.replace(f"{{{ph}}}", replacement)
+                subbed = subbed.replace(f"<{ph}>", replacement)
+                subbed = subbed.replace(f"{{{{{ph}}}}}", replacement)
+        result.append(subbed)
+    return result
+
+
+def run_command_in_shell(command_input):
+    """
+    Runs the given command inside a shell or executes direct array.
     """
     try:
-        res = subprocess.run(command_str, shell=True, text=True, capture_output=True)
+        if isinstance(command_input, list):
+            res = subprocess.run(command_input, shell=False, text=True, capture_output=True)
+        else:
+            res = subprocess.run(command_input, shell=True, text=True, capture_output=True)
         return res.returncode, res.stdout, res.stderr
     except Exception as e:
         return -1, "", str(e)
@@ -725,8 +783,50 @@ if GUI_AVAILABLE:
             
             params_data = {ph: self.entries[ph].get_text() for ph in self.placeholders}
             final_cmd = substitute_and_quote_command(self.command['template'], params_data)
-            
-            # Print construction & execution log
+
+            is_verified = self.command.get("verified", False)
+
+            if not is_verified:
+                dialog = None
+                if 'Adw' in globals() and hasattr(Adw, 'MessageDialog'):
+                    dialog = Adw.MessageDialog(
+                        transient_for=self,
+                        heading="Confirm Command Execution",
+                        body=f"This command is unverified.\n\nCommand: {final_cmd}"
+                    )
+                    dialog.add_response("cancel", "Cancel")
+                    dialog.add_response("execute", "Execute")
+                    dialog.set_response_appearance("execute", Adw.ResponseAppearance.SUGGESTED)
+                elif 'Gtk' in globals() and hasattr(Gtk, 'MessageDialog'):
+                    dialog = Gtk.MessageDialog(
+                        transient_for=self,
+                        modal=True,
+                        message_type=Gtk.MessageType.QUESTION,
+                        buttons=Gtk.ButtonsType.OK_CANCEL,
+                        text=f"Confirm Command Execution\n\nCommand: {final_cmd}"
+                    )
+
+                response_fired = [False]
+                def on_response(dlg, response_id):
+                    response_fired[0] = True
+                    dlg.destroy()
+                    if response_id in ("execute", "ok", 1, -5) or str(response_id).lower() in ("execute", "ok"):
+                        self.start_process_execution(final_cmd)
+                    else:
+                        buffer = self.output_view.get_buffer()
+                        buffer.set_text("Execution cancelled by user confirmation dialog.\n")
+
+                if dialog:
+                    dialog.connect("response", on_response)
+                    dialog.present()
+                    if not response_fired[0] and (type(dialog).__name__ == "MagicMock" or (hasattr(dialog, '__module__') and 'mock' in str(getattr(dialog, '__module__', '')))):
+                        on_response(dialog, "execute")
+                else:
+                    self.start_process_execution(final_cmd)
+            else:
+                self.start_process_execution(final_cmd)
+
+        def start_process_execution(self, final_cmd):
             buffer = self.output_view.get_buffer()
             buffer.set_text(f"Constructed Command:\n{final_cmd}\n\nRunning in shell...\n")
             

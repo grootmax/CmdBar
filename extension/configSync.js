@@ -91,6 +91,10 @@ export function validateConfigSchema(config) {
                 if (typeof cmd.name !== 'string' || cmd.name.trim() === '') return false;
                 if (typeof cmd.command !== 'string' || cmd.command.trim() === '') return false;
                 if (cmd.placeholder !== undefined && typeof cmd.placeholder !== 'string') return false;
+                if (cmd.parameters !== undefined) {
+                    if (Array.isArray(cmd.parameters)) return false;
+                    if (typeof cmd.parameters !== 'object' || cmd.parameters === null) return false;
+                }
             }
         }
     }
@@ -644,21 +648,77 @@ export async function loadConfig(configPath, extensionPath) {
     }
 
     let parsedConfig;
-    let isValidSchema = false;
-    let isValidSignature = false;
     try {
         parsedConfig = JSON.parse(content);
-        isValidSchema = validateConfigSchema(parsedConfig);
-        if (isValidSchema) {
-            isValidSignature = await verifyConfigSignature(parsedConfig, keyPath);
-        }
     } catch (e) {
-        isValidSchema = false;
-        isValidSignature = false;
+        // Non-destructive memory fallback on corrupted JSON
+        const fallback = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+        Object.defineProperty(fallback, '_isInvalid', {
+            value: true,
+            writable: true,
+            enumerable: false,
+            configurable: true
+        });
+        return fallback;
     }
 
-    if (!isValidSchema || !isValidSignature) {
-        // Archive corrupted or untrusted file to .bak and restore clean signed default config
+    // Auto-migrate legacy structures in memory
+    let migrated = false;
+    if (parsedConfig && typeof parsedConfig === 'object' && Array.isArray(parsedConfig.categories)) {
+        for (const cat of parsedConfig.categories) {
+            if (cat && typeof cat === 'object') {
+                if (Array.isArray(cat.shortcuts)) {
+                    if (!Array.isArray(cat.commands)) {
+                        cat.commands = cat.shortcuts;
+                    }
+                    delete cat.shortcuts;
+                    migrated = true;
+                }
+                if (Array.isArray(cat.commands)) {
+                    for (const cmd of cat.commands) {
+                        if (cmd && typeof cmd === 'object') {
+                            if (cmd.template && !cmd.command) {
+                                cmd.command = cmd.template;
+                                migrated = true;
+                            }
+                            if (Array.isArray(cmd.parameters)) {
+                                const paramsObj = {};
+                                for (const p of cmd.parameters) {
+                                    if (p && typeof p === 'object') {
+                                        const pName = p.name;
+                                        if (pName) {
+                                            const pCfg = { ...p };
+                                            delete pCfg.name;
+                                            paramsObj[pName] = pCfg;
+                                        }
+                                    }
+                                }
+                                cmd.parameters = paramsObj;
+                                migrated = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    const isValidSchema = validateConfigSchema(parsedConfig);
+    if (!isValidSchema) {
+        // Non-destructive memory fallback for invalid schema
+        const fallback = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+        Object.defineProperty(fallback, '_isInvalid', {
+            value: true,
+            writable: true,
+            enumerable: false,
+            configurable: true
+        });
+        return fallback;
+    }
+
+    let isValidSignature = await verifyConfigSignature(parsedConfig, keyPath);
+    if (!isValidSignature) {
+        // Cryptographic verification failed (missing or tampered signature) -> archive to .bak & restore safe default
         const backupPath = configPath + '.bak';
         try {
             if (isNode) {
@@ -695,6 +755,16 @@ export async function loadConfig(configPath, extensionPath) {
 
         delete configObj.signature;
         return configObj;
+    }
+
+    if (migrated) {
+        const key = await getOrCreateSigningKey(keyPath);
+        parsedConfig.signature = await computeSignature(parsedConfig, key);
+        if (isNode) {
+            await node_writeFileAtomic(configPath, JSON.stringify(parsedConfig, null, 2));
+        } else {
+            await gjs_writeFileAtomic(configPath, JSON.stringify(parsedConfig, null, 2));
+        }
     }
 
     delete parsedConfig.signature;

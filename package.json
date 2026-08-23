@@ -4,7 +4,7 @@
   "description": "Quick commands in your GNOME top bar.",
   "type": "module",
   "scripts": {
-    "test": "node --experimental-vm-modules $(which jest)",
+    "test": "node --experimental-vm-modules $(which jest) --runInBand",
     "test:simple": "node run-tests.js",
     "test:a11y": "node scripts/audit_a11y.js",
     "a11y": "node scripts/audit_a11y.js"
