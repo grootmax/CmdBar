@@ -132,7 +132,9 @@ jobs:
           # We process them strictly in this order.
           # ==================================================
 
-          jq -c '.[]' /tmp/jules-prs.json | while read -r PR; do
+          jq -c '.[]' /tmp/jules-prs.json > /tmp/jules-prs.lines
+
+          while read -r PR; do
 
             PR_NUMBER=$(echo "$PR" | jq -r '.number')
             TITLE=$(echo "$PR" | jq -r '.title')
@@ -199,7 +201,7 @@ jobs:
               MERGEABLE=$(gh pr view "$PR_NUMBER" \
                 --repo "$GH_REPO" \
                 --json mergeable \
-                --jq '.mergeable')
+                --jq '.mergeable // "UNKNOWN"' 2>/dev/null || echo "UNKNOWN")
 
               echo "Attempt $ATTEMPT: mergeable=$MERGEABLE"
 
@@ -427,7 +429,12 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo "ERROR: Failed to push resolved Jules branch."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               cd /
 
@@ -477,12 +484,38 @@ jobs:
               echo ""
               echo "Checking status checks for PR #$PR_NUMBER..."
 
-              CHECK_OUTPUT=$(
-                gh pr checks "$PR_NUMBER" \
-                  --repo "$GH_REPO" \
-                  --json name,state,bucket,workflow \
-                  2>/dev/null || true
-              )
+              HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json headRefOid --jq '.headRefOid' 2>/dev/null || true)
+
+              CHECK_RUNS=$(gh api "repos/${GH_REPO}/commits/${HEAD_SHA}/check-runs" 2>/dev/null || echo "{}")
+              STATUSES=$(gh api "repos/${GH_REPO}/commits/${HEAD_SHA}/status" 2>/dev/null || echo "{}")
+
+              CHECK_OUTPUT=$(jq -n --arg cr "$CHECK_RUNS" --arg st "$STATUSES" '
+                [
+                  ( (($cr | try fromjson catch {}).check_runs // [])[]? | {
+                      name: (.name // ""),
+                      state: (.status // ""),
+                      workflow: (.app.name // ""),
+                      bucket: (
+                        if .status != "completed" then "pending"
+                        elif (.conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped") then "pass"
+                        elif (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required") then "fail"
+                        else "pending"
+                        end
+                      )
+                  }),
+                  ( (($st | try fromjson catch {}).statuses // [])[]? | {
+                      name: (.context // ""),
+                      state: (.state // ""),
+                      workflow: "status",
+                      bucket: (
+                        if .state == "success" then "pass"
+                        elif (.state == "failure" or .state == "error") then "fail"
+                        else "pending"
+                        end
+                      )
+                  })
+                ]
+              ' 2>/dev/null || echo "[]")
 
               if [ -z "$CHECK_OUTPUT" ]; then
                 CHECK_OUTPUT="[]"
@@ -497,13 +530,13 @@ jobs:
                 [
                   .[]
                   | select(
-                      (.name | ascii_downcase | contains("accessibility"))
-                      or (.name | ascii_downcase | contains("a11y"))
+                      ((((.name // "") | ascii_downcase) | contains("accessibility"))
+                      or (((.name // "") | ascii_downcase) | contains("a11y"))
                       or (((.workflow // "") | ascii_downcase) | contains("accessibility"))
-                      or (((.workflow // "") | ascii_downcase) | contains("a11y"))
+                      or (((.workflow // "") | ascii_downcase) | contains("a11y")))
                     )
                 ]
-              ')
+              ' 2>/dev/null || echo "[]")
 
               A11Y_COUNT=$(echo "$A11Y_CHECK" | jq 'length')
 
@@ -565,18 +598,26 @@ jobs:
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
+                  | select(
+                      ((((.name // "") | ascii_downcase) | contains("process jules prs")) | not)
+                      and ((((.name // "") | ascii_downcase) | contains("auto jules pr manager")) | not)
+                    )
                   | select(.bucket == "fail" or .bucket == "cancel")
                 ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
+                  | select(
+                      ((((.name // "") | ascii_downcase) | contains("process jules prs")) | not)
+                      and ((((.name // "") | ascii_downcase) | contains("auto jules pr manager")) | not)
+                    )
                   | select(.bucket == "pending")
                 ]
                 | length
-              ')
+              ' 2>/dev/null || echo "0")
 
               if [ "$OTHER_FAILED" -gt 0 ]; then
                 echo ""
@@ -679,7 +720,7 @@ jobs:
 
             break
 
-          done
+          done < /tmp/jules-prs.lines
 
           echo ""
           echo "=========================================="

@@ -1252,12 +1252,19 @@ if GUI_AVAILABLE:
 def main():
     parser = argparse.ArgumentParser(description="CmdBar Companion App")
     parser.add_argument("--cli", action="store_true", help="Force running in Command Line Interface mode")
+    parser.add_argument("--server", "--headless-server", action="store_true", dest="server", help="Run in Headless Server Mode (REST API & WebSocket)")
+    parser.add_argument("--host", default="127.0.0.1", help="Host address for headless server (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=8080, help="Port for headless server (default: 8080)")
+    parser.add_argument("--auth-token", default=None, help="Authentication token for headless server API")
     args = parser.parse_args()
     
     # Initialize config directory/file
     init_config()
     
-    if args.cli or not GUI_AVAILABLE:
+    if args.server:
+        from companion.server import run_server
+        run_server(host=args.host, port=args.port, config_path=get_config_path(), auth_token=args.auth_token)
+    elif args.cli or not GUI_AVAILABLE:
         if not GUI_AVAILABLE and not args.cli:
             print("GUI libraries (GTK4 / Libadwaita) are not available. Falling back to CLI mode.\n")
         run_cli_mode()
