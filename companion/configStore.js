@@ -143,6 +143,13 @@ export function saveConfigAtomically(configData, customPath) {
     // enabling an atomic `rename` operation.
     const tempPath = `${targetPath}.${Date.now()}.${Math.random().toString(36).substring(2, 8)}.tmp`;
 
+    let mode;
+    if (fs.existsSync(targetPath)) {
+        try {
+            mode = fs.statSync(targetPath).mode;
+        } catch (e) {}
+    }
+
     try {
         const jsonString = JSON.stringify(configData, null, 2);
 
@@ -194,11 +201,24 @@ export async function saveConfigAtomicallyAsync(configData, customPath) {
     // 2. Generate temporary file path in the SAME directory
     const tempPath = `${targetPath}.${Date.now()}.${Math.random().toString(36).substring(2, 8)}.tmp`;
 
+    let mode;
+    if (fs.existsSync(targetPath)) {
+        try {
+            const stats = await fs.promises.stat(targetPath);
+            mode = stats.mode;
+        } catch (e) {}
+    }
+
     try {
         const jsonString = JSON.stringify(configData, null, 2);
 
         // 3. Write JSON content to temporary file
         await fs.promises.writeFile(tempPath, jsonString, 'utf8');
+        if (mode !== undefined) {
+            try {
+                await fs.promises.chmod(tempPath, mode);
+            } catch (e) {}
+        }
 
         // 4. Atomic rename/swap operation
         await fs.promises.rename(tempPath, targetPath);
