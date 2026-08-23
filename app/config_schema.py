@@ -51,6 +51,29 @@ DEFAULT_CONFIG = {
     "fallback_provider": "ollama",
     "fallback_model": "llama3"
   },
+  "iot": {
+    "enabled": False,
+    "mqtt": {
+      "enabled": False,
+      "host": "localhost",
+      "port": 1883,
+      "topic_prefix": "cmdbar",
+      "username": "",
+      "password": ""
+    },
+    "webhook": {
+      "enabled": False,
+      "host": "127.0.0.1",
+      "port": 8088,
+      "secret": ""
+    },
+    "home_automation": {
+      "enabled": False,
+      "platform": "homeassistant",
+      "discovery_prefix": "homeassistant"
+    },
+    "sensor_triggers": []
+  },
   "categories": [
     {
       "name": "System Utilities",
