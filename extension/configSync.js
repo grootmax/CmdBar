@@ -54,6 +54,7 @@ export const DEFAULT_CONFIG = {
       ],
     },
   ],
+  notes: [],
 };
 
 const isNode =

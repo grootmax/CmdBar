@@ -79,7 +79,8 @@ DEFAULT_CONFIG = {
         }
       ]
     }
-  ]
+  ],
+  "notes": []
 }
 
 def get_config_path():

@@ -4,6 +4,13 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.notes import (
+    create_note,
+    search_notes,
+    get_note_by_id,
+    generate_share_link,
+    parse_share_link,
+)
 
 class CmdBarDBusService:
     """
@@ -131,3 +138,61 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def get_notes(self) -> list:
+        config = load_config()
+        return config.get("notes", [])
+
+    def get_notes_json(self) -> str:
+        return json.dumps(self.get_notes())
+
+    def add_note(self, title: str, content: str = "", tags_str: str = "", attached_command: str = None) -> dict:
+        config = load_config()
+        notes = config.setdefault("notes", [])
+
+        tags = []
+        if tags_str:
+            try:
+                tags = json.loads(tags_str)
+            except Exception:
+                tags = [t.strip() for t in str(tags_str).split(",") if t.strip()]
+
+        note = create_note(
+            title=title or "Untitled Note",
+            content=content or "",
+            tags=tags,
+            attached_command=attached_command or None,
+        )
+        notes.append(note)
+        save_config(config)
+        return note
+
+    def add_note_json(self, title: str, content: str = "", tags_str: str = "", attached_command: str = None) -> str:
+        return json.dumps(self.add_note(title, content, tags_str, attached_command))
+
+    def search_notes(self, query: str) -> list:
+        config = load_config()
+        return search_notes(config.get("notes", []), query)
+
+    def search_notes_json(self, query: str) -> str:
+        return json.dumps(self.search_notes(query))
+
+    def share_note_link(self, note_id: str) -> str:
+        config = load_config()
+        note = get_note_by_id(config.get("notes", []), note_id)
+        if not note:
+            return ""
+        return generate_share_link(note)
+
+    def import_note_link(self, link: str) -> dict:
+        imported = parse_share_link(link)
+        if not imported:
+            return {}
+        config = load_config()
+        notes = config.setdefault("notes", [])
+        notes.append(imported)
+        save_config(config)
+        return imported
+
+    def import_note_link_json(self, link: str) -> str:
+        return json.dumps(self.import_note_link(link))

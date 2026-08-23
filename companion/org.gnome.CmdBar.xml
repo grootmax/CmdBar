@@ -42,5 +42,37 @@
       <arg name="stdout" type="s"/>
       <arg name="stderr" type="s"/>
     </signal>
+
+    <method name="GetNotes">
+      <annotation name="org.freedesktop.DBus.Description" value="Get list of all notes as JSON string"/>
+      <arg name="json_notes" type="s" direction="out"/>
+    </method>
+
+    <method name="AddNote">
+      <annotation name="org.freedesktop.DBus.Description" value="Add a new note"/>
+      <arg name="title" type="s" direction="in"/>
+      <arg name="content" type="s" direction="in"/>
+      <arg name="tags" type="s" direction="in"/>
+      <arg name="attached_command" type="s" direction="in"/>
+      <arg name="json_note" type="s" direction="out"/>
+    </method>
+
+    <method name="SearchNotes">
+      <annotation name="org.freedesktop.DBus.Description" value="Search notes by query string or tag"/>
+      <arg name="query" type="s" direction="in"/>
+      <arg name="json_notes" type="s" direction="out"/>
+    </method>
+
+    <method name="ShareNoteLink">
+      <annotation name="org.freedesktop.DBus.Description" value="Generate shareable URL link for note by ID"/>
+      <arg name="id" type="s" direction="in"/>
+      <arg name="link" type="s" direction="out"/>
+    </method>
+
+    <method name="ImportNoteLink">
+      <annotation name="org.freedesktop.DBus.Description" value="Import note from share link"/>
+      <arg name="link" type="s" direction="in"/>
+      <arg name="json_note" type="s" direction="out"/>
+    </method>
   </interface>
 </node>

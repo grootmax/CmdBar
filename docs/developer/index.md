@@ -22,3 +22,15 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Quick Notes & Scratchpad Module
+
+The notes manager module (`extension/notesManager.js` and `companion/notes.py`) provides quick plain-text scratchpad notes:
+- **Note Data Model**: `id`, `title`, `content`, `tags`, `attachedCommand`, `pinned`, `createdAt`, `updatedAt`.
+- **Markdown & Plain Text**: Renders Markdown to Pango markup for GNOME Shell and HTML for companion/web views.
+- **Tag Organization**: Groups notes by tag, supports tag filtering and tag summaries.
+- **Attached Commands**: Notes can have executable command templates with parameter substitution (`executeAttachedCommand`).
+- **Share Links**: Generates and parses shareable links (`cmdbar://note/share?data=...`).
+- **D-Bus Integration**: Exposes `GetNotes`, `AddNote`, `SearchNotes`, `ShareNoteLink`, `ImportNoteLink` on `org.gnome.CmdBar`.
+- **Atomic Sync**: `syncNotes` resolves conflicts using last-write-wins based on `updatedAt`.
+
