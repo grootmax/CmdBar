@@ -1,5 +1,5 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
-import { tokenizeCommand } from "./commandProcessor.js";
+import { tokenizeCommand, evaluateCommandPolicy, grantApprovalOverride } from "./commandProcessor.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -20,6 +20,17 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
+    </method>
+    <method name="EvaluatePolicy">
+      <arg name="command" type="s" direction="in"/>
+      <arg name="user" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+    <method name="GrantOverride">
+      <arg name="command" type="s" direction="in"/>
+      <arg name="approver" type="s" direction="in"/>
+      <arg name="expires_in_ms" type="x" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -191,12 +202,61 @@ export class CmdBarDBusService {
       const cmdName = foundCmd ? foundCmd.name : cleanName;
       const cmdStr = foundCmd ? (foundCmd.command || foundCmd.template) : cleanName;
 
+      const evalResult = evaluateCommandPolicy(
+        cmdStr,
+        null,
+        config.policy || config.security_policy,
+        config.overrides
+      );
+
+      if (!evalResult.allowed) {
+        console.error(`CmdBar D-Bus ExecuteCommand blocked by policy: ${evalResult.reason}`);
+        this.emitCommandOutput(cmdName, "", `Execution blocked by security policy: ${evalResult.reason}`);
+        this.emitCommandExecuted(cmdName, 126, false);
+        return false;
+      }
+
       if (this._indicator && typeof this._indicator.executeCommand === "function") {
         this._indicator.executeCommand(cmdName, cmdStr, {}, foundCmd);
       }
       return true;
     } catch (e) {
       console.error(`CmdBar D-Bus ExecuteCommand error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async EvaluatePolicy(command, user) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const userCtx = user ? { username: user } : null;
+      const result = evaluateCommandPolicy(
+        command,
+        userCtx,
+        config.policy || config.security_policy,
+        config.overrides
+      );
+      return JSON.stringify(result);
+    } catch (e) {
+      return JSON.stringify({ allowed: false, error: e.message });
+    }
+  }
+
+  async GrantOverride(command, approver, expiresInMs) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      if (!config.overrides) config.overrides = {};
+      const exp = Number(expiresInMs) || 3600000;
+      grantApprovalOverride(config.overrides, command, approver || "admin", exp);
+      await saveConfig(config, configPath);
+      return true;
+    } catch (e) {
       return false;
     }
   }

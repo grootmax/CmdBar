@@ -3,7 +3,13 @@ import json
 import os
 import sys
 import subprocess
-from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.companion_app import (
+    load_config,
+    save_config,
+    run_command_in_shell,
+    evaluate_command_policy,
+    grant_approval_override,
+)
 
 class CmdBarDBusService:
     """
@@ -97,6 +103,27 @@ class CmdBarDBusService:
         cmd_name = found_cmd.get("name") if found_cmd else clean_name
         cmd_str = found_cmd.get("template", found_cmd.get("command", clean_name)) if found_cmd else clean_name
 
+        eval_res = evaluate_command_policy(
+            cmd_str,
+            None,
+            config.get("policy") or config.get("security_policy"),
+            config.get("overrides")
+        )
+
+        if not eval_res.get("allowed"):
+            err_msg = f"Execution blocked by security policy: {eval_res.get('reason')}"
+            for listener in self._output_listeners:
+                try:
+                    listener(cmd_name, "", err_msg)
+                except Exception:
+                    pass
+            for listener in self._executed_listeners:
+                try:
+                    listener(cmd_name, 126, False)
+                except Exception:
+                    pass
+            return False
+
         code, stdout, stderr = run_command_in_shell(cmd_str)
         success = (code == 0)
 
@@ -113,6 +140,25 @@ class CmdBarDBusService:
                 pass
 
         return True
+
+    def evaluate_policy(self, command: str, user: str = None) -> str:
+        config = load_config()
+        user_ctx = {"username": user} if user else None
+        res = evaluate_command_policy(
+            command,
+            user_ctx,
+            config.get("policy") or config.get("security_policy"),
+            config.get("overrides")
+        )
+        return json.dumps(res)
+
+    def grant_override(self, command: str, approver: str = "admin", expires_in_sec: int = 3600) -> bool:
+        if not command or not str(command).strip():
+            return False
+        config = load_config()
+        overrides = config.setdefault("overrides", {})
+        grant_approval_override(overrides, str(command).strip(), approver, expires_in_sec)
+        return save_config(config)
 
     def get_commands(self) -> list:
         config = load_config()

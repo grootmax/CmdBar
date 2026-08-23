@@ -14,4 +14,5 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 - **Dynamic Menu**: Fully driven by JSON config files.
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
+- **Command Whitelist & Blacklist**: Enterprise security policy engine allowing organizations to block dangerous commands (blacklist), mandate approved commands (whitelist), match wildcard patterns, and restrict commands by user or group with cryptographic approval overrides.
 - **Local Live Reload**: Configuration changes sync instantly.
