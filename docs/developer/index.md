@@ -95,3 +95,12 @@ The policy enforcement engine (`extension/policyEngine.js` and `app/policy_engin
 - **Data Loss Prevention (DLP)**: Scans commands, parameters, and outputs for sensitive patterns (AWS keys, private keys, SSNs, credit cards, tokens) with block, redact, and warn actions.
 - **Geographic Restrictions**: Restricts command execution by country code or IP CIDR ranges.
 - **Time-Based Access Controls**: Limits command execution to designated days and time windows.
+
+### Enterprise Role-Based Access Control (RBAC)
+
+The RBAC system (`extension/rbacManager.js` and `companion/rbac.py`) manages security and permissions:
+- **Granular Permissions & Roles**: Wildcard permission matching (`*`, `command:*`, `command:execute:*`) and role assignments (`admin`, `user`, `operator`, `approver`, `auditor`).
+- **Command Visibility Filtering**: Filters categories and commands based on role restrictions, permissions, and minimum role levels.
+- **Approval Chains**: Multi-step request approval workflow for critical command executions.
+- **Delegation**: Temporary role/permission delegation with automatic expiry and manual revocation.
+- **Audit Trail**: Structured logging of authorization events with JSON and CSV compliance export options.

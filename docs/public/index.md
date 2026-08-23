@@ -22,6 +22,7 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
 - **Command Audit Logging**: Log command executions to `~/.local/share/cmdbar/audit.log` with ISO timestamp, user, exit code, and execution duration. Includes Privacy Mode to automatically exclude sensitive commands and parameters, daily log rotation, and an in-app Audit Log Viewer.
 - **YubiKey 2FA Authentication**: Hardware-backed touch to confirm, Yubico OTP, FIDO2/U2F assertion, and emergency access codes for sensitive commands.
+- **Role-Based Access Control (RBAC)**: Enterprise granular permissions, command visibility filtering, multi-step approval chains, temporary delegation, and audit trail logging.
 - **Local Live Reload**: Configuration changes sync instantly.
 - **Mobile Companion App**: iOS and Android companion integration featuring Push Notifications (APNs & FCM), Quick Actions, Home Screen & Lock Screen Widget support, Challenge-Response Biometric Auth, and Persistent Offline Queue.
 - **Enterprise White Label & Custom Branding**: Rebrand the top panel indicator with custom enterprise logo, application name, primary brand colors, domain alias endpoints, and custom SSL certificate bundles.

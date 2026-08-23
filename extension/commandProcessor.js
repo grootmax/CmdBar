@@ -3,6 +3,7 @@
  */
 
 export { ChainRunner, ChainStatus, StepStatus } from "./chainRunner.js";
+import { RBACManager } from "./rbacManager.js";
 
 let GLib;
 try {
@@ -694,6 +695,31 @@ export function rankCommands(commands, pattern, usageMap = {}) {
 
   results.sort((a, b) => b.score - a.score);
   return results;
+}
+
+/**
+ * Filter categories and commands based on user RBAC permissions and visibility rules.
+ * @param {Array<Object>} categories
+ * @param {string} user
+ * @param {Object} [rbacConfig]
+ * @returns {Array<Object>}
+ */
+export function filterCommandsByRBAC(categories, user, rbacConfig) {
+  const manager = new RBACManager(rbacConfig);
+  return manager.filterVisibleCommands(categories, user);
+}
+
+/**
+ * Checks if a command can be executed under RBAC rules and approval requirements.
+ * @param {string} user
+ * @param {Object} command
+ * @param {Object} [rbacConfig]
+ * @param {Object} [options]
+ * @returns {Object}
+ */
+export function checkCommandExecutionRBAC(user, command, rbacConfig, options = {}) {
+  const manager = new RBACManager(rbacConfig);
+  return manager.canExecuteCommand(user, command, options);
 }
 
 export {

@@ -6,6 +6,7 @@ import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
 from app.config_schema import validate_branding_config, get_effective_branding
 from companion.sso_manager import SSOManager, SSOProviderConfig
+from companion.stream_deck import get_stream_deck_manager
 from companion.yubikey_auth import (
     YubiKeyAuthManager,
     is_sensitive_command,
@@ -395,7 +396,7 @@ class CmdBarDBusService:
 
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
-        if self.stream_deck_manager:
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             summary = self.stream_deck_manager.get_status_summary()
             return json.dumps({
                 "active_profile": summary["active_profile"],
@@ -405,19 +406,19 @@ class CmdBarDBusService:
 
     def set_stream_deck_profile(self, profile_name: str) -> bool:
         """Switches the active Stream Deck profile."""
-        if self.stream_deck_manager:
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             return self.stream_deck_manager.switch_profile(profile_name)
         return False
 
     def get_stream_deck_status(self) -> str:
         """Returns diagnostic status JSON summary for Stream Deck integration."""
-        if self.stream_deck_manager:
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             return json.dumps(self.stream_deck_manager.get_status_summary())
         return json.dumps({})
 
     def trigger_stream_deck_button(self, key_index: int) -> bool:
         """Simulates key press on active Stream Deck grid."""
-        if self.stream_deck_manager:
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
             return res.get("status") in ("executed", "profile_switched")
         return False

@@ -6,6 +6,7 @@ import subprocess
 import hmac
 import hashlib
 import secrets
+from companion.rbac import DEFAULT_RBAC_CONFIG
 
 
 def canonical_json(obj):
@@ -307,7 +308,8 @@ DEFAULT_CONFIG = {
       ]
     }
   ],
-  "triggers": []
+  "triggers": [],
+  "rbac": DEFAULT_RBAC_CONFIG
 }
 
 
