@@ -367,8 +367,6 @@ export function getEffectiveDomainUrl(brandingConfig, endpointPath = "") {
   let path = endpointPath.startsWith("/") ? endpointPath : "/" + endpointPath;
   return domain + path;
 }
-
-/**
  * Validates a configuration layout against schema and parsing requirements.
  * @param {object} config
  * @returns {boolean}

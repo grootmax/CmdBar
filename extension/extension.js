@@ -1693,6 +1693,7 @@ const CmdBarIndicator = GObject.registerClass(
         let config = await loadConfig(configPath, extensionPath);
         this._cachedConfig = config;
 
+
         let brandingConfig = getBrandingConfig(config);
         if (brandingConfig.enabled) {
           let customLabel = this._extension && this._extension._settings
