@@ -29,6 +29,41 @@
       <arg name="json_commands" type="s" direction="out"/>
     </method>
     
+    <method name="RegisterMobileDevice">
+      <annotation name="org.freedesktop.DBus.Description" value="Register mobile companion device"/>
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="name" type="s" direction="in"/>
+      <arg name="platform" type="s" direction="in"/>
+      <arg name="json_device" type="s" direction="out"/>
+    </method>
+
+    <method name="GetMobileQuickActions">
+      <annotation name="org.freedesktop.DBus.Description" value="Get list of mobile quick actions as JSON string"/>
+      <arg name="json_actions" type="s" direction="out"/>
+    </method>
+
+    <method name="ExecuteMobileQuickAction">
+      <annotation name="org.freedesktop.DBus.Description" value="Execute a mobile quick action"/>
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="action_id" type="s" direction="in"/>
+      <arg name="params_json" type="s" direction="in"/>
+      <arg name="biometric_token" type="s" direction="in"/>
+      <arg name="json_result" type="s" direction="out"/>
+    </method>
+
+    <method name="GetMobileWidgetData">
+      <annotation name="org.freedesktop.DBus.Description" value="Get mobile widget data as JSON string"/>
+      <arg name="widget_type" type="s" direction="in"/>
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="size" type="s" direction="in"/>
+      <arg name="json_data" type="s" direction="out"/>
+    </method>
+
+    <method name="ProcessMobileOfflineQueue">
+      <annotation name="org.freedesktop.DBus.Description" value="Process all pending requests in offline queue"/>
+      <arg name="json_results" type="s" direction="out"/>
+    </method>
+    
     <signal name="CommandExecuted">
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a command finishes execution"/>
       <arg name="name" type="s"/>
