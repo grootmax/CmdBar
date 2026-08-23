@@ -42,5 +42,37 @@
       <arg name="stdout" type="s"/>
       <arg name="stderr" type="s"/>
     </signal>
+    
+    <method name="TriggerEvent">
+      <annotation name="org.freedesktop.DBus.Description" value="Trigger an event by type and payload JSON"/>
+      <arg name="event_type" type="s" direction="in"/>
+      <arg name="payload_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="GetTriggers">
+      <annotation name="org.freedesktop.DBus.Description" value="Get list of registered triggers as JSON string"/>
+      <arg name="json_triggers" type="s" direction="out"/>
+    </method>
+
+    <method name="AddTrigger">
+      <annotation name="org.freedesktop.DBus.Description" value="Add or update an event trigger from JSON string"/>
+      <arg name="trigger_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="RemoveTrigger">
+      <annotation name="org.freedesktop.DBus.Description" value="Remove an event trigger by ID"/>
+      <arg name="trigger_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <signal name="EventTriggered">
+      <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when an event trigger fires"/>
+      <arg name="trigger_id" type="s"/>
+      <arg name="event_type" type="s"/>
+      <arg name="command" type="s"/>
+      <arg name="success" type="b"/>
+    </signal>
   </interface>
 </node>
