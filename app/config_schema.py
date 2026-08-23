@@ -105,6 +105,25 @@ DEFAULT_CONFIG = {
       "refresh_threshold_seconds": 300
     }
   },
+  "audit": {
+    "enabled": True,
+    "privacy_mode": False,
+    "sensitive_keywords": [
+      "password",
+      "passwd",
+      "secret",
+      "token",
+      "api_key",
+      "apikey",
+      "key",
+      "credentials",
+      "cred",
+      "sudo",
+      "auth",
+      "bearer",
+      "private_key"
+    ]
+  },
   "ai": {
     "provider": "openai",
     "model": "gpt-4o",
