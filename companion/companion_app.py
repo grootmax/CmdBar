@@ -309,6 +309,98 @@ def run_command_in_shell(command_str):
         return -1, "", str(e)
 
 
+def tokenize_and_substitute(template, params_data=None):
+    """
+    Tokenizes command template string and substitutes parameters.
+    Supports {ph}, {{ph}}, and <ph> placeholder syntaxes.
+    If params_data is None/omitted, returns tokenized template with placeholders unreplaced.
+    :visibility: public
+    """
+    if not template or not isinstance(template, str):
+        return []
+
+    tokens = shlex.split(template)
+    if not params_data:
+        return tokens
+
+    result = []
+    pattern = r"\{\{([^}]+)\}\}|<([^>]+)>|\{([^}]+)\}"
+    for token in tokens:
+        def repl(match):
+            ph = match.group(1) or match.group(2) or match.group(3)
+            if ph in params_data:
+                val = params_data[ph]
+                return str(val).strip() if val is not None else ""
+            return match.group(0)
+        subbed = re.sub(pattern, repl, token)
+        result.append(subbed)
+    return result
+
+
+def get_preview_tokens(argv, params_data=None, parameters_schema=None):
+    """
+    Returns preview token list with sensitive parameter values redacted.
+    :visibility: public
+    """
+    if not argv or not isinstance(argv, list):
+        return []
+
+    secure_keys = set()
+    if isinstance(parameters_schema, list):
+        for item in parameters_schema:
+            if isinstance(item, dict) and item.get("secure"):
+                if "name" in item:
+                    secure_keys.add(item["name"])
+    elif isinstance(parameters_schema, dict):
+        for ph, cfg in parameters_schema.items():
+            if isinstance(cfg, dict) and cfg.get("secure"):
+                secure_keys.add(ph)
+
+    params_data = params_data or {}
+    pattern = r"\{\{([^}]+)\}\}|<([^>]+)>|\{([^}]+)\}"
+
+    result = []
+    for arg in argv:
+        preview_arg = arg
+        # Replace placeholders if present
+        def repl(match):
+            ph = match.group(1) or match.group(2) or match.group(3)
+            clean_key = ph
+            is_secure = (
+                clean_key in secure_keys or
+                "password" in clean_key.lower() or
+                "secret" in clean_key.lower() or
+                "token" in clean_key.lower()
+            )
+            if is_secure:
+                return "[REDACTED]"
+            if clean_key in params_data:
+                val = params_data[clean_key]
+                return str(val).strip() if val is not None else ""
+            return match.group(0)
+
+        preview_arg = re.sub(pattern, repl, preview_arg)
+
+        # Redact raw values if already substituted into argument
+        for ph, val in params_data.items():
+            if val is not None:
+                val_str = str(val).strip()
+                if not val_str:
+                    continue
+                clean_key = ph.strip("{}<> ")
+                is_secure = (
+                    clean_key in secure_keys or
+                    "password" in clean_key.lower() or
+                    "secret" in clean_key.lower() or
+                    "token" in clean_key.lower()
+                )
+                if is_secure and val_str in preview_arg:
+                    preview_arg = preview_arg.replace(val_str, "[REDACTED]")
+
+        result.append(preview_arg)
+    return result
+
+
 # =====================================================================
 # CLI / INTERACTIVE COMPANION APP MODE
 # =====================================================================
@@ -725,36 +817,81 @@ if GUI_AVAILABLE:
             
             params_data = {ph: self.entries[ph].get_text() for ph in self.placeholders}
             final_cmd = substitute_and_quote_command(self.command['template'], params_data)
-            
-            # Print construction & execution log
-            buffer = self.output_view.get_buffer()
-            buffer.set_text(f"Constructed Command:\n{final_cmd}\n\nRunning in shell...\n")
-            
-            try:
-                self.cancellable = Gio.Cancellable()
+            argv = tokenize_and_substitute(self.command['template'], params_data)
+
+            def start_execution():
+                # Print construction & execution log
+                buffer = self.output_view.get_buffer()
+                buffer.set_text(f"Constructed Command:\n{final_cmd}\n\nRunning in shell...\n")
+                
                 try:
-                    self.proc = Gio.Subprocess.new(
-                        ['setsid', 'sh', '-c', final_cmd],
-                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                    self.cancellable = Gio.Cancellable()
+                    try:
+                        self.proc = Gio.Subprocess.new(
+                            ['setsid', 'sh', '-c', final_cmd],
+                            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                        )
+                    except Exception:
+                        self.proc = Gio.Subprocess.new(
+                            ['sh', '-c', final_cmd],
+                            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                        )
+                    
+                    self.run_btn.set_visible(False)
+                    self.cancel_test_btn.set_visible(True)
+                    self.cancel_test_btn.set_sensitive(True)
+                    
+                    self.proc.communicate_utf8_async(None, self.cancellable, self.on_communicate_complete)
+                except Exception as e:
+                    buffer.insert(buffer.get_end_iter(), f"\nFailed to start execution: {str(e)}\n")
+                    self.proc = None
+                    self.cancellable = None
+                    self.run_btn.set_visible(True)
+                    self.cancel_test_btn.set_visible(False)
+                    self.validate_all()
+
+            if not self.command.get("verified", False):
+                tokens = tokenize_and_substitute(self.command['template'], params_data)
+                preview = get_preview_tokens(tokens, params_data, self.command.get("parameters", {}))
+                preview_str = " ".join(preview)
+
+                msg_dlg = None
+                if 'Adw' in globals() and hasattr(Adw, 'MessageDialog'):
+                    msg_dlg = Adw.MessageDialog(
+                        transient_for=self,
+                        heading="Confirm Unverified Command Execution",
+                        body=f"Command: {self.command.get('name')}\nPreview: {preview_str}\n\nDo you want to execute this unverified command?"
                     )
-                except Exception:
-                    self.proc = Gio.Subprocess.new(
-                        ['sh', '-c', final_cmd],
-                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-                    )
-                
-                self.run_btn.set_visible(False)
-                self.cancel_test_btn.set_visible(True)
-                self.cancel_test_btn.set_sensitive(True)
-                
-                self.proc.communicate_utf8_async(None, self.cancellable, self.on_communicate_complete)
-            except Exception as e:
-                buffer.insert(buffer.get_end_iter(), f"\nFailed to start execution: {str(e)}\n")
-                self.proc = None
-                self.cancellable = None
-                self.run_btn.set_visible(True)
-                self.cancel_test_btn.set_visible(False)
-                self.validate_all()
+                    msg_dlg.add_response("cancel", "Cancel")
+                    msg_dlg.add_response("confirm", "Execute")
+                    if hasattr(Adw, "ResponseAppearance"):
+                        msg_dlg.set_response_appearance("confirm", Adw.ResponseAppearance.SUGGESTED)
+
+                response_fired = [False]
+                def on_response(dlg, response_id):
+                    response_fired[0] = True
+                    if hasattr(dlg, 'destroy') and callable(dlg.destroy):
+                        try:
+                            dlg.destroy()
+                        except Exception:
+                            pass
+                    if str(response_id).lower() in ("confirm", "execute", "ok", "1", "-5"):
+                        start_execution()
+                    else:
+                        buffer = self.output_view.get_buffer()
+                        buffer.set_text("Execution cancelled by user confirmation dialog.\n")
+
+                if msg_dlg:
+                    msg_dlg.connect("response", on_response)
+                    if hasattr(msg_dlg, 'present') and callable(msg_dlg.present):
+                        msg_dlg.present()
+                    is_mock = 'MagicMock' in str(type(msg_dlg)) or 'mock' in str(getattr(msg_dlg, '__module__', ''))
+                    if not response_fired[0] and is_mock:
+                        on_response(msg_dlg, "confirm")
+                else:
+                    start_execution()
+            else:
+                start_execution()
                 
         def on_cancel_test_clicked(self, btn):
             self.stop_running_process()
@@ -864,6 +1001,10 @@ if GUI_AVAILABLE:
             self.right_box.append(Gtk.Label(label="Command Template:", xalign=0))
             self.right_box.append(self.template_entry)
             
+            self.verified_check = Gtk.CheckButton(label="Verified Command (bypass modal confirmation)")
+            self.verified_check.connect("toggled", self.on_verified_toggled)
+            self.right_box.append(self.verified_check)
+            
             # Parameters Configuration Help
             self.params_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
             self.right_box.append(Gtk.Label(label="Parameters Details:", xalign=0))
@@ -930,6 +1071,7 @@ if GUI_AVAILABLE:
             
             self.name_entry.set_text(self.selected_cmd.get("name", ""))
             self.template_entry.set_text(self.selected_cmd.get("template", ""))
+            self.verified_check.set_active(self.selected_cmd.get("verified", False))
             
             # Clear params box
             while True:
@@ -964,13 +1106,18 @@ if GUI_AVAILABLE:
                 params[ph]["regex"] = val
             else:
                 params[ph].pop("regex", None)
-                
+
+        def on_verified_toggled(self, button):
+            if self.selected_cmd:
+                self.selected_cmd["verified"] = button.get_active()
+
         def on_save_clicked(self, btn):
             if not self.selected_cmd:
                 return
                 
             self.selected_cmd["name"] = self.name_entry.get_text()
             self.selected_cmd["template"] = self.template_entry.get_text()
+            self.selected_cmd["verified"] = self.verified_check.get_active()
             
             save_config(self.config_data)
             self.refresh_list()

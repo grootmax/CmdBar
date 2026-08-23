@@ -657,7 +657,19 @@ export async function loadConfig(configPath, extensionPath) {
         isValidSignature = false;
     }
 
-    if (!isValidSchema || !isValidSignature) {
+    if (!isValidSchema) {
+        // Non-destructive memory fallback: preserve invalid file on disk as-is, load default in memory
+        const configObj = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+        Object.defineProperty(configObj, '_isInvalid', {
+            value: true,
+            writable: true,
+            enumerable: false,
+            configurable: true
+        });
+        return configObj;
+    }
+
+    if (!isValidSignature) {
         // Archive corrupted or untrusted file to .bak and restore clean signed default config
         const backupPath = configPath + '.bak';
         try {
