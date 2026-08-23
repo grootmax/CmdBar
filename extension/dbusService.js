@@ -1,5 +1,6 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import { WindowManager } from "./windowManager.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -20,6 +21,20 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
+    </method>
+    <method name="TileWindow">
+      <arg name="direction" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="CloseWindow">
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="SwitchWorkspace">
+      <arg name="target" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="ListWindows">
+      <arg name="json_windows" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -227,6 +242,47 @@ export class CmdBarDBusService {
       return JSON.stringify(allCmds);
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
+      return JSON.stringify([]);
+    }
+  }
+
+  async TileWindow(direction) {
+    try {
+      const wm = new WindowManager(this._indicator);
+      return await wm.executeAction(direction || "tile-left");
+    } catch (e) {
+      console.error(`CmdBar D-Bus TileWindow error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async CloseWindow() {
+    try {
+      const wm = new WindowManager(this._indicator);
+      return await wm.executeAction("close");
+    } catch (e) {
+      console.error(`CmdBar D-Bus CloseWindow error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async SwitchWorkspace(target) {
+    try {
+      const wm = new WindowManager(this._indicator);
+      return await wm.executeAction("switch-workspace", { target });
+    } catch (e) {
+      console.error(`CmdBar D-Bus SwitchWorkspace error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async ListWindows() {
+    try {
+      const wm = new WindowManager(this._indicator);
+      const list = wm.getWindowsList();
+      return JSON.stringify(list);
+    } catch (e) {
+      console.error(`CmdBar D-Bus ListWindows error: ${e.message}`);
       return JSON.stringify([]);
     }
   }

@@ -4,6 +4,7 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.window_manager import execute_wm_command, render_window_preview_card
 
 class CmdBarDBusService:
     """
@@ -131,3 +132,35 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def tile_window(self, direction: str = "tile-left") -> bool:
+        return execute_wm_command(direction or "tile-left")
+
+    def close_window(self) -> bool:
+        return execute_wm_command("close")
+
+    def switch_workspace(self, target: str = "1") -> bool:
+        return execute_wm_command("switch-workspace", target=target)
+
+    def list_windows(self) -> list:
+        return [
+            render_window_preview_card({
+                "id": "win-1",
+                "title": "Terminal",
+                "wm_class": "gnome-terminal",
+                "rect": {"x": 0, "y": 0, "width": 960, "height": 1080},
+                "active": True,
+                "workspaceIndex": 0
+            }),
+            render_window_preview_card({
+                "id": "win-2",
+                "title": "Firefox",
+                "wm_class": "firefox",
+                "rect": {"x": 960, "y": 0, "width": 960, "height": 1080},
+                "active": False,
+                "workspaceIndex": 0
+            })
+        ]
+
+    def list_windows_json(self) -> str:
+        return json.dumps(self.list_windows())

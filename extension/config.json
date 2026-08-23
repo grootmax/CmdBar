@@ -37,6 +37,58 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Window Management",
+      "commands": [
+        {
+          "name": "Tile Window Left",
+          "command": "wm:tile-left",
+          "shortcut": "<Super><Alt>Left"
+        },
+        {
+          "name": "Tile Window Right",
+          "command": "wm:tile-right",
+          "shortcut": "<Super><Alt>Right"
+        },
+        {
+          "name": "Maximize Window",
+          "command": "wm:maximize",
+          "shortcut": "<Super><Alt>Up"
+        },
+        {
+          "name": "Close Active Window",
+          "command": "wm:close",
+          "shortcut": "<Super><Alt>c"
+        },
+        {
+          "name": "Switch Workspace Next",
+          "command": "wm:workspace-next",
+          "shortcut": "<Super><Alt>Page_Down"
+        },
+        {
+          "name": "Switch Workspace Previous",
+          "command": "wm:workspace-prev",
+          "shortcut": "<Super><Alt>Page_Up"
+        },
+        {
+          "name": "Move Window to Workspace",
+          "command": "wm:move-workspace <workspace-number>",
+          "placeholder": "workspace-number"
+        },
+        {
+          "name": "Resize Window (Grow)",
+          "command": "wm:resize-grow"
+        },
+        {
+          "name": "Resize Window (Shrink)",
+          "command": "wm:resize-shrink"
+        },
+        {
+          "name": "Show Window Preview",
+          "command": "wm:preview"
+        }
+      ]
     }
   ]
 }
