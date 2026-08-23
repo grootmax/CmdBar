@@ -203,7 +203,7 @@ jobs:
 
               echo "Attempt $ATTEMPT: mergeable=$MERGEABLE"
 
-              if [ "$MERGEABLE" != "UNKNOWN" ]; then
+              if [ "$MERGEABLE" != "UNKNOWN" ] && [ "$MERGEABLE" != "null" ] && [ -n "$MERGEABLE" ]; then
                 break
               fi
 
@@ -288,11 +288,11 @@ jobs:
               echo ""
               echo "Fetching base branch..."
 
-              git fetch origin "$BASE_BRANCH"
+              git fetch origin "$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH"
 
               echo "Fetching Jules branch..."
 
-              git fetch origin "$HEAD_BRANCH"
+              git fetch origin "$HEAD_BRANCH:refs/remotes/origin/$HEAD_BRANCH"
 
               # ==================================================
               # CHECKOUT JULES BRANCH
@@ -412,11 +412,15 @@ jobs:
                 # COMMIT RESOLUTION
                 # ==================================================
 
-                echo ""
-                echo "Committing conflict resolution..."
+                if ! git diff --staged --quiet; then
 
-                git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                  echo ""
+                  echo "Committing conflict resolution..."
+
+                  git commit \
+                    -m "chore: auto-resolve merge conflicts"
+
+                fi
 
               fi
 
