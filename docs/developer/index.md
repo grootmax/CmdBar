@@ -4,9 +4,10 @@ This directory contains internal technical specifications and architectural note
 
 ## Extension Lifecycle & Architecture
 
-The architecture of CmdBar is designed around two main components to maintain safety and speed:
+The architecture of CmdBar is designed around modular components to maintain safety, speed, and cross-desktop compatibility:
 1. **The GNOME Shell Extension (JavaScript / GJS)**: Direct interaction with the GNOME UI. Runs inside the shell's single-threaded event loop. Keep operations as non-blocking as possible.
-2. **The Companion App (Python)**: Handles disk operations, custom subprocess spawning, and configuration updates.
+2. **The KDE Plasma Plasmoid & Integration Modules (QML / JS / Python)**: Native Plasmoid applet (`kde-plasma/`), System Tray StatusNotifierItem (`extension/systemTray.js`), KWin shortcut manager (`extension/kwinIntegration.js`), KWallet client (`extension/kwalletClient.js`), and Plasma theme adapter (`extension/plasmaTheme.js`).
+3. **The Companion App & D-Bus Services (Python)**: Handles disk operations, custom subprocess spawning, D-Bus service bridging (`org.gnome.CmdBar` and `org.kde.CmdBar`), and configuration updates.
 
 ### Command Audit Logging Architecture
 
@@ -38,6 +39,14 @@ CmdBar supports isolated sandboxed execution on a per-command basis:
 - **Integration**:
   - JavaScript wrapper (`extension/sandboxWrapper.js`) integrates into GJS execution paths (`runCommandAsync`, `_executeCommandAsync`, `executeCommand`).
   - Python wrapper (`app/sandbox_wrapper.py`) integrates into `app/config_schema.py` (`resolve_command_preview`) and `app/main.py` Libadwaita companion editor.
+
+### KDE Plasma 5 & 6 Native Support
+
+CmdBar provides complete KDE Plasma desktop integration:
+- **Plasmoid Applet**: Native QML Plasmoid with compact (system tray/panel icon) and full (menu popup, argument dialog, search box) representations (`kde-plasma/contents/ui/main.qml`).
+- **KWallet Integration**: Secure secret storage via `org.kde.kwalletd5` / `org.kde.kwalletd6` for LLM API keys and sensitive tokens.
+- **KWin Shortcut Binds**: Global shortcut triggers registered via KGlobalAccel (`org.kde.kglobalaccel`) and active window context extraction from KWin (`org.kde.KWin`).
+- **Plasma Theme Sync**: Extracts system color schemes (Breeze Light / Breeze Dark) from `kdeglobals` and maps them to UI elements and output syntax highlighting.
 
 ### Output Parser & Formatter Module
 
