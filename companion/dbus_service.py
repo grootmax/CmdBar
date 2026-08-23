@@ -4,17 +4,20 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.stream_deck import StreamDeckManager
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
+    StreamDeckPressKey, StreamDeckSetActiveProfile, StreamDeckGetProfileGrid,
     and manages signals for CommandExecuted and CommandOutput.
     """
     def __init__(self, config_path=None):
         self.config_path = config_path
         self._executed_listeners = []
         self._output_listeners = []
+        self.stream_deck = StreamDeckManager(config_path=config_path)
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
@@ -131,3 +134,15 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def stream_deck_press_key(self, key_index: int) -> bool:
+        res = self.stream_deck.press_key(key_index)
+        return bool(res.get("success", False))
+
+    def stream_deck_set_active_profile(self, profile_name: str) -> bool:
+        return self.stream_deck.set_active_profile(profile_name)
+
+    def stream_deck_get_profile_grid(self) -> str:
+        grid = self.stream_deck.render_profile_grid()
+        return json.dumps(grid)
+

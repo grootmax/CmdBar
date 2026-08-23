@@ -79,7 +79,18 @@ DEFAULT_CONFIG = {
         }
       ]
     }
-  ]
+  ],
+  "stream_deck": {
+    "active_profile": "Default",
+    "profiles": {
+      "Default": {
+        "name": "Default",
+        "device_model": "ORIGINAL",
+        "bg_color": "#0D1117",
+        "keys": {}
+      }
+    }
+  }
 }
 
 def get_config_path():

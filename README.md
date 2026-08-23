@@ -11,6 +11,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
+- **Elgato Stream Deck Integration** – Hardware support for Elgato Stream Deck devices (Mini, Original, XL, Plus) with visual buttons, feedback LEDs (Idle, Running, Success, Error), dynamic label templates (`{name}`, `{status}`, `{time}`, `{last_output}`), profile switching, and render caching
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Output Formatters** – Automatically parse and nicely format command outputs: JSON pretty-printing with Pango markup & ANSI syntax highlighting, ASCII table rendering for CSV/TSV data, and monospaced boxed code blocks
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
