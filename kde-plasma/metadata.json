@@ -1,0 +1,27 @@
+{
+  "KPlugin": {
+    "Authors": [
+      {
+        "Email": "support@cmdbar.org",
+        "Name": "CmdBar Team"
+      }
+    ],
+    "Category": "Utilities",
+    "Description": "Quick commands in your KDE Plasma status bar, panel, and system tray.",
+    "Icon": "utilities-terminal",
+    "Id": "org.kde.plasma.cmdbar",
+    "License": "MIT",
+    "Name": "CmdBar",
+    "ServiceTypes": [
+      "Plasma/Applet"
+    ],
+    "Version": "1.0.0",
+    "Website": "https://github.com/grootmax/CmdBar"
+  },
+  "KPackageStructure": "Plasma/Applet",
+  "X-Plasma-API": "declarative-script",
+  "X-Plasma-MainScript": "ui/main.qml",
+  "X-Plasma-Provides": [
+    "org.kde.plasma.launchermenu"
+  ]
+}
