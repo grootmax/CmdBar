@@ -22,3 +22,12 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Wayland Native & Tiling Window Manager Integration
+
+The Wayland module (`companion/wayland.py`) enables native operation across Hyprland, Sway, i3, and generic Wayland compositors:
+- **Compositor IPC Abstraction**: Queries active window and workspace metadata via `hyprctl -j activewindow` (Hyprland), `swaymsg -t get_tree` (Sway), or `i3-msg -t get_tree` (i3).
+- **Tiling-Aware Context Injection**: Exposes active window context (`{active_window}`, `{active_class}`, `{workspace}`, `{compositor}`, `{floating}`) as dynamic parameters for command template substitution.
+- **Floating Window Rules**: Automates floating window rule application for dialogs in Hyprland, Sway, and i3.
+- **JSON IPC Protocol Server**: High-performance Unix domain socket server (`cmdbar.sock`) supporting `ping`, `get_config`, `list_categories`, `list_commands`, `search`, `execute`, `ai_translate`, `get_tiling_context`, `set_floating`, `copy_to_clipboard`, and `paste_from_clipboard`.
+- **Launcher Integration**: Native launcher support for `wofi`, `rofi`, `fuzzel`, and `dmenu`.
