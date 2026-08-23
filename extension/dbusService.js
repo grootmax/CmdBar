@@ -95,6 +95,16 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="code" type="s" direction="in"/>
       <arg name="success" type="b" direction="out"/>
     </method>
+    <method name="ExportEnvironmentSnapshot">
+      <arg name="file_path" type="s" direction="in"/>
+      <arg name="description" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="ImportEnvironmentSnapshot">
+      <arg name="file_path" type="s" direction="in"/>
+      <arg name="merge" type="b" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
     <method name="StartTerminalSharing">
       <arg name="session_id" type="s" direction="in"/>
       <arg name="title" type="s" direction="in"/>
@@ -483,6 +493,17 @@ export class CmdBarDBusService {
     }
   }
 
+  async ExportEnvironmentSnapshot(filePath, description) {
+    try {
+      const { exportSnapshotToFile } = await import("./environmentSnapshot.js");
+      await exportSnapshotToFile(filePath, { description: description || "Exported via D-Bus" });
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ExportEnvironmentSnapshot error: ${e.message}`);
+      return false;
+    }
+  }
+
   async AuthenticateYubiKey(name, mode, credential) {
     try {
       const configPath =
@@ -603,6 +624,20 @@ export class CmdBarDBusService {
       return true;
     } catch (e) {
       console.error(`CmdBar D-Bus ImportCommandFromUrl error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async ImportEnvironmentSnapshot(filePath, merge) {
+    try {
+      const { importSnapshotFromFile } = await import("./environmentSnapshot.js");
+      await importSnapshotFromFile(filePath, { mode: merge ? "merge" : "overwrite" });
+      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        this._indicator._reloadMenu();
+      }
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ImportEnvironmentSnapshot error: ${e.message}`);
       return false;
     }
   }
