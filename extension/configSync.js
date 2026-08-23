@@ -3,6 +3,8 @@
  * Runs in both GJS (GNOME Shell) and Node.js (Testing/Companion app) environments.
  */
 
+import { DEFAULT_RBAC_CONFIG } from "./rbacManager.js";
+
 export const DEFAULT_CONFIG = {
   ai: {
     provider: "openai",
@@ -54,6 +56,7 @@ export const DEFAULT_CONFIG = {
       ],
     },
   ],
+  rbac: DEFAULT_RBAC_CONFIG,
 };
 
 const isNode =
