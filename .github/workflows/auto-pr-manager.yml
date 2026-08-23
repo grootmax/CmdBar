@@ -257,188 +257,196 @@ jobs:
               echo "$WORKDIR"
 
               # ==================================================
-              # CLONE REPOSITORY
+              # RESOLVE MERGE CONFLICTS SAFELY IN A SUBSHELL
               # ==================================================
 
-              echo ""
-              echo "Cloning repository..."
+              RESOLVE_SUCCESS=true
 
-              git clone \
-                "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" \
-                "$WORKDIR"
+              (
+                set -e
 
-              cd "$WORKDIR"
-
-              # ==================================================
-              # CONFIGURE GIT
-              # ==================================================
-
-              git config \
-                user.name \
-                "github-actions[bot]"
-
-              git config \
-                user.email \
-                "41898282+github-actions[bot]@users.noreply.github.com"
-
-              # ==================================================
-              # FETCH BRANCHES
-              # ==================================================
-
-              echo ""
-              echo "Fetching base branch..."
-
-              git fetch origin "$BASE_BRANCH":refs/remotes/origin/"$BASE_BRANCH"
-
-              echo "Fetching Jules branch..."
-
-              git fetch origin "$HEAD_BRANCH":refs/remotes/origin/"$HEAD_BRANCH"
-
-              # ==================================================
-              # CHECKOUT JULES BRANCH
-              # ==================================================
-
-              echo ""
-              echo "Checking out Jules branch..."
-
-              git checkout -B \
-                "$HEAD_BRANCH" \
-                "origin/$HEAD_BRANCH"
-
-              # ==================================================
-              # MERGE BASE INTO JULES BRANCH
-              #
-              # Example:
-              #
-              # main
-              #   ↓
-              # Jules branch
-              #
-              # ours   = Jules branch
-              # theirs = main/base branch
-              # ==================================================
-
-              echo ""
-              echo "Merging $BASE_BRANCH into $HEAD_BRANCH..."
-
-              MERGE_SUCCESS=true
-
-              if ! git merge \
-                --no-edit \
-                "origin/$BASE_BRANCH"; then
-
-                MERGE_SUCCESS=false
-
-              fi
-
-              # ==================================================
-              # RESOLVE CONFLICTS
-              # ==================================================
-
-              if [ "$MERGE_SUCCESS" = "false" ]; then
+                # ==================================================
+                # CLONE REPOSITORY
+                # ==================================================
 
                 echo ""
-                echo "Conflicts detected."
+                echo "Cloning repository..."
+
+                git clone \
+                  "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" \
+                  "$WORKDIR"
+
+                cd "$WORKDIR"
+
+                # ==================================================
+                # CONFIGURE GIT
+                # ==================================================
+
+                git config \
+                  user.name \
+                  "github-actions[bot]"
+
+                git config \
+                  user.email \
+                  "41898282+github-actions[bot]@users.noreply.github.com"
+
+                # ==================================================
+                # FETCH BRANCHES
+                # ==================================================
+
                 echo ""
-                echo "Accepting incoming/base branch changes."
+                echo "Fetching base branch..."
+
+                git fetch origin "+refs/heads/$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH"
+
+                echo "Fetching Jules branch..."
+
+                git fetch origin "+refs/heads/$HEAD_BRANCH:refs/remotes/origin/$HEAD_BRANCH"
+
+                # ==================================================
+                # CHECKOUT JULES BRANCH
+                # ==================================================
+
                 echo ""
+                echo "Checking out Jules branch..."
 
-                echo "Conflicted files:"
+                git checkout -B \
+                  "$HEAD_BRANCH" \
+                  "origin/$HEAD_BRANCH"
 
-                git diff \
-                  --name-only \
-                  --diff-filter=U
-
-                echo ""
-
-                # --------------------------------------------------
-                # Accept THEIRS for every conflicted file.
+                # ==================================================
+                # MERGE BASE INTO JULES BRANCH
                 #
-                # Because:
+                # Example:
+                #
+                # main
+                #   ↓
+                # Jules branch
                 #
                 # ours   = Jules branch
-                # theirs = base/main branch
-                #
-                # this means we keep the base/main version.
-                # --------------------------------------------------
-
-                CONFLICTED_FILES=$(git diff --name-only --diff-filter=U)
-
-                if [ -n "$CONFLICTED_FILES" ]; then
-                  while IFS= read -r FILE; do
-                    [ -z "$FILE" ] && continue
-
-                    echo "Resolving conflict:"
-                    echo "  $FILE"
-
-                    if ! git checkout --theirs -- "$FILE" 2>/dev/null; then
-                      git rm -- "$FILE" 2>/dev/null || true
-                    fi
-
-                    git add -- "$FILE" 2>/dev/null || true
-                  done <<< "$CONFLICTED_FILES"
-                fi
-
-                # ==================================================
-                # VERIFY NO CONFLICTS REMAIN
-                # ==================================================
-
-                REMAINING_CONFLICTS=$(git diff \
-                  --name-only \
-                  --diff-filter=U |
-                  wc -l)
-
-                if [ "$REMAINING_CONFLICTS" -ne 0 ]; then
-
-                  echo ""
-                  echo "ERROR:"
-                  echo "Unresolved conflicts remain."
-
-                  echo ""
-                  echo "Aborting merge."
-
-                  git merge --abort || true
-
-                  cd /
-
-                  rm -rf "$WORKDIR"
-
-                  echo ""
-                  echo "PR #$PR_NUMBER could not be automatically resolved."
-                  echo "Stopping processing."
-
-                  break
-
-                fi
-
-                # ==================================================
-                # COMMIT RESOLUTION
+                # theirs = main/base branch
                 # ==================================================
 
                 echo ""
-                echo "Committing conflict resolution..."
+                echo "Merging $BASE_BRANCH into $HEAD_BRANCH..."
 
-                if ! git diff --cached --quiet; then
-                  git commit \
-                    -m "chore: auto-resolve merge conflicts"
-                else
-                  echo "No changes staged to commit."
+                MERGE_SUCCESS=true
+
+                if ! git merge \
+                  --no-edit \
+                  "origin/$BASE_BRANCH"; then
+
+                  MERGE_SUCCESS=false
+
                 fi
 
-              fi
+                # ==================================================
+                # RESOLVE CONFLICTS
+                # ==================================================
 
-              # ==================================================
-              # PUSH RESOLVED JULES BRANCH
-              # ==================================================
+                if [ "$MERGE_SUCCESS" = "false" ]; then
 
-              echo ""
-              echo "Pushing updated Jules branch..."
+                  echo ""
+                  echo "Conflicts detected."
+                  echo ""
+                  echo "Accepting incoming/base branch changes."
+                  echo ""
 
-              git push origin "$HEAD_BRANCH"
+                  echo "Conflicted files:"
+
+                  git diff \
+                    --name-only \
+                    --diff-filter=U
+
+                  echo ""
+
+                  # --------------------------------------------------
+                  # Accept THEIRS for every conflicted file.
+                  #
+                  # Because:
+                  #
+                  # ours   = Jules branch
+                  # theirs = base/main branch
+                  #
+                  # this means we keep the base/main version.
+                  # --------------------------------------------------
+
+                  CONFLICTED_FILES=$(git diff --name-only --diff-filter=U)
+
+                  if [ -n "$CONFLICTED_FILES" ]; then
+                    while IFS= read -r FILE; do
+                      [ -z "$FILE" ] && continue
+
+                      echo "Resolving conflict:"
+                      echo "  $FILE"
+
+                      if ! git checkout --theirs -- "$FILE" 2>/dev/null; then
+                        git rm -- "$FILE" 2>/dev/null || true
+                      fi
+
+                      git add -- "$FILE" 2>/dev/null || true
+                    done <<< "$CONFLICTED_FILES"
+                  fi
+
+                  # ==================================================
+                  # VERIFY NO CONFLICTS REMAIN
+                  # ==================================================
+
+                  REMAINING_CONFLICTS=$(git diff \
+                    --name-only \
+                    --diff-filter=U |
+                    wc -l)
+
+                  if [ "$REMAINING_CONFLICTS" -ne 0 ]; then
+
+                    echo ""
+                    echo "ERROR:"
+                    echo "Unresolved conflicts remain."
+
+                    echo ""
+                    echo "Aborting merge."
+
+                    git merge --abort || true
+                    exit 1
+
+                  fi
+
+                  # ==================================================
+                  # COMMIT RESOLUTION
+                  # ==================================================
+
+                  echo ""
+                  echo "Committing conflict resolution..."
+
+                  if ! git diff --cached --quiet; then
+                    git commit \
+                      -m "chore: auto-resolve merge conflicts"
+                  else
+                    echo "No changes staged to commit."
+                  fi
+
+                fi
+
+                # ==================================================
+                # PUSH RESOLVED JULES BRANCH
+                # ==================================================
+
+                echo ""
+                echo "Pushing updated Jules branch..."
+
+                git push origin "$HEAD_BRANCH"
+
+              ) || RESOLVE_SUCCESS=false
 
               cd /
-
               rm -rf "$WORKDIR"
+
+              if [ "$RESOLVE_SUCCESS" = "false" ]; then
+                echo ""
+                echo "PR #$PR_NUMBER could not be automatically resolved."
+                echo "Stopping processing."
+                break
+              fi
 
               echo ""
               echo "=========================================="
@@ -485,15 +493,34 @@ jobs:
               echo "Checking status checks for PR #$PR_NUMBER..."
 
               CHECK_OUTPUT=$(
-                gh pr checks "$PR_NUMBER" \
+                gh pr view "$PR_NUMBER" \
                   --repo "$GH_REPO" \
-                  --json name,state,bucket,workflow \
+                  --json statusCheckRollup \
+                  --jq '.statusCheckRollup // []' \
                   2>/dev/null || true
               )
 
-              if [ -z "$CHECK_OUTPUT" ]; then
+              if [ -z "$CHECK_OUTPUT" ] || [ "$CHECK_OUTPUT" = "null" ]; then
                 CHECK_OUTPUT="[]"
               fi
+
+              CHECK_OUTPUT=$(echo "$CHECK_OUTPUT" | jq '
+                [
+                  .[] | {
+                    name: (.name // .context // ""),
+                    workflow: (.workflowName // .name // .context // ""),
+                    state: (.conclusion // .state // .status // ""),
+                    bucket: (
+                      if (.status // "") != "COMPLETED" and (.status // "") != "" and (.conclusion == null or .conclusion == "") then "pending"
+                      elif (.conclusion // .state // "") | ascii_downcase | test("success|pass|neutral|skipped") then "pass"
+                      elif (.conclusion // .state // "") | ascii_downcase | test("fail|cancel|timed_out") then "fail"
+                      elif (.status // .state // "") | ascii_downcase | test("in_progress|queued|pending") then "pending"
+                      else "pending"
+                      end
+                    )
+                  }
+                ]
+              ' 2>/dev/null || echo "[]")
 
               echo ""
               echo "Status checks output:"
@@ -572,7 +599,13 @@ jobs:
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      (.bucket == "fail" or .bucket == "cancel")
+                      and ((.name | ascii_downcase | contains("auto jules pr manager")) | not)
+                      and ((.name | ascii_downcase | contains("process jules prs")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("auto jules pr manager")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("process jules prs")) | not)
+                    )
                 ]
                 | length
               ')
@@ -580,7 +613,13 @@ jobs:
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "pending")
+                  | select(
+                      (.bucket == "pending")
+                      and ((.name | ascii_downcase | contains("auto jules pr manager")) | not)
+                      and ((.name | ascii_downcase | contains("process jules prs")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("auto jules pr manager")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("process jules prs")) | not)
+                    )
                 ]
                 | length
               ')
