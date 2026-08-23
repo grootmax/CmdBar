@@ -4,17 +4,21 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.tiling_wm import TilingWMManager
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
+    GetWMInfo, GetWMRules, ExecuteCommandWithWMContext,
     and manages signals for CommandExecuted and CommandOutput.
+    :visibility: public
     """
     def __init__(self, config_path=None):
         self.config_path = config_path
         self._executed_listeners = []
         self._output_listeners = []
+        self.wm_manager = TilingWMManager()
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
@@ -131,3 +135,53 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def get_wm_info(self) -> str:
+        """
+        Returns JSON string of active window manager status and tiling info.
+        """
+        return json.dumps(self.wm_manager.get_wm_info())
+
+    def get_wm_rules(self) -> str:
+        """
+        Returns window rule configuration string for floating/centering CmdBar popups.
+        """
+        return json.dumps(self.wm_manager.get_window_rules())
+
+    def execute_command_with_wm_context(self, name: str) -> bool:
+        """
+        Executes named command injecting active WM tiling context variables.
+        """
+        if not name or not str(name).strip():
+            return False
+        clean_name = str(name).strip()
+        config = load_config()
+
+        found_cmd = None
+        for cat in config.get("categories", []):
+            for c in cat.get("commands", []):
+                if c.get("name") == clean_name or c.get("template") == clean_name or c.get("command") == clean_name:
+                    found_cmd = c
+                    break
+            if found_cmd:
+                break
+
+        cmd_name = found_cmd.get("name") if found_cmd else clean_name
+        cmd_str = found_cmd.get("template", found_cmd.get("command", clean_name)) if found_cmd else clean_name
+
+        code, stdout, stderr = self.wm_manager.execute_command_with_context(cmd_str)
+        success = (code == 0)
+
+        for listener in self._output_listeners:
+            try:
+                listener(cmd_name, stdout, stderr)
+            except Exception:
+                pass
+
+        for listener in self._executed_listeners:
+            try:
+                listener(cmd_name, code, success)
+            except Exception:
+                pass
+
+        return True
