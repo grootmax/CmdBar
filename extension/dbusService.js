@@ -1,5 +1,6 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import { RBACManager } from "./rbac.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -20,6 +21,23 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
+    </method>
+    <method name="GetUserRole">
+      <arg name="username" type="s" direction="in"/>
+      <arg name="role" type="s" direction="out"/>
+    </method>
+    <method name="SetUserRole">
+      <arg name="username" type="s" direction="in"/>
+      <arg name="role" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetPendingApprovals">
+      <arg name="json_approvals" type="s" direction="out"/>
+    </method>
+    <method name="ApproveCommand">
+      <arg name="request_id" type="s" direction="in"/>
+      <arg name="reviewer" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -172,6 +190,7 @@ export class CmdBarDBusService {
         ? this._indicator._getConfigPath()
         : await getDefaultConfigPath();
       const config = await loadConfig(configPath);
+      const rbacManager = new RBACManager(config.rbac || {});
 
       let foundCmd = null;
       if (config.categories) {
@@ -186,6 +205,18 @@ export class CmdBarDBusService {
             }
           }
         }
+      }
+
+      const currentUser = (typeof process !== "undefined" && process.env && process.env.USER) || "user";
+      const check = rbacManager.canExecuteCommand(foundCmd || cleanName, currentUser);
+
+      if (!check.allowed) {
+        if (check.requires_approval) {
+          rbacManager.createApprovalRequest(foundCmd ? foundCmd.name : cleanName, foundCmd ? (foundCmd.command || foundCmd.template) : cleanName, currentUser);
+          config.rbac = rbacManager.toJSON();
+          await saveConfig(config, configPath);
+        }
+        return false;
       }
 
       const cmdName = foundCmd ? foundCmd.name : cleanName;
@@ -207,27 +238,92 @@ export class CmdBarDBusService {
         ? this._indicator._getConfigPath()
         : await getDefaultConfigPath();
       const config = await loadConfig(configPath);
+      const rbacManager = new RBACManager(config.rbac || {});
+      const currentUser = (typeof process !== "undefined" && process.env && process.env.USER) || "user";
+
+      const visibleCategories = rbacManager.getVisibleCommands(config.categories || [], currentUser);
 
       const allCmds = [];
-      if (config.categories && Array.isArray(config.categories)) {
-        config.categories.forEach((cat) => {
-          if (cat.commands && Array.isArray(cat.commands)) {
-            cat.commands.forEach((c) => {
-              allCmds.push({
-                name: c.name,
-                command: c.command || c.template || "",
-                category: cat.name,
-                placeholder: c.placeholder || "",
-                parameters: c.parameters || {},
-              });
+      visibleCategories.forEach((cat) => {
+        if (cat.commands && Array.isArray(cat.commands)) {
+          cat.commands.forEach((c) => {
+            allCmds.push({
+              name: c.name,
+              command: c.command || c.template || "",
+              category: cat.name,
+              placeholder: c.placeholder || "",
+              parameters: c.parameters || {},
             });
-          }
-        });
-      }
+          });
+        }
+      });
       return JSON.stringify(allCmds);
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
+    }
+  }
+
+  async GetUserRole(username) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const rbacManager = new RBACManager(config.rbac || {});
+      return rbacManager.getUserRole(username);
+    } catch (e) {
+      return "user";
+    }
+  }
+
+  async SetUserRole(username, role) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const rbacManager = new RBACManager(config.rbac || {});
+      const currentUser = (typeof process !== "undefined" && process.env && process.env.USER) || "admin";
+
+      rbacManager.setUserRole(username, role, currentUser);
+      config.rbac = rbacManager.toJSON();
+      await saveConfig(config, configPath);
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus SetUserRole error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async GetPendingApprovals() {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const rbacManager = new RBACManager(config.rbac || {});
+      return JSON.stringify(rbacManager.getPendingApprovalRequests());
+    } catch (e) {
+      return JSON.stringify([]);
+    }
+  }
+
+  async ApproveCommand(requestId, reviewer) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const rbacManager = new RBACManager(config.rbac || {});
+
+      rbacManager.approveRequest(requestId, reviewer || "admin");
+      config.rbac = rbacManager.toJSON();
+      await saveConfig(config, configPath);
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ApproveCommand error: ${e.message}`);
+      return false;
     }
   }
 

@@ -22,3 +22,13 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Role-Based Access Control (RBAC) Module
+
+The RBAC subsystem (`extension/rbac.js` and `app/rbac.py`) enforces security boundaries across both JavaScript and Python components:
+- **Permissions**: Granular capabilities such as `commands:view`, `commands:execute`, `commands:approve`, `commands:manage`, `rbac:manage`, and `audit:view`.
+- **Roles**: Default roles (`admin`, `operator`, `user`, `viewer`, `auditor`) and custom user assignments.
+- **Visibility Rules**: Dynamic command filtering based on user roles and permissions (`visibility: "public" | "role-restricted" | "admin-only" | "hidden"`).
+- **Approval Chains**: Command approval workflow requiring approver review before executing sensitive operations.
+- **Delegation**: Temporary delegation of roles or permissions with expiration tracking.
+- **Audit Logging**: Comprehensive, queryable audit trail for all access and execution events.
