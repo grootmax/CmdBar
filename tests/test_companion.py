@@ -14,8 +14,9 @@ from companion.companion_app import (
     validate_input,
     find_placeholders,
     substitute_and_quote_command,
-    run_command_in_shell
+    run_command_in_shell,
 )
+
 
 # Test configuration path override using environment variables
 @pytest.fixture
@@ -23,29 +24,29 @@ def temp_config_file():
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
         tmp_path = tmp.name
     # Override environment variable
-    os.environ['CMDBAR_CONFIG_PATH'] = tmp_path
+    os.environ["CMDBAR_CONFIG_PATH"] = tmp_path
     yield tmp_path
     # Clean up
     if os.path.exists(tmp_path):
         os.remove(tmp_path)
     if os.path.exists(tmp_path + ".tmp"):
         os.remove(tmp_path + ".tmp")
-    os.environ.pop('CMDBAR_CONFIG_PATH', None)
+    os.environ.pop("CMDBAR_CONFIG_PATH", None)
 
 
 def test_init_and_load_config(temp_config_file):
     # Ensure config path is overridden
     assert get_config_path() == temp_config_file
-    
+
     # Check that file doesn't exist yet
     if os.path.exists(temp_config_file):
         os.remove(temp_config_file)
-        
+
     # Init config and check default file structure
     path = init_config()
     assert path == temp_config_file
     assert os.path.exists(temp_config_file)
-    
+
     config_data = load_config()
     assert "categories" in config_data
     assert len(config_data["categories"]) > 0
@@ -62,20 +63,16 @@ def test_save_and_load_config(temp_config_file):
                     {
                         "name": "Custom Echo",
                         "template": "echo {msg}",
-                        "parameters": {
-                            "msg": {
-                                "placeholder": "Enter message"
-                            }
-                        }
+                        "parameters": {"msg": {"placeholder": "Enter message"}},
                     }
-                ]
+                ],
             }
         ]
     }
-    
+
     success = save_config(custom_config)
     assert success is True
-    
+
     loaded = load_config()
     assert loaded["categories"][0]["name"] == "Custom Category"
     assert loaded["categories"][0]["commands"][0]["name"] == "Custom Echo"
@@ -83,7 +80,7 @@ def test_save_and_load_config(temp_config_file):
 
 def test_validate_input_default_pattern():
     # When no pattern is provided, it must default to ^[a-zA-Z0-9_\-]+$
-    
+
     # Valid values (alphanumeric, underscore, hyphen)
     assert validate_input("validInput123") is True
     assert validate_input("valid_input_123") is True
@@ -92,27 +89,27 @@ def test_validate_input_default_pattern():
     assert validate_input("1") is True
     assert validate_input("_") is True
     assert validate_input("-") is True
-    
+
     # Invalid values (spaces, special symbols, empty string if pattern requires at least 1 char)
     assert validate_input("invalid input") is False  # contains space
     assert validate_input("invalid;input") is False  # contains semicolon
     assert validate_input("invalid&input") is False  # contains ampersand
     assert validate_input("invalid|input") is False  # contains pipe
-    assert validate_input("") is False              # empty string
-    assert validate_input("hello$world") is False    # contains dollar sign
+    assert validate_input("") is False  # empty string
+    assert validate_input("hello$world") is False  # contains dollar sign
 
 
 def test_validate_input_custom_pattern():
     # Alphanumeric plus period and slash (e.g. for branches/urls)
     custom_pattern = r"^[a-zA-Z0-9_\-/\\.]+$"
-    
+
     assert validate_input("feature/safe-quoting", custom_pattern) is True
     assert validate_input("v1.0.3-release", custom_pattern) is True
     assert validate_input("some\\path", custom_pattern) is True
-    
+
     # Invalid
     assert validate_input("feature/safe quoting", custom_pattern) is False  # space
-    assert validate_input("feature; rm -rf", custom_pattern) is False       # semicolon
+    assert validate_input("feature; rm -rf", custom_pattern) is False  # semicolon
 
 
 def test_find_placeholders():
@@ -120,7 +117,9 @@ def test_find_placeholders():
     assert find_placeholders("docker run -d {image} {tag}") == ["image", "tag"]
     assert find_placeholders("deploy {{service}}") == ["service"]
     assert find_placeholders("ping <host>") == ["host"]
-    assert find_placeholders("aws ecs update --service {{service}} --id {task} --host <host>") == ["service", "task", "host"]
+    assert find_placeholders(
+        "aws ecs update --service {{service}} --id {task} --host <host>"
+    ) == ["service", "task", "host"]
     assert find_placeholders("echo hello") == []
     assert find_placeholders("echo {name} is {adjective}") == ["name", "adjective"]
 
@@ -141,17 +140,19 @@ def test_substitute_and_quote_command():
     # Since feature/safe-quoting has no shell special characters, shlex might not wrap it in single quotes
     # but it is safely escaped.
     assert "feature/safe-quoting" in cmd
-    
+
     # An argument containing spaces MUST be enclosed in single quotes by shlex.quote
     params_with_spaces = {"branch": "feature/my new branch"}
     cmd_with_spaces = substitute_and_quote_command(template, params_with_spaces)
     # Verify it is single quoted
     assert "'feature/my new branch'" in cmd_with_spaces
-    
+
     # Verify that malicious shell character sequences are fully quoted and neutralized
     malicious_params = {"branch": "feature; rm -rf /"}
     cmd_malicious = substitute_and_quote_command(template, malicious_params)
-    assert "'feature; rm -rf /'" in cmd_malicious or '"feature; rm -rf /"' in cmd_malicious
+    assert (
+        "'feature; rm -rf /'" in cmd_malicious or '"feature; rm -rf /"' in cmd_malicious
+    )
 
 
 def test_execution_security_and_correctness():
@@ -159,7 +160,7 @@ def test_execution_security_and_correctness():
     # We use python's command line to echo back the argument length and content.
     # The template runs a python script that prints sys.argv to see how the arguments were parsed.
     template = "python3 -c 'import sys; print(len(sys.argv), sys.argv[1])' {arg}"
-    
+
     # Normal input
     params_normal = {"arg": "hello"}
     cmd_normal = substitute_and_quote_command(template, params_normal)
@@ -167,7 +168,7 @@ def test_execution_security_and_correctness():
     assert code == 0
     # sys.argv is [ "-c", "hello" ] -> len 2, argv[1] is hello
     assert "2 hello" in out.strip()
-    
+
     # Input with spaces
     params_space = {"arg": "hello world from cmdbar"}
     cmd_space = substitute_and_quote_command(template, params_space)
@@ -175,7 +176,7 @@ def test_execution_security_and_correctness():
     assert code == 0
     # Should execute successfully as a single argument containing spaces, not split!
     assert "2 hello world from cmdbar" in out.strip()
-    
+
     # Command injection attempt with semicolon
     # If injection succeeded, it would run `echo injected` as a separate command.
     # If quoting succeeded, it will print as a single literal argument.
@@ -203,11 +204,7 @@ def test_test_command_dialog_async_and_cancellation():
         "name": "Test Echo",
         "template": "echo {msg}",
         "verified": True,
-        "parameters": {
-            "msg": {
-                "placeholder": "Enter message"
-            }
-        }
+        "parameters": {"msg": {"placeholder": "Enter message"}},
     }
 
     mock_proc = MagicMock()
@@ -231,7 +228,7 @@ def test_test_command_dialog_async_and_cancellation():
     try:
         with patch("os.killpg") as mock_killpg:
             dialog = TestCommandDialog(None, command, None)
-            
+
             # Trigger run
             dialog.on_run_clicked(None)
 
@@ -259,6 +256,7 @@ def test_companion_validate_input_strips_whitespace():
     # If the stripped version is empty, it should be blocked
     assert validate_input("    ") is False
 
+
 def test_companion_substitute_and_quote_command_strips_whitespace():
     template = "echo {msg}"
     params = {"msg": "  hello world  "}
@@ -269,6 +267,7 @@ def test_companion_substitute_and_quote_command_strips_whitespace():
 
 def test_tokenize_and_substitute_direct_array():
     from companion.companion_app import tokenize_and_substitute
+
     template = "git checkout {branch}"
     params = {"branch": "feature/safe-quoting"}
     argv = tokenize_and_substitute(template, params)
@@ -277,13 +276,14 @@ def test_tokenize_and_substitute_direct_array():
 
 def test_get_preview_tokens_redacts_sensitive_parameters():
     from companion.companion_app import tokenize_and_substitute, get_preview_tokens
+
     template = "login -u {user} -p {password}"
     params = {"user": "jules", "password": "superSecretPassword123"}
     schema = [{"name": "password", "secure": True}]
-    
+
     tokens = tokenize_and_substitute(template)
     preview = get_preview_tokens(tokens, params, schema)
-    
+
     assert "superSecretPassword123" not in preview
     assert preview == ["login", "-u", "jules", "-p", "[REDACTED]"]
 
@@ -296,11 +296,7 @@ def test_unverified_modal_cancellation_halts_execution():
         "name": "Unverified Test Command",
         "template": "echo {msg}",
         "verified": False,
-        "parameters": {
-            "msg": {
-                "placeholder": "Enter message"
-            }
-        }
+        "parameters": {"msg": {"placeholder": "Enter message"}},
     }
 
     mock_proc_new = MagicMock()
@@ -314,7 +310,7 @@ def test_unverified_modal_cancellation_halts_execution():
 
     try:
         dialog = TestCommandDialog(None, command, None)
-        
+
         # Patch on_response to simulate user cancelling the dialog
         def mock_cancel_response(dlg, response_id):
             dlg.destroy()
@@ -325,11 +321,12 @@ def test_unverified_modal_cancellation_halts_execution():
         with patch("companion.companion_app.Adw") as mock_adw:
             mock_msg_dlg = MagicMock()
             mock_adw.MessageDialog.return_value = mock_msg_dlg
-            
+
             # Simulate cancel response callback
             def fake_connect(event, cb):
                 if event == "response":
                     cb(mock_msg_dlg, "cancel")
+
             mock_msg_dlg.connect.side_effect = fake_connect
 
             dialog.on_run_clicked(None)
@@ -351,11 +348,7 @@ def test_unverified_modal_approval_proceeds_with_execution():
         "name": "Unverified Test Command",
         "template": "echo {msg}",
         "verified": False,
-        "parameters": {
-            "msg": {
-                "placeholder": "Enter message"
-            }
-        }
+        "parameters": {"msg": {"placeholder": "Enter message"}},
     }
 
     mock_proc = MagicMock()
@@ -371,7 +364,9 @@ def test_unverified_modal_approval_proceeds_with_execution():
     try:
         dialog = TestCommandDialog(None, command, None)
 
-        with patch("companion.companion_app.GUI_AVAILABLE", True), patch("companion.companion_app.Adw") as mock_adw:
+        with patch("companion.companion_app.GUI_AVAILABLE", True), patch(
+            "companion.companion_app.Adw"
+        ) as mock_adw:
             mock_msg_dlg = MagicMock()
             mock_adw.MessageDialog.return_value = mock_msg_dlg
             mock_adw.MessageDialog.new.return_value = mock_msg_dlg
@@ -380,12 +375,15 @@ def test_unverified_modal_approval_proceeds_with_execution():
             def fake_connect(event, cb):
                 if event == "response":
                     cb(mock_msg_dlg, "execute")
+
             mock_msg_dlg.connect.side_effect = fake_connect
 
             dialog.on_run_clicked(None)
 
             # MessageDialog must be constructed with exact substituted command string in body
-            call = mock_adw.MessageDialog.new.call_args or mock_adw.MessageDialog.call_args
+            call = (
+                mock_adw.MessageDialog.new.call_args or mock_adw.MessageDialog.call_args
+            )
             body_str = str(call)
             assert "hello_world" in body_str
 
@@ -406,11 +404,7 @@ def test_verified_command_bypasses_confirmation_dialog():
         "name": "Verified Command",
         "template": "echo {msg}",
         "verified": True,
-        "parameters": {
-            "msg": {
-                "placeholder": "Enter message"
-            }
-        }
+        "parameters": {"msg": {"placeholder": "Enter message"}},
     }
 
     mock_proc = MagicMock()
@@ -436,9 +430,3 @@ def test_verified_command_bypasses_confirmation_dialog():
     finally:
         Gio.Subprocess.new = old_subproc_new
         Gtk.Entry = old_entry
-
-
-
-
-
-

@@ -4,6 +4,8 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from app.policy_engine import evaluate_policy
+
 
 class CmdBarDBusService:
     """
@@ -11,6 +13,7 @@ class CmdBarDBusService:
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     and manages signals for CommandExecuted and CommandOutput.
     """
+
     def __init__(self, config_path=None):
         self.config_path = config_path
         self._executed_listeners = []
@@ -28,7 +31,9 @@ class CmdBarDBusService:
         if not command or not str(command).strip():
             return False
 
-        cat_name = str(category).strip() if category and str(category).strip() else "External"
+        cat_name = (
+            str(category).strip() if category and str(category).strip() else "External"
+        )
         config = load_config()
         categories = config.setdefault("categories", [])
 
@@ -56,7 +61,9 @@ class CmdBarDBusService:
             existing["template"] = clean_cmd
             existing["command"] = clean_cmd
         else:
-            cmds.append({"name": clean_name, "template": clean_cmd, "command": clean_cmd})
+            cmds.append(
+                {"name": clean_name, "template": clean_cmd, "command": clean_cmd}
+            )
 
         return save_config(config)
 
@@ -88,17 +95,47 @@ class CmdBarDBusService:
         found_cmd = None
         for cat in config.get("categories", []):
             for c in cat.get("commands", []):
-                if c.get("name") == clean_name or c.get("template") == clean_name or c.get("command") == clean_name:
+                if (
+                    c.get("name") == clean_name
+                    or c.get("template") == clean_name
+                    or c.get("command") == clean_name
+                ):
                     found_cmd = c
                     break
             if found_cmd:
                 break
 
         cmd_name = found_cmd.get("name") if found_cmd else clean_name
-        cmd_str = found_cmd.get("template", found_cmd.get("command", clean_name)) if found_cmd else clean_name
+        cmd_str = (
+            found_cmd.get("template", found_cmd.get("command", clean_name))
+            if found_cmd
+            else clean_name
+        )
+
+        policy_config = config.get("policy")
+        eval_res = evaluate_policy(found_cmd or clean_name, policy_config=policy_config)
+
+        if not eval_res["allowed"]:
+            err_msg = (
+                f"Policy enforcement error: {', '.join(eval_res.get('reasons', []))}"
+            )
+            for listener in self._output_listeners:
+                try:
+                    listener(cmd_name, "", err_msg)
+                except Exception:
+                    pass
+            for listener in self._executed_listeners:
+                try:
+                    listener(cmd_name, 1, False)
+                except Exception:
+                    pass
+            return False
+
+        if eval_res.get("sanitized_command"):
+            cmd_str = eval_res["sanitized_command"]
 
         code, stdout, stderr = run_command_in_shell(cmd_str)
-        success = (code == 0)
+        success = code == 0
 
         for listener in self._output_listeners:
             try:
@@ -114,19 +151,26 @@ class CmdBarDBusService:
 
         return True
 
+    def evaluate_policy(self, command, params=None, context=None) -> dict:
+        config = load_config()
+        policy_config = config.get("policy")
+        return evaluate_policy(command, params, context, policy_config)
+
     def get_commands(self) -> list:
         config = load_config()
         all_cmds = []
         for cat in config.get("categories", []):
             cat_name = cat.get("name", "")
             for c in cat.get("commands", []):
-                all_cmds.append({
-                    "name": c.get("name", ""),
-                    "command": c.get("template", c.get("command", "")),
-                    "category": cat_name,
-                    "placeholder": c.get("placeholder", ""),
-                    "parameters": c.get("parameters", {})
-                })
+                all_cmds.append(
+                    {
+                        "name": c.get("name", ""),
+                        "command": c.get("template", c.get("command", "")),
+                        "category": cat_name,
+                        "placeholder": c.get("placeholder", ""),
+                        "parameters": c.get("parameters", {}),
+                    }
+                )
         return all_cmds
 
     def get_commands_json(self) -> str:

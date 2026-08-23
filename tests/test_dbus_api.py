@@ -6,6 +6,7 @@ from companion.dbus_service import CmdBarDBusService
 from companion.dbus_client import CmdBarDBusClient
 from companion.companion_app import load_config, save_config
 
+
 @pytest.fixture
 def temp_config(tmp_path, monkeypatch):
     config_file = tmp_path / "config.json"
@@ -14,17 +15,18 @@ def temp_config(tmp_path, monkeypatch):
         "categories": [
             {
                 "name": "Projects",
-                "commands": [
-                    {"name": "Initial Test", "template": "echo 'hello'"}
-                ]
+                "commands": [{"name": "Initial Test", "template": "echo 'hello'"}],
             }
         ]
     }
     save_config(initial_config)
     return config_file
 
+
 def test_dbus_xml_interface_file():
-    xml_path = os.path.join(os.path.dirname(__file__), "..", "extension", "org.gnome.CmdBar.xml")
+    xml_path = os.path.join(
+        os.path.dirname(__file__), "..", "extension", "org.gnome.CmdBar.xml"
+    )
     assert os.path.exists(xml_path), "DBus interface XML file should exist"
 
     tree = ET.parse(xml_path)
@@ -43,6 +45,7 @@ def test_dbus_xml_interface_file():
     assert "CommandExecuted" in signal_names
     assert "CommandOutput" in signal_names
 
+
 def test_dbus_service_add_command(temp_config):
     service = CmdBarDBusService()
     client = CmdBarDBusClient(service=service)
@@ -51,12 +54,17 @@ def test_dbus_service_add_command(temp_config):
     assert success is True
 
     cmds = client.get_commands()
-    assert any(c["name"] == "Dynamic Build" and c["category"] == "Automation" for c in cmds)
+    assert any(
+        c["name"] == "Dynamic Build" and c["category"] == "Automation" for c in cmds
+    )
 
     config = load_config()
-    auto_cat = next((c for c in config["categories"] if c["name"] == "Automation"), None)
+    auto_cat = next(
+        (c for c in config["categories"] if c["name"] == "Automation"), None
+    )
     assert auto_cat is not None
     assert any(cmd["name"] == "Dynamic Build" for cmd in auto_cat["commands"])
+
 
 def test_dbus_service_remove_command(temp_config):
     service = CmdBarDBusService()
@@ -69,6 +77,7 @@ def test_dbus_service_remove_command(temp_config):
     assert removed is True
     assert not any(c["name"] == "Temp Cmd" for c in client.get_commands())
 
+
 def test_dbus_service_execute_command(temp_config):
     service = CmdBarDBusService()
     client = CmdBarDBusClient(service=service)
@@ -76,8 +85,12 @@ def test_dbus_service_execute_command(temp_config):
     executed_events = []
     output_events = []
 
-    client.on_command_executed(lambda name, code, success: executed_events.append((name, code, success)))
-    client.on_command_output(lambda name, stdout, stderr: output_events.append((name, stdout, stderr)))
+    client.on_command_executed(
+        lambda name, code, success: executed_events.append((name, code, success))
+    )
+    client.on_command_output(
+        lambda name, stdout, stderr: output_events.append((name, stdout, stderr))
+    )
 
     client.add_command("Echo Hello", "echo 'hello world'", "Testing")
     res = client.execute_command("Echo Hello")
@@ -91,6 +104,7 @@ def test_dbus_service_execute_command(temp_config):
     assert len(output_events) == 1
     assert output_events[0][0] == "Echo Hello"
     assert "hello world" in output_events[0][1]
+
 
 def test_dbus_service_get_commands(temp_config):
     service = CmdBarDBusService()

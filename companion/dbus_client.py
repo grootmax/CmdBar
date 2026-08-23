@@ -5,13 +5,21 @@ import shlex
 import os
 import sys
 
+
 class CmdBarDBusClient:
     """
     Python client bindings for CmdBar D-Bus API.
     Enables external applications to dynamically manage and execute commands in CmdBar
     and listen to execution and output signals.
     """
-    def __init__(self, bus_name="org.gnome.CmdBar", object_path="/org/gnome/CmdBar", interface_name="org.gnome.CmdBar", service=None):
+
+    def __init__(
+        self,
+        bus_name="org.gnome.CmdBar",
+        object_path="/org/gnome/CmdBar",
+        interface_name="org.gnome.CmdBar",
+        service=None,
+    ):
         self.bus_name = bus_name
         self.object_path = object_path
         self.interface_name = interface_name
@@ -22,18 +30,23 @@ class CmdBarDBusClient:
     def _call_method(self, method_name, *args):
         if self.service:
             import re
-            snake_name = re.sub(r'(?<!^)(?=[A-Z])', '_', method_name).lower()
+
+            snake_name = re.sub(r"(?<!^)(?=[A-Z])", "_", method_name).lower()
             if hasattr(self.service, snake_name):
                 return getattr(self.service, snake_name)(*args)
             elif hasattr(self.service, method_name):
                 return getattr(self.service, method_name)(*args)
 
         cmd = [
-            "gdbus", "call",
+            "gdbus",
+            "call",
             "--session",
-            "--dest", self.bus_name,
-            "--object-path", self.object_path,
-            "--method", f"{self.interface_name}.{method_name}"
+            "--dest",
+            self.bus_name,
+            "--object-path",
+            self.object_path,
+            "--method",
+            f"{self.interface_name}.{method_name}",
         ]
         for arg in args:
             if isinstance(arg, bool):
@@ -44,7 +57,9 @@ class CmdBarDBusClient:
                 cmd.append(shlex.quote(str(arg)))
 
         try:
-            res = subprocess.run(" ".join(cmd), shell=True, capture_output=True, text=True, timeout=5)
+            res = subprocess.run(
+                " ".join(cmd), shell=True, capture_output=True, text=True, timeout=5
+            )
             if res.returncode != 0:
                 return False
             output = res.stdout.strip()
@@ -56,7 +71,9 @@ class CmdBarDBusClient:
                     return True
                 elif inner == "false":
                     return False
-                elif (inner.startswith("'") and inner.endswith("'")) or (inner.startswith('"') and inner.endswith('"')):
+                elif (inner.startswith("'") and inner.endswith("'")) or (
+                    inner.startswith('"') and inner.endswith('"')
+                ):
                     return inner[1:-1]
                 return inner
             return output
