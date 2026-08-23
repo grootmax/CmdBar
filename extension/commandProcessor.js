@@ -764,18 +764,13 @@ export function isUserInContext(userContext, ruleUsers, ruleGroups) {
 const DEFAULT_APPROVAL_SECRET = "cmdbar-approval-secret-key";
 
 /**
- * Creates a signed approval token for overriding a blocked command.
- * @param {string} command
- * @param {string} [approver="admin"]
- * @param {number} [expiresInMs=3600000]
+ * Helper to compute signature string for payload.
+ * @param {string} payload
  * @param {string} [key]
  * @returns {string}
- * @public
+ * @private
  */
-export function createApprovalToken(command, approver = "admin", expiresInMs = 3600000, key = DEFAULT_APPROVAL_SECRET) {
-  const expiresAt = Date.now() + expiresInMs;
-  const payload = JSON.stringify({ command, approver, expiresAt });
-  
+function computeSignature(payload, key = DEFAULT_APPROVAL_SECRET) {
   let sig = "";
   if (typeof process !== "undefined" && process.versions && process.versions.node) {
     try {
@@ -800,7 +795,22 @@ export function createApprovalToken(command, approver = "admin", expiresInMs = 3
     }
     sig = Math.abs(hash).toString(16);
   }
+  return sig;
+}
 
+/**
+ * Creates a signed approval token for overriding a blocked command.
+ * @param {string} command
+ * @param {string} [approver="admin"]
+ * @param {number} [expiresInMs=3600000]
+ * @param {string} [key]
+ * @returns {string}
+ * @public
+ */
+export function createApprovalToken(command, approver = "admin", expiresInMs = 3600000, key = DEFAULT_APPROVAL_SECRET) {
+  const expiresAt = Date.now() + expiresInMs;
+  const payload = JSON.stringify({ command, approver, expiresAt });
+  const sig = computeSignature(payload, key);
   const tokenObj = { payload, sig };
   return Buffer.from(JSON.stringify(tokenObj)).toString("base64");
 }
@@ -831,9 +841,7 @@ export function validateApprovalToken(tokenStr, command, key = DEFAULT_APPROVAL_
       return { valid: false, error: "Token command mismatch", tokenData: data };
     }
 
-    const expectedToken = createApprovalToken(data.command, data.approver, data.expiresAt - Date.now(), key);
-    const expectedRaw = Buffer.from(expectedToken, "base64").toString("utf8");
-    const expectedSig = JSON.parse(expectedRaw).sig;
+    const expectedSig = computeSignature(payload, key);
 
     if (sig !== expectedSig) {
       return { valid: false, error: "Invalid token signature", tokenData: data };
