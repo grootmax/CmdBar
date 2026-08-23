@@ -11,6 +11,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
+- **CI/CD Integration Pipeline** – Manage GitHub Actions, GitLab CI, and Jenkins workflows directly from CmdBar. Trigger deployments, view real-time pipeline status, execute rollback commands, and automatically redact secrets and tokens from outputs and logs.
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Pre-built Snippet & Template Library** – Includes pre-built, ready-to-use command templates for Git workflows, Docker operations, Kubernetes (`kubectl`), AWS CLI, `npm`/`pnpm`, and System utilities.
 - **Import Wizard & Community Template Sharing** – Easily import templates from the built-in library, local JSON files, or remote URLs, and export custom commands into template schema JSON files.
