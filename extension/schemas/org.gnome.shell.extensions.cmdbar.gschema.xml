@@ -21,5 +21,10 @@
       <summary>Global Shortcut</summary>
       <description>Global keyboard shortcut to trigger CmdBar menu from anywhere.</description>
     </key>
+    <key name="auto-format-output" type="b">
+      <default>true</default>
+      <summary>Auto-Format Command Output</summary>
+      <description>Automatically format command output into pretty JSON, CSV/TSV tables, or code blocks.</description>
+    </key>
   </schema>
 </schemalist>
