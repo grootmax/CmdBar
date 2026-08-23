@@ -4,7 +4,25 @@
  */
 
 export const DEFAULT_CONFIG = {
+  ai: {
+    provider: "openai",
+    model: "gpt-4o",
+    temperature: 0.2,
+    require_confirmation: true,
+    fallback_provider: "ollama",
+    fallback_model: "llama3",
+  },
   categories: [
+    {
+      name: "AI Assistant",
+      commands: [
+        {
+          name: "AI Command Assistant",
+          command: "/ai {prompt}",
+          placeholder: "e.g. deploy latest build to staging",
+        },
+      ],
+    },
     {
       name: "Projects",
       commands: [

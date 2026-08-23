@@ -9,6 +9,7 @@ import argparse
 import hmac
 import hashlib
 import secrets
+from companion.ai_translator import is_ai_command, translate_natural_language_to_command
 
 def canonical_json(obj):
     if isinstance(obj, dict):
@@ -776,12 +777,23 @@ if GUI_AVAILABLE:
             params_data = {ph: self.entries[ph].get_text() for ph in self.placeholders}
             final_cmd = substitute_and_quote_command(self.command.get('template', ''), params_data)
 
+            if is_ai_command(final_cmd) or is_ai_command(self.command.get('template', '')):
+                try:
+                    cfg_data = self.parent.config_data if hasattr(self, "parent") and hasattr(self.parent, "config_data") else None
+                    translated_cmd = translate_natural_language_to_command(final_cmd, cfg_data)
+                    buffer = self.output_view.get_buffer()
+                    buffer.set_text(f"AI Translated Prompt: {final_cmd}\nGenerated Command: {translated_cmd}\n")
+                    final_cmd = translated_cmd
+                except Exception as e:
+                    buffer = self.output_view.get_buffer()
+                    buffer.set_text(f"AI Translation Error: {str(e)}\n")
+                    return
+
             if self.command.get('verified') is False:
                 if GUI_AVAILABLE:
-                    dlg = Adw.MessageDialog.new(
-                        self,
-                        f"Confirm Execution: {self.command.get('name', 'Command')}",
-                        f"This command is unverified:\n\n{final_cmd}\n\nDo you want to execute it?"
+                    dlg = Adw.MessageDialog(
+                        heading=f"Confirm Execution: {self.command.get('name', 'Command')}",
+                        body=f"This command is unverified:\n\n{final_cmd}\n\nDo you want to execute it?"
                     )
                     dlg.add_response("cancel", "Cancel")
                     dlg.add_response("execute", "Execute")
