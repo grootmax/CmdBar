@@ -13,6 +13,8 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 
 - **Web Dashboard**: Interactive web UI with drag-and-drop category & command editor, real-time top-bar preview, team collaboration workspace profiles, mobile responsiveness, and PWA offline capability.
 - **Dynamic Menu**: Fully driven by JSON config files.
+- **Snippet & Template Library**: Pre-built command templates for Git, Docker, Kubernetes, AWS CLI, npm/pnpm, and System utilities.
+- **Import Wizard & Community Sharing**: "Import from Template" wizard in the companion app to browse library or import community JSON templates, plus "Export Template" to share custom commands.
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
 - **Local Live Reload**: Configuration changes sync instantly across desktop and web environments.
