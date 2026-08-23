@@ -21,6 +21,20 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
     </method>
+    <method name="GetStreamDeckProfiles">
+      <arg name="json_profiles" type="s" direction="out"/>
+    </method>
+    <method name="SetStreamDeckProfile">
+      <arg name="profile_name" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetStreamDeckStatus">
+      <arg name="json_status" type="s" direction="out"/>
+    </method>
+    <method name="TriggerStreamDeckButton">
+      <arg name="key_index" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
       <arg name="exit_code" type="i"/>
@@ -229,6 +243,36 @@ export class CmdBarDBusService {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
     }
+  }
+
+  async GetStreamDeckProfiles() {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const profiles = ["Default"];
+      if (config.categories && Array.isArray(config.categories)) {
+        config.categories.forEach((cat) => {
+          if (cat.name) profiles.push(cat.name);
+        });
+      }
+      return JSON.stringify({ active_profile: "Default", profiles });
+    } catch (e) {
+      return JSON.stringify({ active_profile: "Default", profiles: ["Default"] });
+    }
+  }
+
+  async SetStreamDeckProfile(profileName) {
+    return Boolean(profileName && typeof profileName === "string");
+  }
+
+  async GetStreamDeckStatus() {
+    return JSON.stringify({ active_profile: "Default", connected_devices: 1 });
+  }
+
+  async TriggerStreamDeckButton(keyIndex) {
+    return typeof keyIndex === "number" && keyIndex >= 0;
   }
 
   emitCommandExecuted(name, exitCode, success) {

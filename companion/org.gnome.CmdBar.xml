@@ -29,6 +29,28 @@
       <arg name="json_commands" type="s" direction="out"/>
     </method>
     
+    <method name="GetStreamDeckProfiles">
+      <annotation name="org.freedesktop.DBus.Description" value="Get active and available Stream Deck profiles"/>
+      <arg name="json_profiles" type="s" direction="out"/>
+    </method>
+
+    <method name="SetStreamDeckProfile">
+      <annotation name="org.freedesktop.DBus.Description" value="Switch active Stream Deck profile by name"/>
+      <arg name="profile_name" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="GetStreamDeckStatus">
+      <annotation name="org.freedesktop.DBus.Description" value="Get Stream Deck integration status summary"/>
+      <arg name="json_status" type="s" direction="out"/>
+    </method>
+
+    <method name="TriggerStreamDeckButton">
+      <annotation name="org.freedesktop.DBus.Description" value="Trigger simulated button press on Stream Deck key index"/>
+      <arg name="key_index" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    
     <signal name="CommandExecuted">
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a command finishes execution"/>
       <arg name="name" type="s"/>
