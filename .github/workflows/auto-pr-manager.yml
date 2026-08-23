@@ -29,6 +29,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Process Jules pull requests
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -36,6 +39,8 @@ jobs:
 
         run: |
           set -euo pipefail
+
+          git config --global --add safe.directory '*' || true
 
           echo "=========================================="
           echo "        Auto Jules PR Manager"
@@ -396,7 +401,7 @@ jobs:
 
                   git merge --abort || true
 
-                  cd /
+                  cd "${GITHUB_WORKSPACE:-/}"
 
                   rm -rf "$WORKDIR"
 
@@ -429,7 +434,7 @@ jobs:
 
               git push origin "$HEAD_BRANCH"
 
-              cd /
+              cd "${GITHUB_WORKSPACE:-/}"
 
               rm -rf "$WORKDIR"
 
@@ -478,10 +483,8 @@ jobs:
               echo "Checking status checks for PR #$PR_NUMBER..."
 
               CHECK_OUTPUT=$(
-                gh pr checks "$PR_NUMBER" \
-                  --repo "$GH_REPO" \
-                  --json name,state,bucket,workflow \
-                  2>/dev/null || true
+                gh api "repos/$GH_REPO/commits/$HEAD_BRANCH/check-runs" \
+                  --jq '.check_runs' 2>/dev/null || echo "[]"
               )
 
               if [ -z "$CHECK_OUTPUT" ]; then
@@ -525,7 +528,10 @@ jobs:
               A11Y_FAILED=$(echo "$A11Y_CHECK" | jq '
                 [
                   .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      .bucket == "fail" or .bucket == "cancel" or
+                      .conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required"
+                    )
                 ]
                 | length
               ')
@@ -545,7 +551,11 @@ jobs:
               A11Y_PENDING=$(echo "$A11Y_CHECK" | jq '
                 [
                   .[]
-                  | select(.bucket == "pending")
+                  | select(
+                      .bucket == "pending" or
+                      (.status != "completed" and .status != null) or
+                      (.status == "completed" and .conclusion == null)
+                    )
                 ]
                 | length
               ')
@@ -565,7 +575,14 @@ jobs:
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "fail" or .bucket == "cancel")
+                  | select(
+                      .bucket == "fail" or .bucket == "cancel" or
+                      .conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required"
+                    )
+                  | select(
+                      ((.name | ascii_downcase | contains("jules")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("jules")) | not)
+                    )
                 ]
                 | length
               ')
@@ -573,7 +590,15 @@ jobs:
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
                 [
                   .[]
-                  | select(.bucket == "pending")
+                  | select(
+                      .bucket == "pending" or
+                      (.status != "completed" and .status != null) or
+                      (.status == "completed" and .conclusion == null)
+                    )
+                  | select(
+                      ((.name | ascii_downcase | contains("jules")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("jules")) | not)
+                    )
                 ]
                 | length
               ')
