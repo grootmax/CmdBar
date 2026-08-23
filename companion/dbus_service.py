@@ -21,6 +21,13 @@ from app.workspace_config import (
     PROJECT_TEMPLATES,
 )
 from companion.stream_deck import get_stream_deck_manager
+from companion.environment_snapshot import (
+    export_snapshot,
+    import_snapshot,
+    create_backup,
+    restore_backup,
+    list_backups
+)
 
 
 class CmdBarDBusService:
@@ -28,8 +35,8 @@ class CmdBarDBusService:
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
-    CommandOutput, and EventTriggered.
+    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, ExportSnapshot, ImportSnapshot, CreateBackup, RestoreBackup, ListBackups,
+    and manages signals for CommandExecuted, CommandOutput, SSOSessionStateChanged, and EventTriggered.
     :visibility: public
     """
 
@@ -118,6 +125,46 @@ class CmdBarDBusService:
 
     is_yubi_key_required = is_yubikey_required
     authenticate_yubi_key = authenticate_yubikey
+
+    def export_snapshot(self, options_json: str = '{}') -> str:
+        try:
+            options = json.loads(options_json or '{}') if isinstance(options_json, str) else (options_json or {})
+        except Exception:
+            options = {}
+        res = export_snapshot(**options)
+        return json.dumps(res)
+
+    def import_snapshot(self, snapshot_json: str, options_json: str = '{}') -> bool:
+        try:
+            options = json.loads(options_json or '{}') if isinstance(options_json, str) else (options_json or {})
+        except Exception:
+            options = {}
+        try:
+            res = import_snapshot(snapshot_json, **options)
+            return bool(res and res.get("success"))
+        except Exception:
+            return False
+
+    def create_backup(self, description: str = 'D-Bus backup') -> str:
+        try:
+            res = create_backup(description=description)
+            return res.get("backup_path", "")
+        except Exception:
+            return ""
+
+    def restore_backup(self, backup_path_or_id: str) -> bool:
+        try:
+            res = restore_backup(backup_path_or_id)
+            return bool(res and res.get("success"))
+        except Exception:
+            return False
+
+    def list_backups(self) -> str:
+        try:
+            res = list_backups()
+            return json.dumps(res)
+        except Exception:
+            return json.dumps([])
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
@@ -427,7 +474,6 @@ class CmdBarDBusService:
         :visibility: public
         """
         return self.trigger_engine.remove_trigger(trigger_id)
-
     def detect_workspace(self, cwd: str) -> tuple:
         path = find_workspace_config_path(cwd)
         has_ws = path is not None
@@ -459,37 +505,6 @@ class CmdBarDBusService:
     def get_workspace_templates(self) -> dict:
         return PROJECT_TEMPLATES
 
-    def get_stream_deck_profiles(self) -> str:
-        """Returns JSON string containing available Stream Deck profiles and active profile."""
-        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
-            summary = self.stream_deck_manager.get_status_summary()
-            return json.dumps(
-                {
-                    "active_profile": summary["active_profile"],
-                    "profiles": summary["available_profiles"],
-                }
-            )
-        return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
-
-    def set_stream_deck_profile(self, profile_name: str) -> bool:
-        """Switches the active Stream Deck profile."""
-        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
-            return self.stream_deck_manager.switch_profile(profile_name)
-        return False
-
-    def get_stream_deck_status(self) -> str:
-        """Returns diagnostic status JSON summary for Stream Deck integration."""
-        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
-            return json.dumps(self.stream_deck_manager.get_status_summary())
-        return json.dumps({})
-
-    def trigger_stream_deck_button(self, key_index: int) -> bool:
-        """Simulates key press on active Stream Deck grid."""
-        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
-            res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
-            return res.get("status") in ("executed", "profile_switched")
-        return False
-
     def start_terminal_sharing(self, session_id: str, title: str = "CmdBar Shared Terminal") -> str:
         from companion.terminal_sharing import TerminalSharingSession
         session = TerminalSharingSession(session_id=session_id, title=title)
@@ -512,10 +527,12 @@ class CmdBarDBusService:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
         if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             summary = self.stream_deck_manager.get_status_summary()
-            return json.dumps({
-                "active_profile": summary["active_profile"],
-                "profiles": summary["available_profiles"]
-            })
+            return json.dumps(
+                {
+                    "active_profile": summary["active_profile"],
+                    "profiles": summary["available_profiles"],
+                }
+            )
         return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
 
     def set_stream_deck_profile(self, profile_name: str) -> bool:

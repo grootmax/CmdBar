@@ -180,6 +180,42 @@ class CmdBarDBusClient:
         res = self._call_method("VerifyEmergencyCode", code)
         return bool(res)
 
+    def get_stream_deck_profiles(self) -> dict:
+        """Retrieve Stream Deck active and available profiles."""
+        res = self._call_method("GetStreamDeckProfiles")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return {"active_profile": "Default", "profiles": ["Default"]}
+        return {"active_profile": "Default", "profiles": ["Default"]}
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Switch active Stream Deck profile by name."""
+        res = self._call_method("SetStreamDeckProfile", profile_name)
+        return bool(res)
+
+    def get_stream_deck_status(self) -> dict:
+        """Retrieve diagnostic status summary for Stream Deck integration."""
+        res = self._call_method("GetStreamDeckStatus")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Trigger simulated button press on Stream Deck key index."""
+        res = self._call_method("TriggerStreamDeckButton", key_index)
+        return bool(res)
+
     def get_resource_metrics(self) -> dict:
         """Retrieve live resource monitor metrics from CmdBar."""
         res = self._call_method("GetResourceMetrics")
@@ -231,6 +267,53 @@ class CmdBarDBusClient:
         res = self._call_method("TriggerStreamDeckButton", key_index)
         return bool(res)
 
+    def export_snapshot(self, options: dict = None) -> dict:
+        """Export environment snapshot via D-Bus."""
+        options_json = json.dumps(options or {})
+        res = self._call_method("ExportSnapshot", options_json)
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def import_snapshot(self, snapshot_data_or_json, options: dict = None) -> bool:
+        """Import environment snapshot via D-Bus."""
+        snap_str = snapshot_data_or_json if isinstance(snapshot_data_or_json, str) else json.dumps(snapshot_data_or_json)
+        options_json = json.dumps(options or {})
+        res = self._call_method("ImportSnapshot", snap_str, options_json)
+        return bool(res)
+
+    def create_backup(self, description: str = 'D-Bus backup') -> str:
+        """Create environment backup via D-Bus."""
+        res = self._call_method("CreateBackup", description)
+        if isinstance(res, str):
+            if res.startswith("'") and res.endswith("'"):
+                res = res[1:-1]
+            return res
+        return ""
+
+    def restore_backup(self, backup_path_or_id: str) -> bool:
+        """Restore environment from backup via D-Bus."""
+        res = self._call_method("RestoreBackup", backup_path_or_id)
+        return bool(res)
+
+    def list_backups(self) -> list:
+        """List all backups via D-Bus."""
+        res = self._call_method("ListBackups")
+        if isinstance(res, list):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return []
+        return []
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
         self._executed_callbacks.append(callback)
