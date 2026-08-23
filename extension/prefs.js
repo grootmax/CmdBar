@@ -55,5 +55,58 @@ export default class CmdBarPreferences extends ExtensionPreferences {
       "text",
       Gio.SettingsBindFlags.DEFAULT,
     );
+
+    // AI Translation Settings Group
+    const aiGroup = new Adw.PreferencesGroup({
+      title: _("AI Natural Language Command Translator"),
+    });
+    page.add(aiGroup);
+
+    const providerRow = new Adw.EntryRow({
+      title: _("Provider (openai, anthropic, ollama)"),
+      show_apply_button: false,
+    });
+    aiGroup.add(providerRow);
+    settings.bind(
+      "ai-provider",
+      providerRow,
+      "text",
+      Gio.SettingsBindFlags.DEFAULT,
+    );
+
+    const modelRow = new Adw.EntryRow({
+      title: _("Model Name (e.g. gpt-4o, claude-3-5-sonnet, llama3)"),
+      show_apply_button: false,
+    });
+    aiGroup.add(modelRow);
+    settings.bind(
+      "ai-model",
+      modelRow,
+      "text",
+      Gio.SettingsBindFlags.DEFAULT,
+    );
+
+    const apiKeyRow = new Adw.PasswordEntryRow({
+      title: _("API Key (Securely stored)"),
+    });
+    aiGroup.add(apiKeyRow);
+    settings.bind(
+      "ai-api-key",
+      apiKeyRow,
+      "text",
+      Gio.SettingsBindFlags.DEFAULT,
+    );
+
+    const confirmRow = new Adw.SwitchRow({
+      title: _("Require Confirmation Before Execution"),
+      subtitle: _("Prompt to review AI generated command before running"),
+    });
+    aiGroup.add(confirmRow);
+    settings.bind(
+      "ai-require-confirmation",
+      confirmRow,
+      "active",
+      Gio.SettingsBindFlags.DEFAULT,
+    );
   }
 }

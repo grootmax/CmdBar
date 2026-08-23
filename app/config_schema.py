@@ -43,6 +43,14 @@ def compute_signature(config_data, key):
     return hmac.new(key.encode("utf-8"), str_val.encode("utf-8"), hashlib.sha256).hexdigest()
 
 DEFAULT_CONFIG = {
+  "ai": {
+    "provider": "openai",
+    "model": "gpt-4o",
+    "temperature": 0.2,
+    "require_confirmation": True,
+    "fallback_provider": "ollama",
+    "fallback_model": "llama3"
+  },
   "categories": [
     {
       "name": "System Utilities",

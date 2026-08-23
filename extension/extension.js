@@ -15,6 +15,101 @@ import {
   getPreviewTokens,
 } from "./commandProcessor.js";
 import { loadConfig } from "./configSync.js";
+import {
+  translateNaturalLanguageToCommand,
+  isAICommand,
+  cleanAIPrompt,
+} from "./aiTranslator.js";
+
+async function handleAICommandExecution(commandStr, config, onComplete) {
+  try {
+    if (Main && typeof Main.notify === "function") {
+      Main.notify("CmdBar AI Assistant", "Translating prompt to shell command...");
+    }
+
+    const generatedCmd = await translateNaturalLanguageToCommand(commandStr, config || {});
+
+    if (!generatedCmd) {
+      if (Main && typeof Main.notify === "function") {
+        Main.notify("AI Translation Failed", "AI model returned an empty command.");
+      }
+      return;
+    }
+
+    const aiCfg = (config && config.ai) || {};
+    const requireConfirm = aiCfg.require_confirmation !== false;
+    const tokens = tokenizeCommand(generatedCmd);
+
+    if (requireConfirm) {
+      requestCommandConfirmation(
+        `AI Command (${cleanAIPrompt(commandStr)})`,
+        tokens,
+        tokens,
+        { verified: false },
+        () => {
+          _executeDirectTokens(tokens, "AI Command");
+          if (onComplete) onComplete();
+        },
+        () => {
+          console.log("CmdBar AI: User cancelled execution of AI generated command.");
+          if (onComplete) onComplete();
+        }
+      );
+    } else {
+      _executeDirectTokens(tokens, "AI Command");
+      if (onComplete) onComplete();
+    }
+  } catch (err) {
+    console.error(`CmdBar AI error: ${err.message}`);
+    if (Main && typeof Main.notify === "function") {
+      Main.notify("AI Translation Error", err.message);
+    }
+  }
+}
+
+function _executeDirectTokens(argv, commandName) {
+  try {
+    let proc = Gio.Subprocess.new(
+      argv,
+      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+    );
+
+    proc.communicate_utf8_async(null, null, (subprocess, result) => {
+      try {
+        let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+        let success = subprocess.get_successful();
+        let exitStatus = "unknown";
+        if (subprocess.get_if_exited()) {
+          exitStatus = String(subprocess.get_exit_status());
+        }
+
+        if (success) {
+          let title = `Command Succeeded: ${commandName}`;
+          let body = `Exit status: ${exitStatus}`;
+          if (stdout && stdout.trim()) {
+            body += `\n\nOutput:\n${stdout.trim()}`;
+          }
+          Main.notify(title, body);
+        } else {
+          let title = `Command Failed: ${commandName}`;
+          let body = `Exit status: ${exitStatus}`;
+          if (stderr && stderr.trim()) {
+            body += `\n\nError:\n${stderr.trim()}`;
+          }
+          Main.notify(title, body);
+        }
+      } catch (err) {
+        if (Main && typeof Main.notify === "function") {
+          Main.notify(`Command Error: ${commandName}`, err.message);
+        }
+      }
+    });
+  } catch (e) {
+    if (Main && typeof Main.notify === "function") {
+      Main.notify(`Command Launch Failed: ${commandName}`, e.message);
+    }
+  }
+}
 
 // Native GNOME Shell Modal Dialog for command execution confirmation
 const ExecutionConfirmationDialog = GObject.registerClass(
@@ -174,7 +269,16 @@ function requestCommandConfirmation(
  * @param {object} [cmdObj]
  * @param {object} [placeholderMap]
  */
-function runCommandAsync(commandName, commandString, cmdObj, placeholderMap) {
+function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, config) {
+  let rawCmdStr = Array.isArray(commandString)
+    ? commandString.join(" ")
+    : String(commandString || "");
+
+  if (isAICommand(rawCmdStr) || isAICommand(commandName)) {
+    handleAICommandExecution(rawCmdStr, config || {}, () => {});
+    return;
+  }
+
   let tokens = Array.isArray(commandString)
     ? commandString
     : tokenizeCommand(commandString);
@@ -425,6 +529,25 @@ const CommandInputMenuItem = GObject.registerClass(
                   placeholderMap[ph] = text;
                 });
                 let argv = substituteTokens(tokens, placeholderMap);
+                let fullCmdStr = argv.join(" ");
+
+                if (isAICommand(fullCmdStr) || isAICommand(this._commandTemplate) || isAICommand(text)) {
+                  let promptText = isAICommand(text) ? text : fullCmdStr;
+                  handleAICommandExecution(
+                    promptText,
+                    this._indicator ? this._indicator._cachedConfig : {},
+                    () => {
+                      if (
+                        this._indicator &&
+                        this._indicator.menu &&
+                        typeof this._indicator.menu.close === "function"
+                      ) {
+                        this._indicator.menu.close();
+                      }
+                    }
+                  );
+                  return;
+                }
 
                 if (argv.length === 0) {
                   console.warn(
