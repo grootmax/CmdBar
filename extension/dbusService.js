@@ -1,5 +1,11 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import {
+  captureScreenshot,
+  annotateScreenshot,
+  shareScreenshotUrl,
+  stripMetadata,
+} from "./screenshotManager.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -20,6 +26,25 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
+    </method>
+    <method name="CaptureScreenshot">
+      <arg name="mode" type="s" direction="in"/>
+      <arg name="save_path" type="s" direction="in"/>
+      <arg name="copy_to_clipboard" type="b" direction="in"/>
+      <arg name="annotate_json" type="s" direction="in"/>
+      <arg name="share" type="b" direction="in"/>
+      <arg name="strip_metadata" type="b" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+    <method name="AnnotateScreenshot">
+      <arg name="image_base64" type="s" direction="in"/>
+      <arg name="annotate_json" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+    <method name="UploadScreenshot">
+      <arg name="image_base64" type="s" direction="in"/>
+      <arg name="options_json" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -228,6 +253,65 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
+    }
+  }
+
+  async CaptureScreenshot(mode, savePath, copyToClipboard, annotateJson, share, stripMeta) {
+    try {
+      let annotate = [];
+      if (annotateJson) {
+        try {
+          annotate = JSON.parse(annotateJson);
+        } catch (e) {}
+      }
+
+      const res = await captureScreenshot({
+        mode,
+        savePath: savePath || null,
+        copyToClipboard: Boolean(copyToClipboard),
+        annotate,
+        share: Boolean(share),
+        stripMetadata: Boolean(stripMeta),
+      });
+
+      return JSON.stringify(res);
+    } catch (e) {
+      console.error(`CmdBar D-Bus CaptureScreenshot error: ${e.message}`);
+      return JSON.stringify({ success: false, error: e.message });
+    }
+  }
+
+  async AnnotateScreenshot(imageBase64, annotateJson) {
+    try {
+      let annotate = [];
+      if (annotateJson) {
+        try {
+          annotate = JSON.parse(annotateJson);
+        } catch (e) {}
+      }
+
+      const res = annotateScreenshot(imageBase64, annotate);
+      return JSON.stringify({ success: true, ...res });
+    } catch (e) {
+      console.error(`CmdBar D-Bus AnnotateScreenshot error: ${e.message}`);
+      return JSON.stringify({ success: false, error: e.message });
+    }
+  }
+
+  async UploadScreenshot(imageBase64, optionsJson) {
+    try {
+      let options = {};
+      if (optionsJson) {
+        try {
+          options = JSON.parse(optionsJson);
+        } catch (e) {}
+      }
+
+      const res = await shareScreenshotUrl(imageBase64, options);
+      return JSON.stringify(res);
+    } catch (e) {
+      console.error(`CmdBar D-Bus UploadScreenshot error: ${e.message}`);
+      return JSON.stringify({ success: false, error: e.message });
     }
   }
 

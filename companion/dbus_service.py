@@ -4,17 +4,19 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.screenshot_service import ScreenshotService, annotate_image, generate_share_url, strip_metadata
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
-    Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
+    Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands, CaptureScreenshot,
     and manages signals for CommandExecuted and CommandOutput.
     """
     def __init__(self, config_path=None):
         self.config_path = config_path
         self._executed_listeners = []
         self._output_listeners = []
+        self._screenshot_service = ScreenshotService(config_path=config_path)
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
@@ -131,3 +133,62 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def capture_screenshot(
+        self,
+        mode: str = "fullscreen",
+        save_path: str = "",
+        copy_to_clipboard: bool = True,
+        annotate_json: str = "",
+        share: bool = False,
+        strip_meta: bool = True
+    ) -> str:
+        """
+        D-Bus handler for CaptureScreenshot.
+        """
+        annotate = []
+        if annotate_json:
+            try:
+                annotate = json.loads(annotate_json)
+            except Exception:
+                pass
+
+        res = self._screenshot_service.capture(
+            mode=mode,
+            save_path=save_path or None,
+            copy_to_clipboard=copy_to_clipboard,
+            annotate=annotate,
+            share=share,
+            strip_meta=strip_meta
+        )
+        return json.dumps(res)
+
+    def annotate_screenshot(self, image_base64: str, annotate_json: str) -> str:
+        """
+        D-Bus handler for AnnotateScreenshot.
+        """
+        annotate = []
+        if annotate_json:
+            try:
+                annotate = json.loads(annotate_json)
+            except Exception:
+                pass
+        sample_bytes = image_base64.encode('utf-8') if isinstance(image_base64, str) else b''
+        annotated_bytes, count, lst = annotate_image(sample_bytes, annotate)
+        return json.dumps({"success": True, "annotations_applied": count, "annotations_list": lst})
+
+    def upload_screenshot(self, image_base64: str, options_json: str) -> str:
+        """
+        D-Bus handler for UploadScreenshot.
+        """
+        opts = {}
+        if options_json:
+            try:
+                opts = json.loads(options_json)
+            except Exception:
+                pass
+        service_url = opts.get("service_url", "https://cmdbar.share/upload")
+        sample_bytes = image_base64.encode('utf-8') if isinstance(image_base64, str) else b''
+        res = generate_share_url(sample_bytes, service_url=service_url)
+        return json.dumps(res)
+

@@ -28,6 +28,31 @@
       <annotation name="org.freedesktop.DBus.Description" value="Get list of commands as JSON string"/>
       <arg name="json_commands" type="s" direction="out"/>
     </method>
+
+    <method name="CaptureScreenshot">
+      <annotation name="org.freedesktop.DBus.Description" value="Capture screenshot in mode (fullscreen, window, region) with optional save, annotate, share, strip_metadata"/>
+      <arg name="mode" type="s" direction="in"/>
+      <arg name="save_path" type="s" direction="in"/>
+      <arg name="copy_to_clipboard" type="b" direction="in"/>
+      <arg name="annotate_json" type="s" direction="in"/>
+      <arg name="share" type="b" direction="in"/>
+      <arg name="strip_metadata" type="b" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+
+    <method name="AnnotateScreenshot">
+      <annotation name="org.freedesktop.DBus.Description" value="Annotate screenshot buffer with vector drawings or labels"/>
+      <arg name="image_base64" type="s" direction="in"/>
+      <arg name="annotate_json" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+
+    <method name="UploadScreenshot">
+      <annotation name="org.freedesktop.DBus.Description" value="Upload/Share screenshot image data to URL"/>
+      <arg name="image_base64" type="s" direction="in"/>
+      <arg name="options_json" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
     
     <signal name="CommandExecuted">
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a command finishes execution"/>
