@@ -176,16 +176,10 @@ def load_config(path=None):
         config_data.pop("signature", None)
         return config_data
     except Exception:
-        # Fallback to default if corrupt
-        backup_path = path + ".bak"
-        try:
-            if os.path.exists(path):
-                os.replace(path, backup_path)
-        except Exception:
-            pass
+        # Fallback to default in memory if corrupt
         default_copy = json.loads(json.dumps(DEFAULT_CONFIG))
-        save_config(default_copy, path)
         default_copy.pop("signature", None)
+        default_copy["_is_invalid"] = True
         return default_copy
 
 def save_config(config_data, path=None):
@@ -196,8 +190,8 @@ def save_config(config_data, path=None):
         key_path = get_key_path(path)
         key = get_or_create_signing_key(key_path)
         config_data["signature"] = compute_signature(config_data, key)
-    with open(path, "w") as f:
-        json.dump(config_data, f, indent=2)
+    from app.atomic_write import atomic_write_json
+    atomic_write_json(path, config_data)
 
 def validate_parameter_value(value, parameter_schema):
     """
