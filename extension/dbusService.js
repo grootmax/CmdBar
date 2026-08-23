@@ -20,6 +20,12 @@ import {
   parseShareUrl,
   ROLES,
 } from "./teamSharing.js";
+import {
+  getWindowsList,
+  executeWindowCommand,
+  generateWindowPreview,
+  switchWorkspace as doSwitchWorkspace,
+} from "./windowManager.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -137,6 +143,21 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetConfigHistory">
       <arg name="json_history" type="s" direction="out"/>
+    </method>
+    <method name="ListWindows">
+      <arg name="json_windows" type="s" direction="out"/>
+    </method>
+    <method name="ControlWindow">
+      <arg name="action" type="s" direction="in"/>
+      <arg name="param" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetWindowPreview">
+      <arg name="preview_text" type="s" direction="out"/>
+    </method>
+    <method name="SwitchWorkspace">
+      <arg name="target" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -547,6 +568,16 @@ export class CmdBarDBusService {
     }
   }
 
+  ListWindows() {
+    try {
+      const windows = getWindowsList();
+      return JSON.stringify(windows);
+    } catch (e) {
+      console.error(`CmdBar D-Bus ListWindows error: ${e.message}`);
+      return JSON.stringify([]);
+    }
+  }
+
   async VerifyEmergencyCode(code) {
     try {
       const configPath =
@@ -603,6 +634,17 @@ export class CmdBarDBusService {
       return true;
     } catch (e) {
       console.error(`CmdBar D-Bus ImportCommandFromUrl error: ${e.message}`);
+      return false;
+    }
+  }
+
+  ControlWindow(action, param) {
+    try {
+      const cmdStr = `cmdbar:window:${action || "close"} ${param || ""}`;
+      const res = executeWindowCommand(cmdStr);
+      return Boolean(res && res.result && res.result.success);
+    } catch (e) {
+      console.error(`CmdBar D-Bus ControlWindow error: ${e.message}`);
       return false;
     }
   }
@@ -776,16 +818,39 @@ export class CmdBarDBusService {
     }
   }
 
-  async SwitchWorkspace(cwd) {
+  ListWindows() {
     try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
-      const globalCfg = await loadConfig(configPath);
-      this.workspaceManager.setGlobalConfig(globalCfg);
-      const wsCfg = this.workspaceManager.switchWorkspace(cwd);
-      return Boolean(wsCfg);
+      return JSON.stringify(getWindowsList());
     } catch (e) {
+      console.error(`CmdBar D-Bus ListWindows error: ${e.message}`);
+      return JSON.stringify([]);
+    }
+  }
+
+  GetWindowPreview() {
+    try {
+      return generateWindowPreview();
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetWindowPreview error: ${e.message}`);
+      return "Error generating window preview";
+    }
+  }
+
+  async SwitchWorkspace(targetOrCwd) {
+    try {
+      if (targetOrCwd && (targetOrCwd.startsWith("/") || targetOrCwd.startsWith("~"))) {
+        const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
+        const globalCfg = await loadConfig(configPath);
+        this.workspaceManager.setGlobalConfig(globalCfg);
+        const wsCfg = this.workspaceManager.switchWorkspace(targetOrCwd);
+        if (wsCfg) return true;
+      }
+      const res = doSwitchWorkspace(targetOrCwd || "next");
+      return Boolean(res && res.success);
+    } catch (e) {
+      console.error(`CmdBar D-Bus SwitchWorkspace error: ${e.message}`);
       return false;
     }
   }
@@ -881,14 +946,6 @@ export class CmdBarDBusService {
     const sessionsInfo = Array.from(this._terminalSessions.values()).map((s) => s.getMetrics());
     return JSON.stringify(sessionsInfo);
   }
-
-  /**
-   * Emits CommandExecuted signal.
-   * @param {string} name - Command name.
-   * @param {number} exitCode - Exit code.
-   * @param {boolean} success - Success flag.
-   * @public
-   */
   emitCommandExecuted(name, exitCode, success) {
     if (this._dbusImpl && GLib) {
       try {

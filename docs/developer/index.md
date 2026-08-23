@@ -108,3 +108,20 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 
 The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
 For full details, see [Team Command Sharing Specification](team_command_sharing.md).
+
+### Window Management Module
+
+The window manager modules (`extension/windowManager.js` and `companion/window_manager.py`) provide comprehensive window control capabilities:
+- **Operations**:
+  - `closeWindow`: Closes active or targeted window.
+  - `moveWindow`: Moves window in cardinal directions (`left`, `right`, `up`, `down`) or exact `x, y` coordinates.
+  - `resizeWindow`: Grows, shrinks, or resizes window to target width and height.
+  - `tileWindow`: Tiles window to screen grid presets (`left`, `right`, `top`, `bottom`, `top-left`, `top-right`, `bottom-left`, `bottom-right`, `maximize`, `unmaximize`, `center`).
+  - `switchWorkspace`: Navigates to next/previous or specific workspace index, with support for moving focused window.
+- **Visual Window Preview**:
+  - `generateWindowPreview`: Renders an ASCII text grid diagram of desktop monitors and placed window geometry, with focused window markers and details table.
+- **Shortcuts & Multi-WM Support**:
+  - Integrates with CmdBar keyboard shortcut parser (`parseAccel`, `formatShortcutHint`).
+  - Supports GNOME Shell native `Meta.Window` / `global.display` APIs as well as external tiling WMs (`i3`, `sway`, `hyprland`, `wmctrl`, `xdotool`).
+- **D-Bus Integration**:
+  - Exposes `ListWindows`, `ControlWindow`, `GetWindowPreview`, and `SwitchWorkspace` D-Bus methods on `org.gnome.CmdBar`.
