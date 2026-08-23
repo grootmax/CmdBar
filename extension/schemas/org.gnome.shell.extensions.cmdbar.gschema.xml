@@ -36,5 +36,10 @@
       <summary>Auto-Format Command Output</summary>
       <description>Automatically format command output into pretty JSON, CSV/TSV tables, or code blocks.</description>
     </key>
+    <key name="history-shortcut" type="as">
+      <default>['&lt;Super&gt;&lt;Shift&gt;h']</default>
+      <summary>History Shortcut</summary>
+      <description>Global keyboard shortcut to open CmdBar menu focused on command history.</description>
+    </key>
   </schema>
 </schemalist>

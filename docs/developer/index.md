@@ -14,7 +14,6 @@ CmdBar targets GNOME Shell 46 and 47 directly without legacy runtime fallback br
 - **Widget Layout & Alignment**: All UI widgets (`St.BoxLayout`, `St.Label`, menu items) use standard GNOME Shell 46 layout properties (`style_class`, `vertical: true/false`, `y_align: Clutter.ActorAlign.CENTER`, `x_expand: true`).
 - **Symbolic System Icons**: All indicators, category headers, command menu items, and confirmation dialogs instantiate symbolic icons using standard `St.Icon` with `icon_name` property.
 - **Path Resolution & Filesystem Operations**: Installation root path resolution uses native `Gio.File` handle methods (`Extension.dir.get_path()`). Directory creation uses `make_directory_with_parents(null)` sync API, file moves use `move_finish(res)` without array destructuring, and `Gio` imports handle `giModule.default` for GNOME Shell 46+ compatibility.
-
 ### Sandboxed Execution Mode Architecture
 
 CmdBar supports isolated sandboxed execution on a per-command basis:
@@ -34,3 +33,7 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Command History & Recents Tracking
+
+- **Command History & Recents Tracking**: History records executed commands with substituted parameters and timestamps in `~/.config/cmdbar/history.json` (max 50 entries). Sensitive fields (passwords, secret tokens, API keys) are sanitized automatically before persisting.
