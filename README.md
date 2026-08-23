@@ -11,6 +11,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
+- **Native KDE Plasma Support** – First-class native KDE Plasma Plasmoid applet extension with KWin window manager integration, System Tray applet (StatusNotifierItem), secure credential storage in KDE Wallet (KWallet), and automatic Breeze light/dark theme palette matching
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Output Formatters** – Automatically parse and nicely format command outputs: JSON pretty-printing with Pango markup & ANSI syntax highlighting, ASCII table rendering for CSV/TSV data, and monospaced boxed code blocks
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
@@ -108,6 +109,28 @@ The GNOME Shell extension resides under the `extension/` directory. It must be p
    gnome-extensions enable cmdbar@yourdomain.com
    ```
    Or open the **Extensions** (or **Extension Manager**) desktop application and toggle on **CmdBar**.
+
+---
+
+### 2b. Native KDE Plasma Support & Installation
+
+CmdBar features native support for **KDE Plasma 5 & 6** through a Plasmoid applet package (`org.kde.cmdbar`).
+
+#### Features on KDE Plasma:
+- **KDE Plasmoid Applet**: Compact system tray / panel icon and full popup search & command list interface built with QML and Kirigami.
+- **KWin Integration**: Automatic window positioning, layer rule management, and global keybindings (`Meta+Space`).
+- **KWallet Integration**: Secure API key storage for AI features in KDE Wallet (`org.kde.kwalletd5` / `org.kde.kwalletd6`).
+- **Consistent Theme**: Automatically parses `~/.config/kdeglobals` to match Breeze light or dark theme palettes.
+
+#### Installation on KDE Plasma:
+```bash
+# Install native Plasmoid applet using Makefile
+make install-kde
+
+# Alternatively, install via kpackagetool
+kpackagetool5 -t Plasma/Applet -i plasma/plasmoids/org.kde.cmdbar
+```
+Once installed, right-click your KDE Plasma panel or desktop, click **Add Widgets...**, and drag **CmdBar** onto your panel or desktop.
 
 ---
 
