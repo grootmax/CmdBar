@@ -659,13 +659,16 @@ export function highlightMatches(
 }
 
 /**
- * Ranks and filters commands based on search pattern and usage frequency.
+ * Ranks commands based on fuzzy match score and usage frequency, filtering by RBAC rules if rbacManager is provided.
  * @param {Array<object>} commands List of command objects ({ name, command, ... })
  * @param {string} pattern Search query
  * @param {Object.<string, number>} [usageMap={}]
- * @returns {Array<{ command: object, score: number, matchName: object, matchCmd: object }>}
+ * @param {Object} [rbacManager=null]
+ * @param {string} [username=null]
+ * @param {Object} [options={}]
+ * @returns {Array<object>}
  */
-export function rankCommands(commands, pattern, usageMap = {}) {
+export function rankCommands(commands, pattern, usageMap = {}, rbacManager = null, username = null, options = {}) {
   if (!commands || !Array.isArray(commands)) {
     return [];
   }
@@ -674,6 +677,12 @@ export function rankCommands(commands, pattern, usageMap = {}) {
   const results = [];
 
   for (const cmd of commands) {
+    if (rbacManager && typeof rbacManager.isCommandVisible === "function") {
+      if (!rbacManager.isCommandVisible(cmd, username, options)) {
+        continue;
+      }
+    }
+
     const cmdName = cmd.name || "";
     const cmdCommand =
       typeof cmd.command === "string"
