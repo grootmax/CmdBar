@@ -132,7 +132,8 @@ jobs:
           # We process them strictly in this order.
           # ==================================================
 
-          jq -c '.[]' /tmp/jules-prs.json | while read -r PR; do
+          jq -c '.[]' /tmp/jules-prs.json > /tmp/jules-prs-lines.json
+          while read -r PR; do
 
             PR_NUMBER=$(echo "$PR" | jq -r '.number')
             TITLE=$(echo "$PR" | jq -r '.title')
@@ -706,7 +707,7 @@ jobs:
 
             break
 
-          done
+          done < /tmp/jules-prs-lines.json
 
           echo ""
           echo "=========================================="
