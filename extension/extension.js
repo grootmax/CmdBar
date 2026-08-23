@@ -258,13 +258,6 @@ function runCommandAsync(commandName, commandString, cmdObj, placeholderMap) {
 }
 
 /**
- * Harvest environment variables on startup.
- */
-function harvestEnvironment() {
-  // Placeholder for environment harvesting
-}
-
-/**
  * Asynchronously executes a shell command and notifies the user on failure.
  *
  * @param {string|string[]} commandLineString The command string to execute.
@@ -513,15 +506,83 @@ const CommandInputMenuItem = GObject.registerClass(
   },
 );
 
+/**
+ * Helper function supporting wl-copy (Wayland) and xclip (X11) to copy text to clipboard.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function copyToClipboard(text) {
+  if (text === null || text === undefined) {
+    text = "";
+  } else if (typeof text !== "string") {
+    text = String(text);
+  }
+
+  // Native GNOME Shell St.Clipboard support if available
+  try {
+    if (typeof St !== "undefined" && St && St.Clipboard && St.ClipboardType) {
+      let clipboard = St.Clipboard.get_default();
+      if (clipboard) {
+        clipboard.set_text(St.ClipboardType.CLIPBOARD, text);
+      }
+    }
+  } catch (e) {
+    console.warn(`CmdBar: St.Clipboard error: ${e.message}`);
+  }
+
+  let isWayland = false;
+  try {
+    let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
+    let sessionType = GLib.getenv("XDG_SESSION_TYPE");
+    if (
+      waylandDisplay ||
+      (sessionType && sessionType.toLowerCase() === "wayland")
+    ) {
+      isWayland = true;
+    }
+  } catch (e) {}
+
+  let tools = isWayland
+    ? [
+        ["wl-copy"],
+        ["xclip", "-selection", "clipboard"],
+      ]
+    : [
+        ["xclip", "-selection", "clipboard"],
+        ["wl-copy"],
+      ];
+
+  let success = false;
+  for (let argv of tools) {
+    try {
+      let proc = Gio.Subprocess.new(
+        argv,
+        Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+      );
+      proc.communicate_utf8_async(text, null, (subprocess, result) => {
+        try {
+          subprocess.communicate_utf8_finish(result);
+        } catch (err) {}
+      });
+      success = true;
+      break;
+    } catch (e) {
+      continue;
+    }
+  }
+  return success;
+}
+
 // Standard menu item for parameterless or parameter-prompting commands
 const CommandMenuItem = GObject.registerClass(
   class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
     _init(indicator, commandName, commandTemplate, cmdObj) {
       super._init({
         reactive: true,
-        activate: true,
+        activate: false,
       });
 
+      this._indicator = indicator;
       this._commandName = commandName;
       this._commandTemplate = commandTemplate;
       this._cmdObj = cmdObj || {};
@@ -547,6 +608,62 @@ const CommandMenuItem = GObject.registerClass(
         x_expand: true,
       });
       this.box.add_child(this.label);
+
+      // Copy Button
+      this.copyButton = new St.Button({
+        child: new St.Icon({
+          icon_name: "edit-copy-symbolic",
+          style_class: "popup-menu-icon",
+        }),
+        style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
+        track_hover: true,
+        can_focus: true,
+      });
+
+      this.copyButton.connect("clicked", () => {
+        let commandString = "";
+        if (Array.isArray(this._commandTemplate)) {
+          commandString = this._commandTemplate.join(" ");
+        } else if (typeof this._commandTemplate === "string") {
+          commandString = this._commandTemplate;
+        } else if (this._commandTemplate) {
+          commandString = String(this._commandTemplate);
+        }
+
+        copyToClipboard(commandString);
+
+        if (
+          this._indicator &&
+          this._indicator.menu &&
+          typeof this._indicator.menu.close === "function"
+        ) {
+          this._indicator.menu.close();
+        }
+      });
+      this.box.add_child(this.copyButton);
+
+      // Execute Button
+      this.executeButton = new St.Button({
+        child: new St.Icon({
+          icon_name: "media-playback-start-symbolic",
+          style_class: "popup-menu-icon",
+        }),
+        style: "padding: 4px 6px; border-radius: 4px;",
+        track_hover: true,
+        can_focus: true,
+      });
+
+      this.executeButton.connect("clicked", () => {
+        runCommandAsync(this._commandName, this._commandTemplate, this._cmdObj);
+        if (
+          this._indicator &&
+          this._indicator.menu &&
+          typeof this._indicator.menu.close === "function"
+        ) {
+          this._indicator.menu.close();
+        }
+      });
+      this.box.add_child(this.executeButton);
 
       this.add_child(this.box);
 
