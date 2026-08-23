@@ -21,5 +21,15 @@
       <summary>Global Shortcut</summary>
       <description>Global keyboard shortcut to trigger CmdBar menu from anywhere.</description>
     </key>
+    <key name="audit-logging-enabled" type="b">
+      <default>true</default>
+      <summary>Enable Audit Logging</summary>
+      <description>Log command executions to ~/.local/share/cmdbar/audit.log</description>
+    </key>
+    <key name="audit-privacy-mode" type="b">
+      <default>false</default>
+      <summary>Audit Privacy Mode</summary>
+      <description>Exclude sensitive commands containing passwords or marked secure from audit log.</description>
+    </key>
   </schema>
 </schemalist>

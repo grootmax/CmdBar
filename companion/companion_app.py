@@ -10,6 +10,7 @@ import hmac
 import hashlib
 import secrets
 from companion.ai_translator import is_ai_command, translate_natural_language_to_command
+from companion.audit_logger import log_command, read_audit_logs, clear_audit_log, get_audit_log_path
 
 def canonical_json(obj):
     if isinstance(obj, dict):
@@ -353,16 +354,48 @@ def run_command_in_shell(command_str):
     """
     Runs the given command string inside a shell and returns (exit_code, stdout, stderr).
     """
+    import time
+    start_time = time.time()
     try:
         res = subprocess.run(command_str, shell=True, text=True, capture_output=True)
+        dur_ms = int((time.time() - start_time) * 1000)
+        config_data = load_config()
+        log_command(command_str, res.returncode, dur_ms, config=config_data)
         return res.returncode, res.stdout, res.stderr
     except Exception as e:
+        dur_ms = int((time.time() - start_time) * 1000)
+        config_data = load_config()
+        log_command(command_str, -1, dur_ms, config=config_data)
         return -1, "", str(e)
 
 
 # =====================================================================
 # CLI / INTERACTIVE COMPANION APP MODE
 # =====================================================================
+
+def view_audit_log_cli():
+    print("\n===============================================")
+    print("            Command Audit Log Viewer            ")
+    print("===============================================")
+    log_path = get_audit_log_path()
+    print(f"Log path: {log_path}\n")
+    entries = read_audit_logs(log_path)
+    if not entries:
+        print("No audit log entries found.")
+        return
+
+    print(f"{'Timestamp':<25} {'User':<12} {'Exit':<6} {'Duration':<10} {'Command'}")
+    print("-" * 80)
+    for entry in entries[-50:]:
+        if "raw" in entry:
+            print(entry["raw"])
+        else:
+            ts = entry.get("timestamp", "")[:19]
+            usr = entry.get("user", "")
+            code = str(entry.get("exit_code", ""))
+            dur = entry.get("duration", f"{entry.get('duration_ms', 0)}ms")
+            cmd = entry.get("command", "")
+            print(f"{ts:<25} {usr:<12} {code:<6} {dur:<10} {cmd}")
 
 def run_cli_mode():
     print("===============================================")
@@ -378,9 +411,10 @@ def run_cli_mode():
         print("4. Edit Command")
         print("5. Delete Command/Category")
         print("6. Test-Run Command Template")
-        print("7. Exit")
+        print("7. View Command Audit Log")
+        print("8. Exit")
         
-        choice = input("\nEnter choice [1-7]: ").strip()
+        choice = input("\nEnter choice [1-8]: ").strip()
         if choice == "1":
             list_categories_and_commands(config_data)
         elif choice == "2":
@@ -394,6 +428,8 @@ def run_cli_mode():
         elif choice == "6":
             test_run_command_flow(config_data)
         elif choice == "7":
+            view_audit_log_cli()
+        elif choice == "8":
             print("Goodbye!")
             break
         else:

@@ -17,6 +17,7 @@ import {
   parseAccel,
 } from "./commandProcessor.js";
 import { loadConfig } from "./configSync.js";
+import { logCommand } from "./auditLogger.js";
 import {
   translateNaturalLanguageToCommand,
   isAICommand,
@@ -70,6 +71,7 @@ async function handleAICommandExecution(commandStr, config, onComplete) {
 }
 
 function _executeDirectTokens(argv, commandName) {
+  const startTime = Date.now();
   try {
     let proc = Gio.Subprocess.new(
       argv,
@@ -77,13 +79,22 @@ function _executeDirectTokens(argv, commandName) {
     );
 
     proc.communicate_utf8_async(null, null, (subprocess, result) => {
+      const durationMs = Date.now() - startTime;
+      let exitCode = -1;
       try {
         let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
         let success = subprocess.get_successful();
         let exitStatus = "unknown";
         if (subprocess.get_if_exited()) {
-          exitStatus = String(subprocess.get_exit_status());
+          exitCode = subprocess.get_exit_status();
+          exitStatus = String(exitCode);
         }
+
+        logCommand({
+          command: Array.isArray(argv) ? argv.join(" ") : String(argv),
+          exitCode,
+          durationMs,
+        });
 
         if (success) {
           let title = `Command Succeeded: ${commandName}`;
@@ -305,6 +316,7 @@ function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, con
     previewArgv,
     cmdObj,
     () => {
+      const startTime = Date.now();
       try {
         let proc = Gio.Subprocess.new(
           argv,
@@ -312,15 +324,27 @@ function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, con
         );
 
         proc.communicate_utf8_async(null, null, (subprocess, result) => {
+          const durationMs = Date.now() - startTime;
+          let exitCode = -1;
           try {
             let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
             let success = subprocess.get_successful();
             let exitStatus = "unknown";
             if (subprocess.get_if_exited()) {
-              exitStatus = String(subprocess.get_exit_status());
+              exitCode = subprocess.get_exit_status();
+              exitStatus = String(exitCode);
             } else if (subprocess.get_if_signaled()) {
               exitStatus = `Killed by signal ${subprocess.get_term_sig()}`;
             }
+
+            logCommand({
+              command: argv.join(" "),
+              exitCode,
+              durationMs,
+              cmdObj,
+              placeholderMap,
+              config,
+            });
 
             if (success) {
               let title = `Command Succeeded: ${commandName}`;
@@ -394,10 +418,25 @@ function _executeCommandAsync(commandLineString, cmdObj) {
       previewArgv,
       cmdObj,
       () => {
+        const startTime = Date.now();
         let proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDERR_PIPE);
         proc.communicate_utf8_async(null, null, (subprocess, result) => {
+          const durationMs = Date.now() - startTime;
+          let exitCode = -1;
           try {
             let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+            if (subprocess.get_if_exited()) {
+              exitCode = subprocess.get_exit_status();
+            } else if (subprocess.get_successful()) {
+              exitCode = 0;
+            }
+
+            logCommand({
+              command: argv.join(" "),
+              exitCode,
+              durationMs,
+              cmdObj,
+            });
 
             if (!subprocess.get_successful()) {
               let exitStatus = subprocess.get_exit_status();
@@ -574,11 +613,32 @@ const CommandInputMenuItem = GObject.registerClass(
                   previewArgv,
                   this._cmdObj,
                   () => {
+                    const startTime = Date.now();
                     try {
                       let cmdProc = Gio.Subprocess.new(
                         argv,
                         Gio.SubprocessFlags.NONE,
                       );
+                      cmdProc.wait_async(null, (proc, res) => {
+                        const durationMs = Date.now() - startTime;
+                        let exitCode = 0;
+                        try {
+                          proc.wait_finish(res);
+                          if (proc.get_if_exited()) {
+                            exitCode = proc.get_exit_status();
+                          }
+                        } catch (e) {
+                          exitCode = -1;
+                        }
+                        logCommand({
+                          command: fullCmdStr,
+                          exitCode,
+                          durationMs,
+                          cmdObj: this._cmdObj,
+                          placeholderMap,
+                          config: this._indicator ? this._indicator._cachedConfig : {},
+                        });
+                      });
                       if (
                         this._indicator &&
                         this._indicator.menu &&
@@ -696,6 +756,37 @@ export function copyToClipboard(text) {
     }
   }
   return success;
+}
+
+/**
+ * Helper function to simulate pasting text via wtype (Wayland) or xdotool (X11).
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function pasteClipboardText(text) {
+  if (text === null || text === undefined) text = "";
+  let isWayland = false;
+  try {
+    let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
+    let sessionType = GLib.getenv("XDG_SESSION_TYPE");
+    if (waylandDisplay || (sessionType && sessionType.toLowerCase() === "wayland")) {
+      isWayland = true;
+    }
+  } catch (e) {}
+
+  let argv = isWayland
+    ? ["wtype", "-M", "ctrl", "v"]
+    : ["xdotool", "key", "--clearmodifiers", "ctrl+v"];
+
+  try {
+    let proc = Gio.Subprocess.new(
+      argv,
+      Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+    );
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 // Standard menu item for parameterless or parameter-prompting commands

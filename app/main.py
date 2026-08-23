@@ -41,6 +41,11 @@ from app.config_schema import (
     validate_parameter_value,
     get_config_path
 )
+from app.audit_logger import (
+    read_audit_logs,
+    clear_audit_log,
+    get_audit_log_path
+)
 
 class CmdBarApp(Adw.Application):
     def __init__(self):
@@ -109,6 +114,12 @@ class CmdBarWindow(Adw.ApplicationWindow):
         add_sc_btn.set_tooltip_text("Add Shortcut to Category")
         add_sc_btn.connect("clicked", self._on_add_shortcut_clicked)
         header_bar.pack_start(add_sc_btn)
+
+        # Audit Log Button
+        audit_btn = Gtk.Button(icon_name="document-open-recent-symbolic")
+        audit_btn.set_tooltip_text("View Command Audit Log")
+        audit_btn.connect("clicked", lambda b: self._show_audit_log_view())
+        header_bar.pack_start(audit_btn)
 
         # Save Button
         save_btn = Gtk.Button(label="Save")
@@ -744,6 +755,106 @@ class CmdBarWindow(Adw.ApplicationWindow):
     def _show_toast(self, text):
         toast = Adw.Toast.new(text)
         self.toast_overlay.add_toast(toast)
+
+    def _show_audit_log_view(self):
+        child = self.content_box.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.content_box.remove(child)
+            child = next_child
+
+        self.app.selected_category_idx = None
+        self.app.selected_shortcut_idx = None
+
+        content_header = Gtk.HeaderBar()
+        content_header.set_show_title_buttons(False)
+
+        title = Gtk.Label(label="Command Audit Log")
+        title.add_css_class("title")
+        title.add_css_class("bold")
+        content_header.set_title_widget(title)
+
+        refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic")
+        refresh_btn.set_tooltip_text("Refresh Log")
+        refresh_btn.connect("clicked", lambda b: self._show_audit_log_view())
+        content_header.pack_end(refresh_btn)
+
+        clear_btn = Gtk.Button(label="Clear Log")
+        clear_btn.add_css_class("destructive-action")
+        clear_btn.connect("clicked", self._on_clear_audit_log)
+        content_header.pack_end(clear_btn)
+
+        self.content_box.append(content_header)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_vexpand(True)
+        self.content_box.append(scrolled)
+
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        set_uniform_margin(main_box, 24)
+        scrolled.set_child(main_box)
+
+        audit_group = Adw.PreferencesGroup()
+        audit_group.set_title("Audit Configuration")
+        main_box.append(audit_group)
+
+        audit_cfg = self.app.config.setdefault("audit", {"enabled": True, "privacy_mode": False})
+
+        enabled_row = Adw.SwitchRow()
+        enabled_row.set_title("Enable Audit Logging")
+        enabled_row.set_subtitle("Log command executions to ~/.local/share/cmdbar/audit.log")
+        enabled_row.set_active(audit_cfg.get("enabled", True))
+        enabled_row.connect("notify::active", self._on_audit_enabled_toggled)
+        audit_group.add(enabled_row)
+
+        privacy_row = Adw.SwitchRow()
+        privacy_row.set_title("Privacy Mode")
+        privacy_row.set_subtitle("Exclude sensitive commands (passwords, tokens) from audit log")
+        privacy_row.set_active(audit_cfg.get("privacy_mode", False))
+        privacy_row.connect("notify::active", self._on_privacy_mode_toggled)
+        audit_group.add(privacy_row)
+
+        entries_group = Adw.PreferencesGroup()
+        entries_group.set_title("Audit Log Entries")
+        main_box.append(entries_group)
+
+        log_path = get_audit_log_path()
+        entries = read_audit_logs(log_path)
+
+        if not entries:
+            empty_row = Adw.ActionRow()
+            empty_row.set_title("No audit log entries recorded.")
+            empty_row.set_subtitle(f"Log path: {log_path}")
+            entries_group.add(empty_row)
+        else:
+            for entry in reversed(entries[-100:]):
+                row = Adw.ActionRow()
+                if "raw" in entry:
+                    row.set_title(entry["raw"])
+                else:
+                    cmd = entry.get("command", "")
+                    ts = entry.get("timestamp", "")[:19]
+                    usr = entry.get("user", "")
+                    code = entry.get("exit_code", 0)
+                    dur = entry.get("duration", f"{entry.get('duration_ms', 0)}ms")
+                    row.set_title(cmd)
+                    row.set_subtitle(f"Time: {ts} | User: {usr} | Exit: {code} | Duration: {dur}")
+                entries_group.add(row)
+
+    def _on_audit_enabled_toggled(self, row, pspec):
+        audit_cfg = self.app.config.setdefault("audit", {})
+        audit_cfg["enabled"] = row.get_active()
+        save_config(self.app.config)
+
+    def _on_privacy_mode_toggled(self, row, pspec):
+        audit_cfg = self.app.config.setdefault("audit", {})
+        audit_cfg["privacy_mode"] = row.get_active()
+        save_config(self.app.config)
+
+    def _on_clear_audit_log(self, btn):
+        clear_audit_log()
+        self._show_audit_log_view()
+        self._show_toast("Audit log cleared.")
 
 
 if __name__ == "__main__":

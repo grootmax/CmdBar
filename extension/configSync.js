@@ -4,6 +4,25 @@
  */
 
 export const DEFAULT_CONFIG = {
+  audit: {
+    enabled: true,
+    privacy_mode: false,
+    sensitive_keywords: [
+      "password",
+      "passwd",
+      "secret",
+      "token",
+      "api_key",
+      "apikey",
+      "key",
+      "credentials",
+      "cred",
+      "sudo",
+      "auth",
+      "bearer",
+      "private_key",
+    ],
+  },
   ai: {
     provider: "openai",
     model: "gpt-4o",

@@ -43,6 +43,25 @@ def compute_signature(config_data, key):
     return hmac.new(key.encode("utf-8"), str_val.encode("utf-8"), hashlib.sha256).hexdigest()
 
 DEFAULT_CONFIG = {
+  "audit": {
+    "enabled": True,
+    "privacy_mode": False,
+    "sensitive_keywords": [
+      "password",
+      "passwd",
+      "secret",
+      "token",
+      "api_key",
+      "apikey",
+      "key",
+      "credentials",
+      "cred",
+      "sudo",
+      "auth",
+      "bearer",
+      "private_key"
+    ]
+  },
   "ai": {
     "provider": "openai",
     "model": "gpt-4o",

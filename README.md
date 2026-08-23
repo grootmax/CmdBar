@@ -17,6 +17,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 - **Dynamic menu** – Fully driven by a simple JSON file
 - **Fuzzy search** – Search box at top of menu with real-time fuzzy matching (e.g., "gp" matches "git push origin"), character markup highlighting, relevance + usage frequency sorting, and full keyboard navigation (arrow keys, Enter, Escape)
 - **Categories** – Group commands (Projects, Infrastructure, ECS, Tickets, etc.)
+- **Command Audit Logging** – All executed commands are logged to `~/.local/share/cmdbar/audit.log` with ISO timestamp, user, command string, exit code, and execution duration. Features daily log rotation, Privacy Mode to exclude sensitive commands (containing passwords, tokens, or marked secure), and an integrated log viewer in the companion app
 - **Copy to clipboard** – Each command menu item includes a copy button (`wl-copy` on Wayland / `xclip` on X11) to copy command strings without executing
 - **Argument support** – Commands that need input (e.g. `prod <task-id>`, `feature TFG-877`) open a clean dialog
 - **Management App** – Beautiful Libadwaita app to add, edit, reorder and test shortcuts
