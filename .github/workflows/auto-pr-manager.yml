@@ -132,7 +132,13 @@ jobs:
           # We process them strictly in this order.
           # ==================================================
 
-          jq -c '.[]' /tmp/jules-prs.json | while read -r PR; do
+          mapfile -t JULES_PRS < <(jq -c '.[]' /tmp/jules-prs.json)
+
+          for PR in "${JULES_PRS[@]}"; do
+
+            if [ -z "$PR" ]; then
+              continue
+            fi
 
             PR_NUMBER=$(echo "$PR" | jq -r '.number')
             TITLE=$(echo "$PR" | jq -r '.title')
@@ -362,10 +368,13 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
-                git diff \
-                  --name-only \
-                  --diff-filter=U |
-                while IFS= read -r FILE; do
+                mapfile -t CONFLICT_FILES < <(git diff --name-only --diff-filter=U)
+
+                for FILE in "${CONFLICT_FILES[@]}"; do
+
+                  if [ -z "$FILE" ]; then
+                    continue
+                  fi
 
                   echo "Resolving conflict:"
                   echo "  $FILE"
