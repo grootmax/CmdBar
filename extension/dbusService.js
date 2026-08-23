@@ -60,6 +60,9 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="category_name" type="s" direction="in"/>
       <arg name="allowed" type="b" direction="out"/>
     </method>
+    <method name="GetResourceMetrics">
+      <arg name="json_metrics" type="s" direction="out"/>
+    </method>
     <method name="IsYubiKeyRequired">
       <arg name="name" type="s" direction="in"/>
       <arg name="required" type="b" direction="out"/>
@@ -541,6 +544,34 @@ export class CmdBarDBusService {
       }
     }
   }
+
+  async GetResourceMetrics() {
+    try {
+      if (this._indicator && this._indicator._resourceMonitor) {
+        const monitor = this._indicator._resourceMonitor;
+        const latest = monitor.getLatestMetrics() || {};
+        const res = {
+          cpu: latest.cpu || { usagePercent: 0 },
+          memory: latest.memory || { totalMB: 0, usedMB: 0, freeMB: 0, usagePercent: 0 },
+          disk: latest.disk || { totalGB: 0, usedGB: 0, freeGB: 0, usagePercent: 0 },
+          network: latest.network || { rxBytes: 0, txBytes: 0, rxRateKBps: 0, txRateKBps: 0, totalRateKBps: 0 },
+          sparklines: {
+            cpu: monitor.getSparkline("cpu"),
+            memory: monitor.getSparkline("memory"),
+            disk: monitor.getSparkline("disk"),
+            network: monitor.getSparkline("networkTotal"),
+          },
+          history: monitor.getHistory(),
+        };
+        return JSON.stringify(res);
+      }
+      return JSON.stringify({ error: "Resource monitor not active" });
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetResourceMetrics error: ${e.message}`);
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
   emitCommandExecuted(name, exitCode, success) {
     if (this._dbusImpl && GLib) {
       try {
