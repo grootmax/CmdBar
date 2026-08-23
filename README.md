@@ -12,7 +12,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 ## Features
 
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
-- **Cloud Services Integration** – Native AWS (EC2, S3, Lambda), GCP (GCE, Cloud Run), and Azure (VMs, Functions) resource discovery, credential management, and caching for dynamic command parameter completion
+- **Output Formatters** – Automatically parse and nicely format command outputs: JSON pretty-printing with Pango markup & ANSI syntax highlighting, ASCII table rendering for CSV/TSV data, and monospaced boxed code blocks
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
 - **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences.
 - **Dynamic menu** – Fully driven by a simple JSON file
@@ -206,6 +206,76 @@ Used directly by the GNOME Shell extension to load top-bar menus dynamically.
     }
   ]
 }
+```
+
+---
+
+## D-Bus API for External Tool Integration
+
+CmdBar exposes a full D-Bus API on the Session Bus under bus name `org.gnome.CmdBar` at object path `/org/gnome/CmdBar`. Other applications and CLI tools can add, remove, get, or execute commands dynamically and listen for execution output and status in real-time.
+
+### Interface Details
+- **Bus Name**: `org.gnome.CmdBar`
+- **Object Path**: `/org/gnome/CmdBar`
+- **Interface**: `org.gnome.CmdBar`
+
+### Methods
+
+| Method | Parameters | Return Type | Description |
+|--------|------------|-------------|-------------|
+| `AddCommand` | `string category, string name, string command` | `boolean` | Add or update a command dynamically |
+| `RemoveCommand` | `string name` | `boolean` | Remove a command by name |
+| `ExecuteCommand` | `string name` | `boolean` | Execute a command by name or direct command string |
+| `GetCommands` | *None* | `string` (JSON) | Get all registered commands as a JSON array |
+
+### Signals
+
+| Signal | Parameters | Description |
+|--------|------------|-------------|
+| `CommandExecuted` | `string name, int32 exit_code, boolean success` | Emitted when a command finishes execution |
+| `CommandOutput` | `string name, string stdout, string stderr` | Emitted with command output streams |
+
+### CLI Example (`gdbus`)
+```bash
+# Get all commands as JSON
+gdbus call --session --dest org.gnome.CmdBar --object-path /org/gnome/CmdBar --method org.gnome.CmdBar.GetCommands
+
+# Add a command dynamically
+gdbus call --session --dest org.gnome.CmdBar --object-path /org/gnome/CmdBar --method org.gnome.CmdBar.AddCommand "Build" "npm run build" "Projects"
+
+# Execute a command
+gdbus call --session --dest org.gnome.CmdBar --object-path /org/gnome/CmdBar --method org.gnome.CmdBar.ExecuteCommand "Build"
+
+# Remove a command
+gdbus call --session --dest org.gnome.CmdBar --object-path /org/gnome/CmdBar --method org.gnome.CmdBar.RemoveCommand "Build"
+```
+
+### Python Integration Example
+Use the provided `CmdBarDBusClient` bindings in `companion/dbus_client.py`:
+
+```python
+from companion.dbus_client import CmdBarDBusClient
+
+client = CmdBarDBusClient()
+
+# Add a command
+client.add_command("Deploy Staging", "make deploy-staging", "Infrastructure")
+
+# List commands
+commands = client.get_commands()
+print("Registered commands:", commands)
+
+# Execute command and listen for signals
+def on_output(name, stdout, stderr):
+    print(f"[{name}] stdout: {stdout}")
+
+def on_executed(name, exit_code, success):
+    print(f"[{name}] Finished with exit code {exit_code}")
+
+client.on_command_output(on_output)
+client.on_command_executed(on_executed)
+
+client.execute_command("Deploy Staging")
 ```
 
 ---

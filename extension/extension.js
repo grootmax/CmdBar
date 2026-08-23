@@ -15,6 +15,7 @@ import {
   getPreviewTokens,
   formatShortcutHint,
   parseAccel,
+  formatOutput,
 } from "./commandProcessor.js";
 import { loadConfig } from "./configSync.js";
 import {
@@ -89,7 +90,8 @@ function _executeDirectTokens(argv, commandName) {
           let title = `Command Succeeded: ${commandName}`;
           let body = `Exit status: ${exitStatus}`;
           if (stdout && stdout.trim()) {
-            body += `\n\nOutput:\n${stdout.trim()}`;
+            const formatted = formatOutput(stdout);
+            body += `\n\nOutput (${formatted.format}):\n${formatted.text}`;
           }
           Main.notify(title, body);
         } else {
@@ -699,13 +701,11 @@ export function copyToClipboard(text) {
 }
 
 /**
- * Helper function supporting wl-copy/wtype/ydotool (Wayland) and xclip/xdotool/xte (X11) to paste/type text.
+ * Helper function supporting pasting clipboard text via wtype (Wayland) or xdotool (X11).
  * @param {string} text
  * @returns {boolean}
  */
 export function pasteClipboardText(text) {
-  copyToClipboard(text);
-
   let isWayland = false;
   try {
     let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
@@ -718,37 +718,24 @@ export function pasteClipboardText(text) {
     }
   } catch (e) {}
 
-  let commands = isWayland
-    ? [
-        ["wtype", "-M", "ctrl", "v"],
-        ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
-        ["xdotool", "key", "ctrl+v"],
-      ]
-    : [
-        ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
-        ["xdotool", "type", text],
-        ["xte", "kd Control_L", "k v", "ku Control_L"],
-      ];
+  let argv = isWayland
+    ? ["wtype", "-M", "ctrl", "v"]
+    : ["xdotool", "key", "--clearmodifiers", "ctrl+v"];
 
-  let success = false;
-  for (let argv of commands) {
-    try {
-      let proc = Gio.Subprocess.new(
-        argv,
-        Gio.SubprocessFlags.NONE,
-      );
-      proc.communicate_utf8_async(null, null, (subprocess, result) => {
-        try {
-          subprocess.communicate_utf8_finish(result);
-        } catch (err) {}
-      });
-      success = true;
-      break;
-    } catch (e) {
-      continue;
-    }
+  try {
+    let proc = Gio.Subprocess.new(
+      argv,
+      Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+    );
+    proc.communicate_utf8_async(null, null, (subprocess, result) => {
+      try {
+        subprocess.communicate_utf8_finish(result);
+      } catch (err) {}
+    });
+    return true;
+  } catch (e) {
+    return false;
   }
-  return success;
 }
 
 // Standard menu item for parameterless or parameter-prompting commands
@@ -1249,7 +1236,7 @@ const CmdBarIndicator = GObject.registerClass(
         body = `The process was stopped by the user.`;
       } else if (success) {
         title = `Command Succeeded: ${job.commandName}`;
-        body = stdout ? stdout.trim() : "Execution completed successfully.";
+        body = stdout ? formatOutput(stdout).text : "Execution completed successfully.";
       } else {
         title = `Command Failed: ${job.commandName}`;
         body = stderr
