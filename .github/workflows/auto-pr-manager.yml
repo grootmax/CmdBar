@@ -367,12 +367,18 @@ jobs:
                   --diff-filter=U |
                 while IFS= read -r FILE; do
 
+                  if [ -z "$FILE" ]; then
+                    continue
+                  fi
+
                   echo "Resolving conflict:"
                   echo "  $FILE"
 
-                  git checkout --theirs -- "$FILE"
-
-                  git add -- "$FILE"
+                  if git checkout --theirs -- "$FILE" 2>/dev/null; then
+                    git add -- "$FILE"
+                  elif git rm -f -- "$FILE" 2>/dev/null; then
+                    git add -- "$FILE" 2>/dev/null || true
+                  fi
 
                 done
 
@@ -412,11 +418,15 @@ jobs:
                 # COMMIT RESOLUTION
                 # ==================================================
 
-                echo ""
-                echo "Committing conflict resolution..."
+                if ! git diff --cached --quiet; then
 
-                git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                  echo ""
+                  echo "Committing conflict resolution..."
+
+                  git commit \
+                    -m "chore: auto-resolve merge conflicts"
+
+                fi
 
               fi
 
