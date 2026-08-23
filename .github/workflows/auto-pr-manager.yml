@@ -288,11 +288,21 @@ jobs:
               echo ""
               echo "Fetching base branch..."
 
-              git fetch origin "$BASE_BRANCH"
+              if ! git fetch origin "$BASE_BRANCH"; then
+                echo "ERROR: Failed to fetch base branch $BASE_BRANCH"
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               echo "Fetching Jules branch..."
 
-              git fetch origin "$HEAD_BRANCH"
+              if ! git fetch origin "$HEAD_BRANCH"; then
+                echo "ERROR: Failed to fetch Jules branch $HEAD_BRANCH"
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               # ==================================================
               # CHECKOUT JULES BRANCH
@@ -301,9 +311,12 @@ jobs:
               echo ""
               echo "Checking out Jules branch..."
 
-              git checkout -B \
-                "$HEAD_BRANCH" \
-                "origin/$HEAD_BRANCH"
+              if ! git checkout -B "$HEAD_BRANCH" "origin/$HEAD_BRANCH"; then
+                echo "ERROR: Failed to checkout branch $HEAD_BRANCH"
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               # ==================================================
               # MERGE BASE INTO JULES BRANCH
@@ -362,18 +375,17 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
-                git diff \
-                  --name-only \
-                  --diff-filter=U |
-                while IFS= read -r FILE; do
+                mapfile -t CONFLICTED_FILES < <(git diff --name-only --diff-filter=U)
 
-                  echo "Resolving conflict:"
-                  echo "  $FILE"
+                for FILE in "${CONFLICTED_FILES[@]}"; do
+                  if [ -n "$FILE" ]; then
+                    echo "Resolving conflict:"
+                    echo "  $FILE"
 
-                  git checkout --theirs -- "$FILE"
+                    git checkout --theirs -- "$FILE"
 
-                  git add -- "$FILE"
-
+                    git add -- "$FILE"
+                  fi
                 done
 
                 # ==================================================
@@ -415,8 +427,9 @@ jobs:
                 echo ""
                 echo "Committing conflict resolution..."
 
-                git commit \
-                  -m "chore: auto-resolve merge conflicts"
+                if ! git commit -m "chore: auto-resolve merge conflicts"; then
+                  echo "Warning: git commit failed or nothing to commit."
+                fi
 
               fi
 
@@ -427,7 +440,12 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo "ERROR: Failed to push updated branch $HEAD_BRANCH"
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               cd /
 
