@@ -4,17 +4,36 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.midi_controller import MidiControllerManager
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     and manages signals for CommandExecuted and CommandOutput.
+    Also handles MIDI controller support.
     """
     def __init__(self, config_path=None):
         self.config_path = config_path
         self._executed_listeners = []
         self._output_listeners = []
+        cfg = load_config()
+        self.midi_controller = MidiControllerManager(cfg)
+        self.midi_controller.set_callbacks(on_execute=self._on_midi_execute)
+
+    def _on_midi_execute(self, name, command_str, metadata):
+        code, stdout, stderr = run_command_in_shell(command_str)
+        success = (code == 0)
+        for listener in self._output_listeners:
+            try:
+                listener(name, stdout, stderr)
+            except Exception:
+                pass
+        for listener in self._executed_listeners:
+            try:
+                listener(name, code, success)
+            except Exception:
+                pass
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
@@ -131,3 +150,26 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def process_midi_message(self, msg_type: str, channel: int, number: int, value: int) -> str:
+        res = self.midi_controller.process_midi_message(msg_type, channel, number, value)
+        return json.dumps(res)
+
+    def set_midi_performance_mode(self, enabled: bool) -> bool:
+        return self.midi_controller.set_performance_mode(enabled)
+
+    def switch_midi_bank(self, bank: str) -> bool:
+        return self.midi_controller.switch_bank(bank)
+
+    def get_midi_mappings(self) -> str:
+        cfg = self.midi_controller.get_config()
+        return json.dumps(cfg.get("mappings", []))
+
+    def set_midi_led_feedback(self, enabled: bool) -> bool:
+        config = load_config()
+        midi_cfg = config.setdefault("midi", {})
+        midi_cfg["led_feedback"] = bool(enabled)
+        ok = save_config(config)
+        self.midi_controller.update_config(config)
+        return ok
+

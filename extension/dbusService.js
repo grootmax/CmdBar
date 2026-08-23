@@ -31,6 +31,46 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="stdout" type="s"/>
       <arg name="stderr" type="s"/>
     </signal>
+    <method name="ProcessMidiMessage">
+      <arg name="type" type="s" direction="in"/>
+      <arg name="channel" type="i" direction="in"/>
+      <arg name="number" type="i" direction="in"/>
+      <arg name="value" type="i" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+    <method name="SetMidiPerformanceMode">
+      <arg name="enabled" type="b" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="SwitchMidiBank">
+      <arg name="bank" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetMidiMappings">
+      <arg name="json_mappings" type="s" direction="out"/>
+    </method>
+    <method name="SetMidiLedFeedback">
+      <arg name="enabled" type="b" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <signal name="MidiMessageReceived">
+      <arg name="type" type="s"/>
+      <arg name="channel" type="i"/>
+      <arg name="number" type="i"/>
+      <arg name="value" type="i"/>
+    </signal>
+    <signal name="MidiBankSwitched">
+      <arg name="bank" type="s"/>
+    </signal>
+    <signal name="MidiPerformanceModeToggled">
+      <arg name="enabled" type="b"/>
+    </signal>
+    <signal name="MidiLedFeedbackSent">
+      <arg name="type" type="s"/>
+      <arg name="channel" type="i"/>
+      <arg name="number" type="i"/>
+      <arg name="value" type="i"/>
+    </signal>
   </interface>
 </node>`;
 
@@ -254,6 +294,135 @@ export class CmdBarDBusService {
       } catch (e) {
         console.error(`CmdBar D-Bus emitCommandOutput error: ${e.message}`);
       }
+    }
+  }
+
+  async ProcessMidiMessage(type, channel, number, value) {
+    try {
+      this.emitMidiMessageReceived(type, channel, number, value);
+      if (this._indicator && this._indicator._midiController) {
+        const res = this._indicator._midiController.processMidiMessage(
+          type,
+          channel,
+          number,
+          value,
+          (name, cmdStr, meta) => {
+            if (typeof this._indicator.executeCommand === "function") {
+              this._indicator.executeCommand(name, cmdStr, meta);
+            }
+          }
+        );
+        return JSON.stringify(res);
+      }
+      return JSON.stringify({ handled: false, reason: "MIDI controller not initialized" });
+    } catch (e) {
+      console.error(`CmdBar D-Bus ProcessMidiMessage error: ${e.message}`);
+      return JSON.stringify({ handled: false, error: e.message });
+    }
+  }
+
+  async SetMidiPerformanceMode(enabled) {
+    try {
+      if (this._indicator && this._indicator._midiController) {
+        const ok = this._indicator._midiController.setPerformanceMode(Boolean(enabled));
+        this.emitMidiPerformanceModeToggled(Boolean(enabled));
+        return ok;
+      }
+      return false;
+    } catch (e) {
+      console.error(`CmdBar D-Bus SetMidiPerformanceMode error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async SwitchMidiBank(bank) {
+    try {
+      if (this._indicator && this._indicator._midiController) {
+        const ok = this._indicator._midiController.switchBank(bank);
+        if (ok) this.emitMidiBankSwitched(bank);
+        return ok;
+      }
+      return false;
+    } catch (e) {
+      console.error(`CmdBar D-Bus SwitchMidiBank error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async GetMidiMappings() {
+    try {
+      if (this._indicator && this._indicator._midiController) {
+        const cfg = this._indicator._midiController.getConfig();
+        return JSON.stringify(cfg.mappings || []);
+      }
+      return JSON.stringify([]);
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetMidiMappings error: ${e.message}`);
+      return JSON.stringify([]);
+    }
+  }
+
+  async SetMidiLedFeedback(enabled) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      if (!config.midi) config.midi = {};
+      config.midi.led_feedback = Boolean(enabled);
+      await saveConfig(config, configPath);
+
+      if (this._indicator && this._indicator._midiController) {
+        this._indicator._midiController.updateConfig(config);
+      }
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus SetMidiLedFeedback error: ${e.message}`);
+      return false;
+    }
+  }
+
+  emitMidiMessageReceived(type, channel, number, value) {
+    if (this._dbusImpl && GLib) {
+      try {
+        this._dbusImpl.emit_signal(
+          "MidiMessageReceived",
+          new GLib.Variant("(siii)", [type || "", channel || 1, number || 0, value || 0])
+        );
+      } catch (e) {}
+    }
+  }
+
+  emitMidiBankSwitched(bank) {
+    if (this._dbusImpl && GLib) {
+      try {
+        this._dbusImpl.emit_signal(
+          "MidiBankSwitched",
+          new GLib.Variant("(s)", [bank || ""])
+        );
+      } catch (e) {}
+    }
+  }
+
+  emitMidiPerformanceModeToggled(enabled) {
+    if (this._dbusImpl && GLib) {
+      try {
+        this._dbusImpl.emit_signal(
+          "MidiPerformanceModeToggled",
+          new GLib.Variant("(b)", [Boolean(enabled)])
+        );
+      } catch (e) {}
+    }
+  }
+
+  emitMidiLedFeedbackSent(type, channel, number, value) {
+    if (this._dbusImpl && GLib) {
+      try {
+        this._dbusImpl.emit_signal(
+          "MidiLedFeedbackSent",
+          new GLib.Variant("(siii)", [type || "", channel || 1, number || 0, value || 0])
+        );
+      } catch (e) {}
     }
   }
 }

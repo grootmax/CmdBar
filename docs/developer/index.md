@@ -22,3 +22,12 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### MIDI Controller Support Architecture
+
+The MIDI controller architecture consists of JavaScript (`extension/midiController.js`) and Python (`companion/midi_controller.py`) modules:
+- **Event Dispatch & Parsing**: Parses MIDI status bytes (`note_on`, `note_off`, `cc`, `program_change`, `pitch_bend`) and matches against channel, number, and bank mappings.
+- **Trigger Modes & LED Feedback**: Supports `trigger`, `momentary`, and `toggle` button modes, emitting outgoing MIDI messages for LED feedback and bank state dumps.
+- **Continuous Value Sliders**: Scales raw 0-127 values to target range with template substitution (`<value>`, `{val}`) and intelligent throttling.
+- **Low-Latency Performance Mode**: Reduces throttle windows to 15ms and bypasses modal dialogs for live DJ/producer performance workflows.
+
