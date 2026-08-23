@@ -210,6 +210,76 @@ Used directly by the GNOME Shell extension to load top-bar menus dynamically.
 
 ---
 
+## D-Bus API for External Tool Integration
+
+CmdBar exposes a full D-Bus API on the Session Bus under bus name `org.gnome.CmdBar` at object path `/org/gnome/CmdBar`. Other applications and CLI tools can add, remove, get, or execute commands dynamically and listen for execution output and status in real-time.
+
+### Interface Details
+- **Bus Name**: `org.gnome.CmdBar`
+- **Object Path**: `/org/gnome/CmdBar`
+- **Interface**: `org.gnome.CmdBar`
+
+### Methods
+
+| Method | Parameters | Return Type | Description |
+|--------|------------|-------------|-------------|
+| `AddCommand` | `string category, string name, string command` | `boolean` | Add or update a command dynamically |
+| `RemoveCommand` | `string name` | `boolean` | Remove a command by name |
+| `ExecuteCommand` | `string name` | `boolean` | Execute a command by name or direct command string |
+| `GetCommands` | *None* | `string` (JSON) | Get all registered commands as a JSON array |
+
+### Signals
+
+| Signal | Parameters | Description |
+|--------|------------|-------------|
+| `CommandExecuted` | `string name, int32 exit_code, boolean success` | Emitted when a command finishes execution |
+| `CommandOutput` | `string name, string stdout, string stderr` | Emitted with command output streams |
+
+### CLI Example (`gdbus`)
+```bash
+# Get all commands as JSON
+gdbus call --session --dest org.gnome.CmdBar --object-path /org/gnome/CmdBar --method org.gnome.CmdBar.GetCommands
+
+# Add a command dynamically
+gdbus call --session --dest org.gnome.CmdBar --object-path /org/gnome/CmdBar --method org.gnome.CmdBar.AddCommand "Build" "npm run build" "Projects"
+
+# Execute a command
+gdbus call --session --dest org.gnome.CmdBar --object-path /org/gnome/CmdBar --method org.gnome.CmdBar.ExecuteCommand "Build"
+
+# Remove a command
+gdbus call --session --dest org.gnome.CmdBar --object-path /org/gnome/CmdBar --method org.gnome.CmdBar.RemoveCommand "Build"
+```
+
+### Python Integration Example
+Use the provided `CmdBarDBusClient` bindings in `companion/dbus_client.py`:
+
+```python
+from companion.dbus_client import CmdBarDBusClient
+
+client = CmdBarDBusClient()
+
+# Add a command
+client.add_command("Deploy Staging", "make deploy-staging", "Infrastructure")
+
+# List commands
+commands = client.get_commands()
+print("Registered commands:", commands)
+
+# Execute command and listen for signals
+def on_output(name, stdout, stderr):
+    print(f"[{name}] stdout: {stdout}")
+
+def on_executed(name, exit_code, success):
+    print(f"[{name}] Finished with exit code {exit_code}")
+
+client.on_command_output(on_output)
+client.on_command_executed(on_executed)
+
+client.execute_command("Deploy Staging")
+```
+
+---
+
 ## Quality Assurance & Testing
 
 CmdBar includes robust test suites for both its JavaScript extension core and Python companion modules to ensure high stability and correct parameter substitution.
