@@ -4,17 +4,21 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.rate_limiter import APIRateLimiter, default_rate_limiter
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
-    Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
+    Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands, rate limiting API,
     and manages signals for CommandExecuted and CommandOutput.
+
+    :visibility: public
     """
-    def __init__(self, config_path=None):
+    def __init__(self, config_path=None, rate_limiter=None):
         self.config_path = config_path
         self._executed_listeners = []
         self._output_listeners = []
+        self.rate_limiter = rate_limiter or APIRateLimiter()
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
@@ -131,3 +135,39 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def check_rate_limit(self, client_id: str, route: str = "default") -> dict:
+        """
+        Checks rate limit for client and route without consuming tokens.
+
+        :param client_id: Client identifier.
+        :param route: API route name.
+        :return: Evaluation result dict.
+
+        :visibility: public
+        """
+        return self.rate_limiter.check_limit(client_id, route=route)
+
+    def consume_rate_limit(self, client_id: str, route: str = "default", cost: int = 1) -> dict:
+        """
+        Consumes rate limit tokens for client and route.
+
+        :param client_id: Client identifier.
+        :param route: API route name.
+        :param cost: Token cost.
+        :return: Result dict.
+
+        :visibility: public
+        """
+        return self.rate_limiter.consume(client_id, route=route, cost=cost)
+
+    def get_rate_limit_analytics(self, client_id: str = None) -> dict:
+        """
+        Retrieves rate limit analytics metrics.
+
+        :param client_id: Optional client ID filter.
+        :return: Metrics dict.
+
+        :visibility: public
+        """
+        return self.rate_limiter.get_analytics(client_id=client_id)

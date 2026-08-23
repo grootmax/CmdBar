@@ -1,5 +1,6 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import { APIRateLimiter, defaultRateLimiter } from "./rateLimiter.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -20,6 +21,21 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
+    </method>
+    <method name="CheckRateLimit">
+      <arg name="client_id" type="s" direction="in"/>
+      <arg name="route" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+    <method name="ConsumeRateLimit">
+      <arg name="client_id" type="s" direction="in"/>
+      <arg name="route" type="s" direction="in"/>
+      <arg name="cost" type="i" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+    <method name="GetRateLimitAnalytics">
+      <arg name="client_id" type="s" direction="in"/>
+      <arg name="analytics_json" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -46,6 +62,7 @@ export class CmdBarDBusService {
     this._indicator = indicator;
     this._dbusImpl = null;
     this._busNameId = 0;
+    this._rateLimiter = defaultRateLimiter;
   }
 
   export() {
@@ -228,6 +245,36 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
+    }
+  }
+
+  async CheckRateLimit(clientId, route) {
+    try {
+      const res = this._rateLimiter.checkLimit(clientId, { route });
+      return JSON.stringify(res);
+    } catch (e) {
+      console.error(`CmdBar D-Bus CheckRateLimit error: ${e.message}`);
+      return JSON.stringify({ allowed: false, error: e.message });
+    }
+  }
+
+  async ConsumeRateLimit(clientId, route, cost) {
+    try {
+      const res = this._rateLimiter.consume(clientId, { route, cost });
+      return JSON.stringify(res);
+    } catch (e) {
+      console.error(`CmdBar D-Bus ConsumeRateLimit error: ${e.message}`);
+      return JSON.stringify({ allowed: false, error: e.message });
+    }
+  }
+
+  async GetRateLimitAnalytics(clientId) {
+    try {
+      const analytics = this._rateLimiter.getAnalytics(clientId || null);
+      return JSON.stringify(analytics);
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetRateLimitAnalytics error: ${e.message}`);
+      return JSON.stringify({ error: e.message });
     }
   }
 

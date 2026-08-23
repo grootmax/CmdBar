@@ -22,3 +22,13 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Enterprise API Rate Limiting Architecture
+
+The rate limiter module (`extension/rateLimiter.js` and `app/rate_limiter.py`) provides enterprise-grade traffic management and protection:
+- **Token Bucket Engine**: Implements token buckets with configurable capacity (burst limit) and refill rate (tokens/sec). Automatically refills tokens based on elapsed timestamps.
+- **Multi-Tenant & Tier Isolation**: Predefined subscription tiers (`free`, `pro`, `enterprise`) and custom client limits. Per-client and per-route isolated token bucket instances prevent resource hogging.
+- **Burst & Fair Usage Handling**: Allows burst requests up to capacity, smoothly throttling excess requests with `retryAfterSec` and `resetInMs` calculation.
+- **Analytics & Metrics**: Tracks aggregate system metrics (`totalRequests`, `allowedRequests`, `throttledRequests`, `throttleRatePercentage`) and per-client usage details (`getAnalytics()`, `getUsagePercentage()`).
+- **D-Bus Integration**: Exposes `CheckRateLimit`, `ConsumeRateLimit`, and `GetRateLimitAnalytics` methods over D-Bus (`org.gnome.CmdBar`).
+
