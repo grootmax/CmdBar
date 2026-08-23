@@ -11,6 +11,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
+- **Web Dashboard** – Enterprise web UI with interactive drag-and-drop editor, real-time top-bar preview, team collaboration workspaces, mobile responsiveness, and offline PWA capability
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Pre-built Snippet & Template Library** – Includes pre-built, ready-to-use command templates for Git workflows, Docker operations, Kubernetes (`kubectl`), AWS CLI, `npm`/`pnpm`, and System utilities.
 - **Import Wizard & Community Template Sharing** – Easily import templates from the built-in library, local JSON files, or remote URLs, and export custom commands into template schema JSON files.
@@ -125,6 +126,17 @@ Run it directly using Python 3:
 python3 app/main.py
 ```
 *Note: If no display server is detected (e.g., in a headless container or SSH session), the application falls back gracefully to a non-interactive CLI summary of the active shortcuts configuration.*
+
+#### Web Dashboard & Drag-and-Drop Editor
+CmdBar includes an interactive web application allowing drag-and-drop command reordering, real-time GNOME top-bar preview, team collaboration workspace merging, and offline Progressive Web App (PWA) operation.
+
+Start the Web Dashboard:
+```bash
+make dashboard
+# or
+python3 scripts/serve_dashboard.py --port 8080
+```
+Open `http://localhost:8080` in any web browser.
 
 #### Legacy Companion Utility
 A lightweight companion utility is also provided for backward compatibility and simpler systems:
