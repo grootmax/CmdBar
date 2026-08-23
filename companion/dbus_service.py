@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import subprocess
+import time
 from companion.companion_app import load_config, save_config, run_command_in_shell
 from app.config_schema import validate_branding_config, get_effective_branding
 from companion.sso_manager import SSOManager, SSOProviderConfig
@@ -29,7 +30,7 @@ class CmdBarDBusService:
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
+    Branding & SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
     CommandOutput, and EventTriggered.
     :visibility: public
     """
@@ -219,7 +220,6 @@ class CmdBarDBusService:
         )
 
         import time
-
         start_time = time.perf_counter()
         code, stdout, stderr = run_command_in_shell(cmd_str)
         exec_ms = (time.perf_counter() - start_time) * 1000.0
