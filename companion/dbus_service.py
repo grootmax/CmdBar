@@ -22,6 +22,7 @@ from app.workspace_config import (
     PROJECT_TEMPLATES,
 )
 from companion.stream_deck import get_stream_deck_manager
+from companion.screenshot_service import ScreenshotService, annotate_image, generate_share_url, strip_metadata
 
 
 class CmdBarDBusService:
@@ -29,7 +30,7 @@ class CmdBarDBusService:
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
+    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, terminal sharing, CaptureScreenshot, and manages signals for CommandExecuted,
     CommandOutput, and EventTriggered.
     :visibility: public
     """
@@ -47,6 +48,7 @@ class CmdBarDBusService:
         self.workspace_manager = WorkspaceManager()
         self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
         self.active_terminal_sessions = {}
+        self._screenshot_service = ScreenshotService(config_path=config_path)
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:
@@ -508,3 +510,61 @@ class CmdBarDBusService:
     def get_terminal_sharing_sessions(self) -> str:
         sessions_info = [s.get_metrics() for s in self.active_terminal_sessions.values()]
         return json.dumps(sessions_info)
+
+    def capture_screenshot(
+        self,
+        mode: str = "fullscreen",
+        save_path: str = "",
+        copy_to_clipboard: bool = True,
+        annotate_json: str = "",
+        share: bool = False,
+        strip_meta: bool = True
+    ) -> str:
+        """
+        D-Bus handler for CaptureScreenshot.
+        """
+        annotate = []
+        if annotate_json:
+            try:
+                annotate = json.loads(annotate_json)
+            except Exception:
+                pass
+
+        res = self._screenshot_service.capture(
+            mode=mode,
+            save_path=save_path or None,
+            copy_to_clipboard=copy_to_clipboard,
+            annotate=annotate,
+            share=share,
+            strip_meta=strip_meta
+        )
+        return json.dumps(res)
+
+    def annotate_screenshot(self, image_base64: str, annotate_json: str) -> str:
+        """
+        D-Bus handler for AnnotateScreenshot.
+        """
+        annotate = []
+        if annotate_json:
+            try:
+                annotate = json.loads(annotate_json)
+            except Exception:
+                pass
+        sample_bytes = image_base64.encode('utf-8') if isinstance(image_base64, str) else b''
+        annotated_bytes, count, lst = annotate_image(sample_bytes, annotate)
+        return json.dumps({"success": True, "annotations_applied": count, "annotations_list": lst})
+
+    def upload_screenshot(self, image_base64: str, options_json: str) -> str:
+        """
+        D-Bus handler for UploadScreenshot.
+        """
+        opts = {}
+        if options_json:
+            try:
+                opts = json.loads(options_json)
+            except Exception:
+                pass
+        service_url = opts.get("service_url", "https://cmdbar.share/upload")
+        sample_bytes = image_base64.encode('utf-8') if isinstance(image_base64, str) else b''
+        res = generate_share_url(sample_bytes, service_url=service_url)
+        return json.dumps(res)

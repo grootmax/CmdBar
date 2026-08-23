@@ -108,3 +108,13 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 
 The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
 For full details, see [Team Command Sharing Specification](team_command_sharing.md).
+
+### Screenshot & Screen Capture Engine
+
+The screenshot module (`extension/screenshotManager.js` and `companion/screenshot_service.py`) provides quick screen capture functionality across GNOME Shell and the Python companion:
+- **Capture Modes**: Fullscreen, active window, and region (area selection) captures.
+- **Destination Options**: Save to file with timestamped filenames, auto-copy to system clipboard, or both.
+- **Annotation Engine**: Vector overlays supporting text notes, bounding boxes, directional arrows/lines, and color highlights.
+- **Metadata Removal**: Automated EXIF/PNG chunk stripping (`tEXt`, `zTXt`, `iTXt`, `tIME`, `pHYs`, `APP1 EXIF`) to sanitize images for privacy prior to saving or sharing.
+- **Share via URL**: Service integration generating unique shareable links with expiration metadata.
+- **D-Bus Integration**: Exposes `CaptureScreenshot`, `AnnotateScreenshot`, and `UploadScreenshot` over D-Bus interface `org.gnome.CmdBar`.
