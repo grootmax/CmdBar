@@ -637,3 +637,12 @@ export {
   formatOutput,
 } from "./outputFormatter.js";
 
+export {
+  PolicyEngine,
+  createPolicyEngine,
+  DEFAULT_DLP_PATTERNS,
+  DEFAULT_SENSITIVE_COMMAND_PATTERNS,
+  validateLuhn,
+  isIpInCidr,
+} from "./policyEngine.js";
+

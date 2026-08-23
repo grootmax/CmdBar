@@ -12,6 +12,29 @@ export const DEFAULT_CONFIG = {
     fallback_provider: "ollama",
     fallback_model: "llama3",
   },
+  policy: {
+    mfa: {
+      enabled: false,
+      sensitiveCommands: ["*deploy*", "*rm -rf*", "*sudo*", "*aws ecs*"],
+      sessionDurationMs: 300000,
+    },
+    dlp: {
+      enabled: true,
+      action: "redact",
+    },
+    geo: {
+      enabled: false,
+      allowedCountries: [],
+      blockedCountries: [],
+      allowedIpRanges: [],
+      blockedIpRanges: [],
+    },
+    time: {
+      enabled: false,
+      allowedDays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+      allowedHours: { start: "00:00", end: "23:59" },
+    },
+  },
   categories: [
     {
       name: "AI Assistant",
