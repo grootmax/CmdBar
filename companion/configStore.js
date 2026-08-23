@@ -139,19 +139,13 @@ export function saveConfigAtomically(configData, customPath) {
     let mode;
     if (fs.existsSync(targetPath)) {
         try {
-            mode = fs.statSync(targetPath).mode;
+            const stats = fs.statSync(targetPath);
+            mode = stats.mode;
         } catch (e) {}
     }
 
     try {
         const jsonString = JSON.stringify(configData, null, 2);
-
-        let mode;
-        if (fs.existsSync(targetPath)) {
-            try {
-                mode = fs.statSync(targetPath).mode;
-            } catch (e) {}
-        }
 
         // 3. Write JSON content to temporary file
         fs.writeFileSync(tempPath, jsonString, 'utf8');
@@ -214,12 +208,6 @@ export async function saveConfigAtomicallyAsync(configData, customPath) {
 
         // 3. Write JSON content to temporary file
         await fs.promises.writeFile(tempPath, jsonString, 'utf8');
-        if (mode !== undefined) {
-            try {
-                await fs.promises.chmod(tempPath, mode);
-            } catch (e) {}
-        }
-
         if (mode !== undefined) {
             try {
                 await fs.promises.chmod(tempPath, mode);
