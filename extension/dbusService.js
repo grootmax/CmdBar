@@ -20,6 +20,7 @@ import {
   parseShareUrl,
   ROLES,
 } from "./teamSharing.js";
+import { APIRateLimiter, defaultRateLimiter } from "./rateLimiter.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -72,6 +73,21 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="session_id" type="s" direction="in"/>
       <arg name="category_name" type="s" direction="in"/>
       <arg name="allowed" type="b" direction="out"/>
+    </method>
+    <method name="CheckRateLimit">
+      <arg name="client_id" type="s" direction="in"/>
+      <arg name="route" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+    <method name="ConsumeRateLimit">
+      <arg name="client_id" type="s" direction="in"/>
+      <arg name="route" type="s" direction="in"/>
+      <arg name="cost" type="i" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+    <method name="GetRateLimitAnalytics">
+      <arg name="client_id" type="s" direction="in"/>
+      <arg name="analytics_json" type="s" direction="out"/>
     </method>
     <method name="GetResourceMetrics">
       <arg name="json_metrics" type="s" direction="out"/>
@@ -201,6 +217,7 @@ export class CmdBarDBusService {
     this.workspaceManager = new WorkspaceManager();
     this._teamSharingService = new TeamSharingService({ baseDir: "/tmp/cmdbar-dbus-team" });
     this._terminalSessions = new Map();
+    this._rateLimiter = defaultRateLimiter;
   }
 
   /**
@@ -688,6 +705,36 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetPendingApprovals error: ${e.message}`);
       return JSON.stringify([]);
+    }
+  }
+
+  async CheckRateLimit(clientId, route) {
+    try {
+      const res = this._rateLimiter.checkLimit(clientId, { route });
+      return JSON.stringify(res);
+    } catch (e) {
+      console.error(`CmdBar D-Bus CheckRateLimit error: ${e.message}`);
+      return JSON.stringify({ allowed: false, error: e.message });
+    }
+  }
+
+  async ConsumeRateLimit(clientId, route, cost) {
+    try {
+      const res = this._rateLimiter.consume(clientId, { route, cost });
+      return JSON.stringify(res);
+    } catch (e) {
+      console.error(`CmdBar D-Bus ConsumeRateLimit error: ${e.message}`);
+      return JSON.stringify({ allowed: false, error: e.message });
+    }
+  }
+
+  async GetRateLimitAnalytics(clientId) {
+    try {
+      const analytics = this._rateLimiter.getAnalytics(clientId || null);
+      return JSON.stringify(analytics);
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetRateLimitAnalytics error: ${e.message}`);
+      return JSON.stringify({ error: e.message });
     }
   }
 

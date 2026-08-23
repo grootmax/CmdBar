@@ -195,6 +195,51 @@ class CmdBarDBusClient:
                 return {}
         return {}
 
+    def check_rate_limit(self, client_id: str, route: str = "default") -> dict:
+        """Checks rate limit for client and route without consuming tokens."""
+        res = self._call_method("CheckRateLimit", client_id, route)
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def consume_rate_limit(self, client_id: str, route: str = "default", cost: int = 1) -> dict:
+        """Consumes rate limit tokens for client and route."""
+        res = self._call_method("ConsumeRateLimit", client_id, route, cost)
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def get_rate_limit_analytics(self, client_id: str = None) -> dict:
+        """Retrieves rate limit analytics metrics."""
+        res = self._call_method("GetRateLimitAnalytics", client_id or "")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
     def get_stream_deck_profiles(self) -> dict:
         """Retrieve Stream Deck active and available profiles."""
         res = self._call_method("GetStreamDeckProfiles")
@@ -230,7 +275,6 @@ class CmdBarDBusClient:
         """Trigger simulated button press on Stream Deck key index."""
         res = self._call_method("TriggerStreamDeckButton", key_index)
         return bool(res)
-
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
         self._executed_callbacks.append(callback)
