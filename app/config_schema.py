@@ -51,6 +51,7 @@ DEFAULT_CONFIG = {
     "fallback_provider": "ollama",
     "fallback_model": "llama3"
   },
+  "schedules": [],
   "categories": [
     {
       "name": "System Utilities",
@@ -150,6 +151,10 @@ def load_config(path=None):
 
         # Normalize and migrate loaded configuration
         migrated = False
+        if "schedules" not in config_data or not isinstance(config_data.get("schedules"), list):
+            config_data["schedules"] = []
+            migrated = True
+
         for cat in config_data.get("categories", []):
             # Migrate shortcuts to commands
             if "shortcuts" in cat:

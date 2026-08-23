@@ -12,6 +12,7 @@ export const DEFAULT_CONFIG = {
     fallback_provider: "ollama",
     fallback_model: "llama3",
   },
+  schedules: [],
   categories: [
     {
       name: "AI Assistant",

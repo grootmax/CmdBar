@@ -139,11 +139,11 @@ def init_config():
     return config_path
 
 
-def load_config():
+def load_config(path=None):
     """
     Loads and parses the configuration file, verifying its signature.
     """
-    config_path = init_config()
+    config_path = path if path else init_config()
     key_path = get_key_path(config_path)
     key = get_or_create_signing_key(key_path)
     try:
@@ -232,11 +232,11 @@ def load_config():
     return config_data
 
 
-def save_config(config_data):
+def save_config(config_data, path=None):
     """
     Saves the configuration to the file safely with a cryptographic signature.
     """
-    config_path = get_config_path()
+    config_path = path if path else get_config_path()
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
     if isinstance(config_data, dict):
         key_path = get_key_path(config_path)
@@ -385,11 +385,12 @@ def run_cli_mode():
         print("4. Edit Command")
         print("5. Delete Command/Category")
         print("6. Test-Run Command Template")
-        print("7. Import from Template Library")
-        print("8. Export Custom Commands as Template")
-        print("9. Exit")
+        print("7. Manage Cron Schedules")
+        print("8. Import from Template Library")
+        print("9. Export Custom Commands as Template")
+        print("10. Exit")
         
-        choice = input("\nEnter choice [1-9]: ").strip()
+        choice = input("\nEnter choice [1-10]: ").strip()
         if choice == "1":
             list_categories_and_commands(config_data)
         elif choice == "2":
@@ -403,14 +404,112 @@ def run_cli_mode():
         elif choice == "6":
             test_run_command_flow(config_data)
         elif choice == "7":
-            import_templates_cli_flow(config_data)
+            manage_schedules_cli(config_data)
         elif choice == "8":
-            export_templates_cli_flow(config_data)
+            import_templates_cli_flow(config_data)
         elif choice == "9":
+            export_templates_cli_flow(config_data)
+        elif choice == "10":
             print("Goodbye!")
             break
         else:
             print("Invalid choice, please try again.")
+
+
+def manage_schedules_cli(config_data):
+    from app.cron_scheduler import is_valid_cron_expression, CronScheduler, get_next_run_time
+    schedules = config_data.setdefault("schedules", [])
+
+    print("\n--- Manage Cron Schedules ---")
+    print("1. List Schedules")
+    print("2. Add Schedule")
+    print("3. Delete Schedule")
+    print("4. Run Schedule Now")
+    print("5. Back")
+
+    sub_choice = input("Enter choice [1-5]: ").strip()
+    if sub_choice == "1":
+        if not schedules:
+            print("\nNo schedules configured.")
+            return
+        for i, s in enumerate(schedules, 1):
+            print(f"\n[{i}] Schedule: {s.get('name')}")
+            print(f"    Command : {s.get('command')}")
+            print(f"    Cron    : {s.get('schedule')}")
+            print(f"    Timezone: {s.get('timezone', 'Local')}")
+            print(f"    Status  : {s.get('last_status', 'never_run')}")
+            try:
+                nxt = get_next_run_time(s.get('schedule'), tz_str=s.get('timezone', 'Local'))
+                print(f"    Next Run: {nxt.isoformat()}")
+            except Exception:
+                pass
+    elif sub_choice == "2":
+        name = input("Enter Schedule Name: ").strip()
+        if not name:
+            print("Name cannot be empty.")
+            return
+        cmd = input("Enter Command String: ").strip()
+        if not cmd:
+            print("Command cannot be empty.")
+            return
+        cron_expr = input("Enter Cron Expression (e.g., '0 0 * * *' or '@hourly'): ").strip()
+        if not is_valid_cron_expression(cron_expr):
+            print("Invalid cron expression.")
+            return
+        tz = input("Enter Timezone (default 'Local', e.g. 'UTC', 'America/New_York'): ").strip() or "Local"
+        
+        new_s = {
+            "id": f"sched-{len(schedules) + 1}",
+            "name": name,
+            "command": cmd,
+            "schedule": cron_expr,
+            "timezone": tz,
+            "enabled": True,
+            "prevent_overlap": True,
+            "email_reports": {"enabled": False, "recipients": [], "trigger": "on_failure"},
+            "last_run": None,
+            "next_run": None,
+            "last_status": "never_run",
+            "last_output": "",
+            "last_error": ""
+        }
+        schedules.append(new_s)
+        save_config(config_data)
+        print(f"Schedule '{name}' added successfully!")
+    elif sub_choice == "3":
+        if not schedules:
+            print("No schedules to delete.")
+            return
+        for i, s in enumerate(schedules, 1):
+            print(f"{i}. {s.get('name')} ({s.get('schedule')})")
+        idx_str = input("Select schedule number to delete: ").strip()
+        if idx_str.isdigit() and 1 <= int(idx_str) <= len(schedules):
+            removed = schedules.pop(int(idx_str) - 1)
+            save_config(config_data)
+            print(f"Removed schedule '{removed.get('name')}'.")
+        else:
+            print("Invalid index.")
+    elif sub_choice == "4":
+        if not schedules:
+            print("No schedules available.")
+            return
+        for i, s in enumerate(schedules, 1):
+            print(f"{i}. {s.get('name')} ({s.get('command')})")
+        idx_str = input("Select schedule number to run now: ").strip()
+        if idx_str.isdigit() and 1 <= int(idx_str) <= len(schedules):
+            s = schedules[int(idx_str) - 1]
+            scheduler = CronScheduler()
+            res = scheduler.run_job_now(s.get("id"))
+            s["last_run"] = res.get("timestamp")
+            s["last_status"] = res.get("status")
+            s["last_output"] = res.get("stdout")
+            s["last_error"] = res.get("stderr")
+            save_config(config_data)
+            print(f"Execution complete: {res.get('status').upper()} (exit code {res.get('exit_code')})")
+            if res.get("stdout"):
+                print(f"STDOUT:\n{res.get('stdout')}")
+            if res.get("stderr"):
+                print(f"STDERR:\n{res.get('stderr')}")
 
 
 def import_templates_cli_flow(config_data):
@@ -494,7 +593,6 @@ def export_templates_cli_flow(config_data):
     
     export_templates_to_file([tmpl], out_path, author=author or None)
     print(f"Successfully exported template '{tmpl['name']}' to {out_path}!")
-
 
 
 def list_categories_and_commands(config_data):

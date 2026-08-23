@@ -29,6 +29,42 @@
       <arg name="json_commands" type="s" direction="out"/>
     </method>
     
+    <method name="GetSchedules">
+      <annotation name="org.freedesktop.DBus.Description" value="Get list of schedules as JSON string"/>
+      <arg name="json_schedules" type="s" direction="out"/>
+    </method>
+
+    <method name="AddSchedule">
+      <annotation name="org.freedesktop.DBus.Description" value="Add or update a cron schedule in CmdBar"/>
+      <arg name="id" type="s" direction="in"/>
+      <arg name="name" type="s" direction="in"/>
+      <arg name="command" type="s" direction="in"/>
+      <arg name="schedule" type="s" direction="in"/>
+      <arg name="timezone" type="s" direction="in"/>
+      <arg name="prevent_overlap" type="b" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="RemoveSchedule">
+      <annotation name="org.freedesktop.DBus.Description" value="Remove a schedule by ID or name"/>
+      <arg name="id_or_name" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="RunScheduleNow">
+      <annotation name="org.freedesktop.DBus.Description" value="Run a scheduled job out-of-band immediately"/>
+      <arg name="id_or_name" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <signal name="ScheduleExecuted">
+      <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a schedule finish execution"/>
+      <arg name="id_or_name" type="s"/>
+      <arg name="exit_code" type="i"/>
+      <arg name="success" type="b"/>
+      <arg name="status" type="s"/>
+    </signal>
+    
     <signal name="CommandExecuted">
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a command finishes execution"/>
       <arg name="name" type="s"/>

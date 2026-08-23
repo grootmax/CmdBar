@@ -22,3 +22,11 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### Cron Scheduling Engine
+
+The cron scheduler module (`app/cron_scheduler.py` & `extension/cronScheduler.js`) provides scheduled task execution:
+- **Cron Parsing**: Evaluates 5-field expressions and shorthand macros (`@daily`, `@hourly`, etc.).
+- **Timezone Calculations**: Timezone-aware next run calculations using `zoneinfo`.
+- **Overlap Prevention**: Thread-safe active process tracking to prevent duplicate concurrent runs.
+- **Email Reporting**: SMTP email notification reports detailing execution status, duration, stdout, and stderr.
