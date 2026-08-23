@@ -27,13 +27,13 @@ const ExecutionConfirmationDialog = GObject.registerClass(
       this._executed = false;
 
       let mainBox = new St.BoxLayout({
-        orientation: Clutter.Orientation.VERTICAL,
+        vertical: true,
         style_class: "cmdbar-dialog-content",
         style: "padding: 16px; min-width: 320px;",
       });
 
       let headerBox = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         style: "margin-bottom: 8px;",
       });
 
@@ -258,13 +258,6 @@ function runCommandAsync(commandName, commandString, cmdObj, placeholderMap) {
 }
 
 /**
- * Harvest environment variables on startup.
- */
-function harvestEnvironment() {
-  // Placeholder for environment harvesting
-}
-
-/**
  * Asynchronously executes a shell command and notifies the user on failure.
  *
  * @param {string|string[]} commandLineString The command string to execute.
@@ -375,7 +368,7 @@ const CommandInputMenuItem = GObject.registerClass(
       this._cmdObj = cmdObj || {};
 
       this.box = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         x_expand: true,
       });
 
@@ -514,36 +507,89 @@ const CommandInputMenuItem = GObject.registerClass(
 );
 
 /**
- * Standard menu item for parameterless or parameter-prompting commands
- * supporting Executor-style inline command output, configurable periodic intervals,
- * color-coded status, and one-click manual refresh.
+ * Helper function supporting wl-copy (Wayland) and xclip (X11) to copy text to clipboard.
+ * @param {string} text
+ * @returns {boolean}
  */
+export function copyToClipboard(text) {
+  if (text === null || text === undefined) {
+    text = "";
+  } else if (typeof text !== "string") {
+    text = String(text);
+  }
+
+  // Native GNOME Shell St.Clipboard support if available
+  try {
+    if (typeof St !== "undefined" && St && St.Clipboard && St.ClipboardType) {
+      let clipboard = St.Clipboard.get_default();
+      if (clipboard) {
+        clipboard.set_text(St.ClipboardType.CLIPBOARD, text);
+      }
+    }
+  } catch (e) {
+    console.warn(`CmdBar: St.Clipboard error: ${e.message}`);
+  }
+
+  let isWayland = false;
+  try {
+    let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
+    let sessionType = GLib.getenv("XDG_SESSION_TYPE");
+    if (
+      waylandDisplay ||
+      (sessionType && sessionType.toLowerCase() === "wayland")
+    ) {
+      isWayland = true;
+    }
+  } catch (e) {}
+
+  let tools = isWayland
+    ? [
+        ["wl-copy"],
+        ["xclip", "-selection", "clipboard"],
+      ]
+    : [
+        ["xclip", "-selection", "clipboard"],
+        ["wl-copy"],
+      ];
+
+  let success = false;
+  for (let argv of tools) {
+    try {
+      let proc = Gio.Subprocess.new(
+        argv,
+        Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+      );
+      proc.communicate_utf8_async(text, null, (subprocess, result) => {
+        try {
+          subprocess.communicate_utf8_finish(result);
+        } catch (err) {}
+      });
+      success = true;
+      break;
+    } catch (e) {
+      continue;
+    }
+  }
+  return success;
+}
+
+// Standard menu item for parameterless or parameter-prompting commands
 const CommandMenuItem = GObject.registerClass(
   class CommandMenuItem extends PopupMenu.PopupBaseMenuItem {
-    /**
-     * Initializes a CommandMenuItem with output label and refresh button.
-     * @param {object} indicator
-     * @param {string} commandName
-     * @param {string|string[]} commandTemplate
-     * @param {object} [cmdObj]
-     */
     _init(indicator, commandName, commandTemplate, cmdObj) {
       super._init({
         reactive: true,
-        activate: true,
+        activate: false,
       });
 
       this._indicator = indicator;
       this._commandName = commandName;
       this._commandTemplate = commandTemplate;
       this._cmdObj = cmdObj || {};
-      this._runningProc = null;
-      this._timeoutId = 0;
 
       this.box = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         x_expand: true,
-        y_align: Clutter.ActorAlign.CENTER,
       });
 
       let cmdIconName =
@@ -563,230 +609,70 @@ const CommandMenuItem = GObject.registerClass(
       });
       this.box.add_child(this.label);
 
-      // Optional output field in CommandMenuItem for displaying command output/status
-      this.outputLabel = new St.Label({
-        text: "",
-        y_align: Clutter.ActorAlign.CENTER,
-        style_class: "cmdbar-output-label",
-        style: "margin-left: 8px; margin-right: 8px; font-size: 0.85em;",
-        visible: false,
-      });
-      this.box.add_child(this.outputLabel);
-
-      // One-click refresh button
-      this.refreshButton = new St.Button({
+      // Copy Button
+      this.copyButton = new St.Button({
         child: new St.Icon({
-          icon_name: "view-refresh-symbolic",
+          icon_name: "edit-copy-symbolic",
           style_class: "popup-menu-icon",
-          style: "font-size: 0.9em;",
         }),
-        style_class: "cmdbar-refresh-button",
-        style: "padding: 2px 6px; border-radius: 4px;",
+        style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
         track_hover: true,
         can_focus: true,
       });
 
-      // Prevent button press event from activating the item or closing popup menu
-      this.refreshButton.connect("button-press-event", () => {
-        return Clutter.EVENT_STOP;
+      this.copyButton.connect("clicked", () => {
+        let commandString = "";
+        if (Array.isArray(this._commandTemplate)) {
+          commandString = this._commandTemplate.join(" ");
+        } else if (typeof this._commandTemplate === "string") {
+          commandString = this._commandTemplate;
+        } else if (this._commandTemplate) {
+          commandString = String(this._commandTemplate);
+        }
+
+        copyToClipboard(commandString);
+
+        if (
+          this._indicator &&
+          this._indicator.menu &&
+          typeof this._indicator.menu.close === "function"
+        ) {
+          this._indicator.menu.close();
+        }
+      });
+      this.box.add_child(this.copyButton);
+
+      // Execute Button
+      this.executeButton = new St.Button({
+        child: new St.Icon({
+          icon_name: "media-playback-start-symbolic",
+          style_class: "popup-menu-icon",
+        }),
+        style: "padding: 4px 6px; border-radius: 4px;",
+        track_hover: true,
+        can_focus: true,
       });
 
-      this.refreshButton.connect("clicked", () => {
-        this.refreshOutput();
+      this.executeButton.connect("clicked", () => {
+        runCommandAsync(this._commandName, this._commandTemplate, this._cmdObj);
+        if (
+          this._indicator &&
+          this._indicator.menu &&
+          typeof this._indicator.menu.close === "function"
+        ) {
+          this._indicator.menu.close();
+        }
       });
-
-      this.box.add_child(this.refreshButton);
+      this.box.add_child(this.executeButton);
 
       this.add_child(this.box);
 
       this._activateId = this.connect("activate", () => {
         runCommandAsync(this._commandName, this._commandTemplate, this._cmdObj);
       });
-
-      // Configurable refresh interval
-      this._intervalMs = this._getRefreshIntervalMs();
-
-      if (this._cmdObj.output || this._cmdObj.showOutput || this._intervalMs > 0) {
-        this.refreshOutput();
-      }
-
-      if (this._intervalMs > 0) {
-        this._startPeriodicUpdate();
-      }
     }
 
-    /**
-     * Parse configurable refresh interval in milliseconds.
-     * @returns {number} Interval in milliseconds or 0 if disabled
-     */
-    _getRefreshIntervalMs() {
-      if (!this._cmdObj) return 0;
-      let val =
-        this._cmdObj.interval ??
-        this._cmdObj.refreshInterval ??
-        this._cmdObj.intervalMs ??
-        this._cmdObj.intervalSec ??
-        this._cmdObj.interval_sec ??
-        this._cmdObj.interval_ms;
-
-      if (typeof val === "number" && val > 0) {
-        return val <= 100 ? val * 1000 : val;
-      }
-      if (typeof val === "string" && !isNaN(Number(val))) {
-        let num = Number(val);
-        if (num > 0) return num <= 100 ? num * 1000 : num;
-      }
-      if (this._cmdObj.output === true || this._cmdObj.showOutput === true) {
-        return 5000;
-      }
-      return 0;
-    }
-
-    /**
-     * Start periodic execution loop.
-     */
-    _startPeriodicUpdate() {
-      if (this._timeoutId) {
-        GLib.Source.remove(this._timeoutId);
-        this._timeoutId = 0;
-      }
-      this._timeoutId = GLib.timeout_add(
-        GLib.PRIORITY_DEFAULT,
-        this._intervalMs,
-        () => {
-          this.refreshOutput();
-          return GLib.SOURCE_CONTINUE !== undefined
-            ? GLib.SOURCE_CONTINUE
-            : true;
-        }
-      );
-    }
-
-    /**
-     * Format output string: last line or summary status, max 50 chars.
-     * @param {string} rawOutput
-     * @param {boolean} isSuccess
-     * @returns {string} Formatted output summary string
-     */
-    _formatOutputText(rawOutput, isSuccess) {
-      let lines = (rawOutput || "")
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
-
-      let summary = "";
-      if (lines.length > 0) {
-        summary = lines[lines.length - 1];
-      } else {
-        summary = isSuccess ? "OK" : "Error";
-      }
-
-      if (summary.length > 50) {
-        summary = summary.substring(0, 47) + "...";
-      }
-
-      return summary;
-    }
-
-    /**
-     * Set running status state (color-coded gray).
-     */
-    _setStatusRunning() {
-      this.outputLabel.text = "Running...";
-      this.outputLabel.visible = true;
-      this.outputLabel.style_class = "cmdbar-output-running";
-      this.outputLabel.style =
-        "color: #888888; font-size: 0.85em; margin-left: 8px; margin-right: 8px;";
-    }
-
-    /**
-     * Set success status state (color-coded green).
-     * @param {string} text
-     */
-    _setStatusSuccess(text) {
-      this.outputLabel.text = text;
-      this.outputLabel.visible = true;
-      this.outputLabel.style_class = "cmdbar-output-success";
-      this.outputLabel.style =
-        "color: #2ec27e; font-size: 0.85em; margin-left: 8px; margin-right: 8px;";
-    }
-
-    /**
-     * Set error status state (color-coded red).
-     * @param {string} text
-     */
-    _setStatusError(text) {
-      this.outputLabel.text = text;
-      this.outputLabel.visible = true;
-      this.outputLabel.style_class = "cmdbar-output-error";
-      this.outputLabel.style =
-        "color: #e01b24; font-size: 0.85em; margin-left: 8px; margin-right: 8px;";
-    }
-
-    /**
-     * Execute process asynchronously to refresh inline output status.
-     */
-    refreshOutput() {
-      if (this._runningProc) {
-        return;
-      }
-
-      this._setStatusRunning();
-
-      try {
-        let tokens = Array.isArray(this._commandTemplate)
-          ? this._commandTemplate
-          : tokenizeCommand(this._commandTemplate);
-        let argv = substituteTokens(tokens, {});
-
-        if (!argv || argv.length === 0) {
-          this._setStatusError("Invalid Command");
-          return;
-        }
-
-        let proc = Gio.Subprocess.new(
-          argv,
-          Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-        );
-        this._runningProc = proc;
-
-        proc.communicate_utf8_async(null, null, (subprocess, res) => {
-          this._runningProc = null;
-          try {
-            let [stdout, stderr] = subprocess.communicate_utf8_finish(res);
-            let success = subprocess.get_successful();
-            let rawOutput = success ? stdout : stderr || stdout;
-            let formatted = this._formatOutputText(rawOutput, success);
-
-            if (success) {
-              this._setStatusSuccess(formatted);
-            } else {
-              this._setStatusError(formatted);
-            }
-          } catch (e) {
-            this._setStatusError(e.message || "Execution Failed");
-          }
-        });
-      } catch (e) {
-        this._runningProc = null;
-        this._setStatusError(e.message || "Spawn Failed");
-      }
-    }
-
-    /**
-     * Clean up timers, subprocesses, and signal handlers.
-     */
     destroy() {
-      if (this._timeoutId) {
-        GLib.Source.remove(this._timeoutId);
-        this._timeoutId = 0;
-      }
-      if (this._runningProc) {
-        try {
-          this._runningProc.force_exit();
-        } catch (e) {}
-        this._runningProc = null;
-      }
       if (this._activateId) {
         this.disconnect(this._activateId);
         this._activateId = 0;
@@ -808,7 +694,7 @@ const JobMenuItem = GObject.registerClass(
       this.jobId = jobId;
 
       this.box = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         x_expand: true,
         style: "padding: 4px 6px;",
       });
@@ -861,7 +747,7 @@ const CategoryHeaderMenuItem = GObject.registerClass(
       });
 
       this.box = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
+        vertical: false,
         style_class: "cmdbar-category-header",
         x_expand: true,
       });

@@ -131,13 +131,6 @@ export function saveConfigAtomically(configData, customPath) {
         configData.signature = computeSignatureSync(configData, key);
     }
 
-    let mode;
-    if (fs.existsSync(targetPath)) {
-        try {
-            mode = fs.statSync(targetPath).mode;
-        } catch (e) {}
-    }
-
     // 2. Generate temporary file path in the SAME directory
     // Same directory is critical to guarantee the temp file resides on the same filesystem/mount point,
     // enabling an atomic `rename` operation.

@@ -371,9 +371,10 @@ def test_unverified_modal_approval_proceeds_with_execution():
     try:
         dialog = TestCommandDialog(None, command, None)
 
-        with patch("companion.companion_app.Adw") as mock_adw:
+        with patch("companion.companion_app.GUI_AVAILABLE", True), patch("companion.companion_app.Adw") as mock_adw:
             mock_msg_dlg = MagicMock()
             mock_adw.MessageDialog.return_value = mock_msg_dlg
+            mock_adw.MessageDialog.new.return_value = mock_msg_dlg
 
             # Capture body argument passed to MessageDialog
             def fake_connect(event, cb):
@@ -384,8 +385,9 @@ def test_unverified_modal_approval_proceeds_with_execution():
             dialog.on_run_clicked(None)
 
             # MessageDialog must be constructed with exact substituted command string in body
-            kwargs = mock_adw.MessageDialog.call_args.kwargs
-            assert "hello_world" in kwargs.get("body", "")
+            call = mock_adw.MessageDialog.new.call_args or mock_adw.MessageDialog.call_args
+            body_str = str(call)
+            assert "hello_world" in body_str
 
             # Gio.Subprocess.new MUST be called after approval
             mock_subproc_new.assert_called_once()
