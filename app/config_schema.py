@@ -43,6 +43,68 @@ def compute_signature(config_data, key):
     return hmac.new(key.encode("utf-8"), str_val.encode("utf-8"), hashlib.sha256).hexdigest()
 
 DEFAULT_CONFIG = {
+  "sso": {
+    "enabled": False,
+    "default_provider": "azure",
+    "auto_provision": True,
+    "allowed_domains": ["example.com"],
+    "default_role": "user",
+    "group_claim": "groups",
+    "providers": {
+      "azure": {
+        "name": "Azure Active Directory",
+        "type": "azure",
+        "protocol": "oidc",
+        "tenant_id": "common",
+        "client_id": "",
+        "client_secret": "",
+        "redirect_uri": "http://localhost:8080/callback/sso",
+        "saml_sso_url": "https://login.microsoftonline.com/common/saml2",
+        "saml_entity_id": "https://sts.windows.net/common/"
+      },
+      "okta": {
+        "name": "Okta Workforce Identity",
+        "type": "okta",
+        "protocol": "oidc",
+        "domain": "company.okta.com",
+        "client_id": "",
+        "client_secret": "",
+        "redirect_uri": "http://localhost:8080/callback/sso",
+        "saml_sso_url": "https://company.okta.com/app/sso/saml",
+        "saml_entity_id": "http://www.okta.com/default"
+      },
+      "google": {
+        "name": "Google Workspace SSO",
+        "type": "google",
+        "protocol": "oidc",
+        "client_id": "",
+        "client_secret": "",
+        "redirect_uri": "http://localhost:8080/callback/sso",
+        "saml_sso_url": "https://accounts.google.com/o/saml2/idp",
+        "saml_entity_id": "https://accounts.google.com/o/saml2?idpid=default"
+      }
+    },
+    "group_mappings": [
+      {
+        "id": "rule-admin",
+        "group_pattern": "Admins",
+        "match_type": "contains",
+        "role": "admin",
+        "categories": ["System Utilities", "Infrastructure", "AI Assistant", "Projects"]
+      },
+      {
+        "id": "rule-dev",
+        "group_pattern": "Developers",
+        "match_type": "contains",
+        "role": "developer",
+        "categories": ["Projects", "AI Assistant"]
+      }
+    ],
+    "session": {
+      "max_ttl_seconds": 28800,
+      "refresh_threshold_seconds": 300
+    }
+  },
   "ai": {
     "provider": "openai",
     "model": "gpt-4o",

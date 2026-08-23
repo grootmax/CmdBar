@@ -42,5 +42,43 @@
       <arg name="stdout" type="s"/>
       <arg name="stderr" type="s"/>
     </signal>
+
+    <method name="SSOLogin">
+      <annotation name="org.freedesktop.DBus.Description" value="Perform SSO login using provider and credentials"/>
+      <arg name="provider" type="s" direction="in"/>
+      <arg name="protocol" type="s" direction="in"/>
+      <arg name="credentials_json" type="s" direction="in"/>
+      <arg name="response_json" type="s" direction="out"/>
+    </method>
+
+    <method name="SSOLogout">
+      <annotation name="org.freedesktop.DBus.Description" value="Logout active SSO session"/>
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="GetSSOSession">
+      <annotation name="org.freedesktop.DBus.Description" value="Get SSO session details by ID"/>
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="session_json" type="s" direction="out"/>
+    </method>
+
+    <method name="GetSSOProviders">
+      <annotation name="org.freedesktop.DBus.Description" value="Get supported SSO providers configuration"/>
+      <arg name="providers_json" type="s" direction="out"/>
+    </method>
+
+    <method name="ValidateSSOAccess">
+      <annotation name="org.freedesktop.DBus.Description" value="Validate whether active session has access to category"/>
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="category_name" type="s" direction="in"/>
+      <arg name="allowed" type="b" direction="out"/>
+    </method>
+
+    <signal name="SSOSessionStateChanged">
+      <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when SSO session status changes"/>
+      <arg name="session_id" type="s"/>
+      <arg name="state" type="s"/>
+    </signal>
   </interface>
 </node>
