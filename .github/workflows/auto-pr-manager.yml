@@ -370,11 +370,11 @@ jobs:
                   echo "Resolving conflict:"
                   echo "  $FILE"
 
-                  git checkout --theirs -- "$FILE"
-
-                  git add -- "$FILE"
-
                 done
+
+                git checkout --theirs -- :/* || true
+
+                git add -A
 
                 # ==================================================
                 # VERIFY NO CONFLICTS REMAIN
