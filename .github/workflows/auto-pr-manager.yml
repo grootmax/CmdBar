@@ -370,9 +370,9 @@ jobs:
                   echo "Resolving conflict:"
                   echo "  $FILE"
 
-                  git checkout --theirs -- "$FILE"
+                  git checkout --theirs -- "$FILE" 2>/dev/null || git rm -f -- "$FILE" 2>/dev/null || true
 
-                  git add -- "$FILE"
+                  git add -- "$FILE" 2>/dev/null || true
 
                 done
 
@@ -415,7 +415,7 @@ jobs:
                 echo ""
                 echo "Committing conflict resolution..."
 
-                git commit \
+                git diff-index --quiet HEAD || git commit \
                   -m "chore: auto-resolve merge conflicts"
 
               fi
@@ -427,7 +427,12 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo "ERROR: Failed to push $HEAD_BRANCH"
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               cd /
 
