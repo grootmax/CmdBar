@@ -22,3 +22,12 @@ The output parser module (`extension/outputFormatter.js`) automatically detects 
 - **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
 - **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
 - **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.
+
+### IoT Trigger Subsystem
+
+The IoT Trigger subsystem (`companion/iot_service.py` and `extension/iotTrigger.js`) enables triggering commands via:
+- **MQTT Integration**: Message parsing for `cmdbar/trigger/<command>` and telemetry topics.
+- **Webhook Listeners**: HTTP POST server with secret token / HMAC SHA-256 validation.
+- **Home Automation Bridge**: State and action translation for Home Assistant and openHAB.
+- **Sensor Rules**: Condition operators and cooldown deduplication for threshold alerts.
+

@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands, detectFormat, formatOutput } from './extension/commandProcessor.js';
 import { saveConfigAtomically, saveConfigAtomicallyAsync } from './companion/configStore.js';
+import { evaluateCondition, processMQTTTopicAndPayload } from './extension/iotTrigger.js';
 
 console.log('Running standalone verification tests...');
 
@@ -56,7 +57,16 @@ try {
     assert.strictEqual(csvFmt.format, 'csv', 'formatOutput should detect csv');
     assert.ok(csvFmt.text.includes('+-------+-------+'), 'CSV should render table border');
 
-    // 6. Atomic Persistence Tests (Sync & Async)
+    // 6. IoT Trigger Subsystem Tests
+    assert.strictEqual(evaluateCondition(100, '>', 50), true, 'evaluateCondition > should return true when value exceeds threshold');
+    assert.strictEqual(evaluateCondition(20, '<', 50), true, 'evaluateCondition < should return true when value is under threshold');
+    assert.strictEqual(evaluateCondition('active', '==', 'active'), true, 'evaluateCondition == should match strings');
+
+    const mqttParsed = processMQTTTopicAndPayload('cmdbar/trigger/Restart Service', '{"parameters":{"service":"nginx"}}');
+    assert.strictEqual(mqttParsed.success, true, 'MQTT topic trigger should parse successfully');
+    assert.strictEqual(mqttParsed.commandName, 'Restart Service', 'MQTT topic should extract command name');
+
+    // 7. Atomic Persistence Tests (Sync & Async)
     const tempDir = path.join(os.tmpdir(), `cmdbar-standalone-test-${Date.now()}`);
     const tempFile = path.join(tempDir, 'config.json');
 

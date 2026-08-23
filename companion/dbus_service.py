@@ -4,17 +4,20 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.iot_service import IoTTriggerManager
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
+    TriggerIoTEvent, GetIoTTriggers, RegisterIoTTrigger,
     and manages signals for CommandExecuted and CommandOutput.
     """
     def __init__(self, config_path=None):
         self.config_path = config_path
         self._executed_listeners = []
         self._output_listeners = []
+        self.iot_manager = IoTTriggerManager(config_path=config_path, dbus_service=self)
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
@@ -131,3 +134,62 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def trigger_iot_event(self, source: str, topic_or_endpoint: str, payload_json: str) -> bool:
+        """
+        Triggers an IoT event via D-Bus from MQTT, Webhooks, or Home Automation sources.
+        :visibility: public
+        """
+        if not source or not topic_or_endpoint:
+            return False
+        
+        src = str(source).lower().strip()
+        endpoint = str(topic_or_endpoint).strip()
+        
+        try:
+            payload = json.loads(payload_json) if payload_json and str(payload_json).strip().startswith(("{", "[")) else (payload_json or "")
+        except Exception:
+            payload = payload_json or ""
+
+        if src in ("mqtt", "broker"):
+            res = self.iot_manager.process_mqtt_message(endpoint, payload)
+        elif src in ("webhook", "http"):
+            res = self.iot_manager.process_webhook_request(endpoint, {}, payload)
+        elif src in ("homeassistant", "ha", "openhab"):
+            res = self.iot_manager.process_home_assistant_event(payload if isinstance(payload, dict) else {"command": payload})
+        elif src in ("sensor", "telemetry"):
+            triggered = self.iot_manager.evaluate_sensor_telemetry(endpoint, payload)
+            res = {"success": True, "triggers": triggered}
+        else:
+            res = self.iot_manager.execute_command_with_safety(endpoint, payload if isinstance(payload, dict) else {})
+
+        return bool(res.get("success", False))
+
+    def get_iot_triggers(self) -> list:
+        """
+        Returns list of registered sensor rules and IoT triggers.
+        :visibility: public
+        """
+        return self.iot_manager.get_sensor_rules()
+
+    def register_iot_trigger(self, trigger_json: str) -> bool:
+        """
+        Registers a new IoT sensor trigger rule from JSON string.
+        :visibility: public
+        """
+        try:
+            data = json.loads(trigger_json)
+            if not isinstance(data, dict):
+                return False
+            return self.iot_manager.register_sensor_rule(
+                sensor_id=data.get("sensor_id", "*"),
+                metric=data.get("metric", "value"),
+                operator=data.get("operator", "=="),
+                threshold=data.get("threshold"),
+                command_name=data.get("command_name"),
+                parameters=data.get("parameters", {}),
+                cooldown_seconds=data.get("cooldown_seconds", 10.0),
+                persist=True
+            )
+        except Exception:
+            return False

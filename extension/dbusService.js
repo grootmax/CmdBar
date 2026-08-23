@@ -1,5 +1,11 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import {
+  processMQTTTopicAndPayload,
+  processWebhookRequest,
+  processHomeAutomationEvent,
+  evaluateSensorRules,
+} from "./iotTrigger.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -20,6 +26,19 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
+    </method>
+    <method name="TriggerIoTEvent">
+      <arg name="source" type="s" direction="in"/>
+      <arg name="topic_or_endpoint" type="s" direction="in"/>
+      <arg name="payload_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetIoTTriggers">
+      <arg name="json_triggers" type="s" direction="out"/>
+    </method>
+    <method name="RegisterIoTTrigger">
+      <arg name="trigger_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -228,6 +247,89 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
       return JSON.stringify([]);
+    }
+  }
+
+  async TriggerIoTEvent(source, topicOrEndpoint, payloadJson) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+
+      const src = (source || "").toLowerCase().trim();
+      const endpoint = (topicOrEndpoint || "").trim();
+
+      let res = { success: false };
+      if (src === "mqtt" || src === "broker") {
+        res = processMQTTTopicAndPayload(endpoint, payloadJson, config);
+      } else if (src === "webhook" || src === "http") {
+        res = processWebhookRequest(endpoint, {}, payloadJson, config);
+      } else if (src === "homeassistant" || src === "ha" || src === "openhab") {
+        let parsedPayload = payloadJson;
+        try { parsedPayload = JSON.parse(payloadJson); } catch (e) {}
+        res = processHomeAutomationEvent(parsedPayload, config);
+      } else if (src === "sensor" || src === "telemetry") {
+        let parsedPayload = payloadJson;
+        try { parsedPayload = JSON.parse(payloadJson); } catch (e) {}
+        const rules = (config.iot && config.iot.sensor_rules) || [];
+        const triggered = evaluateSensorRules(rules, endpoint, parsedPayload);
+        res = { success: true, triggered };
+      } else {
+        res = await this.ExecuteCommand(endpoint);
+        return Boolean(res);
+      }
+
+      if (res.action === "execute_command" && res.commandName) {
+        return await this.ExecuteCommand(res.commandName);
+      } else if (res.triggeredRules && res.triggeredRules.length > 0) {
+        for (const trig of res.triggeredRules) {
+          if (trig.commandName) {
+            await this.ExecuteCommand(trig.commandName);
+          }
+        }
+        return true;
+      }
+      return Boolean(res.success);
+    } catch (e) {
+      console.error(`CmdBar D-Bus TriggerIoTEvent error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async GetIoTTriggers() {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const rules = (config.iot && config.iot.sensor_rules) || [];
+      return JSON.stringify(rules);
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetIoTTriggers error: ${e.message}`);
+      return JSON.stringify([]);
+    }
+  }
+
+  async RegisterIoTTrigger(triggerJson) {
+    try {
+      const rule = JSON.parse(triggerJson);
+      if (!rule || !rule.sensor_id || !rule.command_name) return false;
+
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+
+      if (!config.iot) config.iot = {};
+      if (!config.iot.sensor_rules) config.iot.sensor_rules = [];
+
+      config.iot.sensor_rules.push(rule);
+      await saveConfig(config, configPath);
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus RegisterIoTTrigger error: ${e.message}`);
+      return false;
     }
   }
 
