@@ -12,6 +12,7 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 ## Core Features
 
 - **Dynamic Menu**: Fully driven by JSON config files.
+- **Headless Server Mode**: Run CmdBar as a background daemon with REST API, WebSocket streams, monitoring metrics, and systemd integration.
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
 - **Local Live Reload**: Configuration changes sync instantly.
