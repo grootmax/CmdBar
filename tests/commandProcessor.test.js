@@ -1,4 +1,4 @@
-import { validateInput, hasPlaceholder, substituteCommand, parseEnv, tokenizeCommand, getPlaceholders, substituteTokens, getPreviewTokens } from '../extension/commandProcessor.js';
+import { validateInput, hasPlaceholder, substituteCommand, parseEnv, tokenizeCommand, getPlaceholders, substituteTokens, getPreviewTokens, fuzzyMatch, highlightMatches, escapeMarkup, rankCommands } from '../extension/commandProcessor.js';
 
 describe('CmdBar Extension Core Unit Tests', () => {
     
@@ -194,6 +194,91 @@ describe('CmdBar Extension Core Unit Tests', () => {
             const argv = ['git', 'checkout', 'feature/safe-quoting'];
             const map = { 'branch': 'feature/safe-quoting' };
             expect(getPreviewTokens(argv, map, [])).toEqual(['git', 'checkout', 'feature/safe-quoting']);
+        });
+    });
+
+    describe('Fuzzy Matching Algorithm', () => {
+        test('should match "gp" to "git push origin"', () => {
+            const res = fuzzyMatch('gp', 'git push origin');
+            expect(res.match).toBe(true);
+            expect(res.matches).toEqual([0, 4]);
+            expect(res.score).toBeGreaterThan(0);
+        });
+
+        test('should match exact string with higher score than partial match', () => {
+            const exactRes = fuzzyMatch('git', 'git');
+            const partialRes = fuzzyMatch('git', 'git push origin');
+            expect(exactRes.match).toBe(true);
+            expect(partialRes.match).toBe(true);
+            expect(exactRes.score).toBeGreaterThan(partialRes.score);
+        });
+
+        test('should return match: false when pattern characters are missing', () => {
+            const res = fuzzyMatch('xyz', 'git push origin');
+            expect(res.match).toBe(false);
+            expect(res.matches).toEqual([]);
+        });
+
+        test('should match all commands when query is empty or whitespace', () => {
+            const resEmpty = fuzzyMatch('', 'git push origin');
+            const resSpace = fuzzyMatch('   ', 'git push origin');
+            expect(resEmpty.match).toBe(true);
+            expect(resSpace.match).toBe(true);
+        });
+
+        test('should boost score based on usage frequency', () => {
+            const lowUsage = fuzzyMatch('git', 'git push', 1);
+            const highUsage = fuzzyMatch('git', 'git push', 10);
+            expect(highUsage.score).toBeGreaterThan(lowUsage.score);
+        });
+    });
+
+    describe('Matched Character Highlighting & Markup Escaping', () => {
+        test('should surround matched indices with <b> tags', () => {
+            const highlighted = highlightMatches('git push origin', [0, 4]);
+            expect(highlighted).toBe('<b>g</b>it <b>p</b>ush origin');
+        });
+
+        test('should combine contiguous matched indices into single tag range', () => {
+            const highlighted = highlightMatches('git push origin', [0, 1, 2]);
+            expect(highlighted).toBe('<b>git</b> push origin');
+        });
+
+        test('should escape HTML/XML characters safely', () => {
+            expect(escapeMarkup('echo <task-id> & "test"')).toBe('echo &lt;task-id&gt; &amp; &quot;test&quot;');
+            const highlighted = highlightMatches('echo <task>', [0, 1, 2, 3]);
+            expect(highlighted).toBe('<b>echo</b> &lt;task&gt;');
+        });
+    });
+
+    describe('Command Ranking and Performance', () => {
+        test('should rank matching commands by relevance and usage frequency', () => {
+            const commands = [
+                { name: 'Git Push', command: 'git push origin' },
+                { name: 'Git Pull', command: 'git pull origin' },
+                { name: 'Docker Run', command: 'docker run -d' },
+            ];
+            const usageMap = { 'git pull origin': 10 };
+            const ranked = rankCommands(commands, 'gp', usageMap);
+            expect(ranked.length).toBe(2);
+            expect(ranked[0].command.name).toBe('Git Pull'); // Boosted by high usage frequency
+        });
+
+        test('should process search and rank for 100+ commands in under 100ms', () => {
+            const largeCommandsList = [];
+            for (let i = 0; i < 150; i++) {
+                largeCommandsList.push({
+                    name: `Command Option ${i}`,
+                    command: `git checkout branch-${i} && make build-${i}`,
+                });
+            }
+
+            const startTime = performance.now();
+            const ranked = rankCommands(largeCommandsList, 'gc', {});
+            const duration = performance.now() - startTime;
+
+            expect(duration).toBeLessThan(100); // Acceptance criteria: < 100ms
+            expect(ranked.length).toBeGreaterThan(0);
         });
     });
 });

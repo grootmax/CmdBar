@@ -62,9 +62,9 @@ const isNode =
 let Gio, GLib;
 if (!isNode) {
   try {
-    const gi = await import("gi");
-    Gio = gi.Gio;
-    GLib = gi.GLib;
+    const giModule = await import("gi");
+    Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
+    GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
   } catch (e) {
     console.error(
       "CmdBar: Failed to import gi inside non-Node environment:",
@@ -221,25 +221,14 @@ function gjs_ensureDir(dirPath) {
         resolve();
         return;
       }
-      file.make_directory_with_parents_async(
-        GLib.PRIORITY_DEFAULT,
-        null,
-        (obj, res) => {
-          try {
-            obj.make_directory_with_parents_finish(res);
-            resolve();
-          } catch (e) {
-            // Ignore already-exists error
-            if (file.query_exists(null)) {
-              resolve();
-            } else {
-              reject(e);
-            }
-          }
-        },
-      );
+      file.make_directory_with_parents(null);
+      resolve();
     } catch (e) {
-      reject(e);
+      if (file.query_exists(null)) {
+        resolve();
+      } else {
+        reject(e);
+      }
     }
   });
 }
@@ -295,12 +284,8 @@ function gjs_writeFileAtomic(filePath, content) {
               null,
               (moveObj, moveRes) => {
                 try {
-                  let [moveSuccess] = moveObj.move_finish(moveRes);
-                  if (moveSuccess) {
-                    resolve();
-                  } else {
-                    throw new Error("Failed to rename temporary file");
-                  }
+                  moveObj.move_finish(moveRes);
+                  resolve();
                 } catch (moveErr) {
                   gjs_deleteFile(tmpPath).then(() => reject(moveErr));
                 }
@@ -825,6 +810,80 @@ export async function saveConfig(config, configPath) {
       await node_writeFileAtomic(configPath, content);
     } else {
       await gjs_writeFileAtomic(configPath, content);
+    }
+  } finally {
+    await releaseLock(lockPath);
+  }
+}
+
+export async function getDefaultClipboardPath() {
+  if (isNode) {
+    const pathModule = await import("path");
+    return pathModule.join(getNodeUserConfigDir(), "cmdbar", "clipboard.json");
+  } else {
+    return GLib.build_filenamev([
+      GLib.get_user_config_dir(),
+      "cmdbar",
+      "clipboard.json",
+    ]);
+  }
+}
+
+export async function loadClipboardHistory(clipboardPath) {
+  if (!clipboardPath) {
+    clipboardPath = await getDefaultClipboardPath();
+  }
+  await ensureConfigDir(clipboardPath);
+  const exists = await fileExists(clipboardPath);
+  if (!exists) {
+    return [];
+  }
+  let content;
+  try {
+    if (isNode) {
+      content = await node_readFile(clipboardPath);
+    } else {
+      content = await gjs_readFile(clipboardPath);
+    }
+  } catch (e) {
+    return [];
+  }
+  try {
+    let parsed = JSON.parse(content);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item) => item && (typeof item === "string" || typeof item.text === "string"))
+      .map((item) => {
+        if (typeof item === "string") {
+          return { text: item, pinned: false, timestamp: Date.now() };
+        }
+        return {
+          text: item.text,
+          pinned: Boolean(item.pinned),
+          timestamp: typeof item.timestamp === "number" ? item.timestamp : Date.now(),
+        };
+      });
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function saveClipboardHistory(history, clipboardPath) {
+  if (!Array.isArray(history)) {
+    throw new Error("Invalid clipboard history schema");
+  }
+  if (!clipboardPath) {
+    clipboardPath = await getDefaultClipboardPath();
+  }
+  await ensureConfigDir(clipboardPath);
+  const lockPath = clipboardPath + ".lock";
+  await acquireLock(lockPath, 180);
+  try {
+    const content = JSON.stringify(history, null, 2);
+    if (isNode) {
+      await node_writeFileAtomic(clipboardPath, content);
+    } else {
+      await gjs_writeFileAtomic(clipboardPath, content);
     }
   } finally {
     await releaseLock(lockPath);

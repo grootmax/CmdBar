@@ -16,30 +16,10 @@
       <summary>Button Label</summary>
       <description>Customize the text displayed next to the icon in the top-bar button.</description>
     </key>
-    <key name="ai-provider" type="s">
-      <default>'openai'</default>
-      <summary>AI Provider</summary>
-      <description>Select AI provider (openai, anthropic, or ollama).</description>
-    </key>
-    <key name="ai-model" type="s">
-      <default>'gpt-4o'</default>
-      <summary>AI Model</summary>
-      <description>Model name for natural language command translation.</description>
-    </key>
-    <key name="ai-api-key" type="s">
-      <default>''</default>
-      <summary>AI API Key</summary>
-      <description>API key for OpenAI or Anthropic provider.</description>
-    </key>
-    <key name="ai-temperature" type="d">
-      <default>0.2</default>
-      <summary>AI Temperature</summary>
-      <description>Sampling temperature for AI response generation.</description>
-    </key>
-    <key name="ai-require-confirmation" type="b">
-      <default>true</default>
-      <summary>Require Confirmation</summary>
-      <description>Show confirmation dialog before executing AI translated commands.</description>
+    <key name="shortcut" type="as">
+      <default>['&lt;Super&gt;space']</default>
+      <summary>Global Shortcut</summary>
+      <description>Global keyboard shortcut to trigger CmdBar menu from anywhere.</description>
     </key>
   </schema>
 </schemalist>

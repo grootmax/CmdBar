@@ -11,8 +11,8 @@ try {
 
 if (!GLib) {
   try {
-    const gi = await import("gi");
-    GLib = gi.GLib;
+    const giModule = await import("gi");
+    GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
   } catch (e) {}
 }
 
@@ -111,7 +111,9 @@ export async function writeConfigAtomically(targetPath, data) {
     }
   } else {
     // GJS (GNOME Shell) environment
-    const { Gio, GLib } = await import("gi");
+    const giModule = await import("gi");
+    const Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
+    const GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
     const file = Gio.File.new_for_path(targetPath);
     const tmpPath = targetPath + ".tmp";
     const tmpFile = Gio.File.new_for_path(tmpPath);
@@ -404,3 +406,73 @@ export function getPreviewTokens(argv, placeholderMap, parametersSchema) {
     return previewArg;
   });
 }
+
+/**
+ * Format GSettings accelerator string into human-readable shortcut hint.
+ * @param {string|string[]} accel
+ * @returns {string}
+ */
+export function formatShortcutHint(accel) {
+  let str = Array.isArray(accel) ? (accel[0] || "") : (accel || "");
+  if (!str) return "Super+Space";
+
+  let parts = [];
+  if (/<Control>/i.test(str) || /<Ctrl>/i.test(str)) parts.push("Ctrl");
+  if (/<Alt>/i.test(str)) parts.push("Alt");
+  if (/<Super>/i.test(str) || /<Meta>/i.test(str)) parts.push("Super");
+  if (/<Shift>/i.test(str)) parts.push("Shift");
+
+  let baseKey = str.replace(/<[^>]+>/g, "").trim();
+  if (baseKey) {
+    if (baseKey.toLowerCase() === "space") {
+      baseKey = "Space";
+    } else if (baseKey.length === 1) {
+      baseKey = baseKey.toUpperCase();
+    } else {
+      baseKey = baseKey.charAt(0).toUpperCase() + baseKey.slice(1);
+    }
+    parts.push(baseKey);
+  }
+
+  return parts.join("+") || "Super+Space";
+}
+
+/**
+ * Parse user-entered keybinding string or shortcut into GSettings accelerator array.
+ * Handles modifier keys (Ctrl, Alt, Super, Shift).
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function parseAccel(text) {
+  if (!text || !text.trim()) return ["<Super>space"];
+
+  let input = text.trim();
+  if (input.startsWith("<") && input.includes(">")) {
+    return [input];
+  }
+
+  let parts = input.split("+").map((p) => p.trim());
+  let modifiers = "";
+  let baseKey = "";
+
+  for (let part of parts) {
+    let lower = part.toLowerCase();
+    if (lower === "super" || lower === "meta") {
+      modifiers += "<Super>";
+    } else if (lower === "alt") {
+      modifiers += "<Alt>";
+    } else if (lower === "ctrl" || lower === "control") {
+      modifiers += "<Control>";
+    } else if (lower === "shift") {
+      modifiers += "<Shift>";
+    } else {
+      baseKey = lower;
+    }
+  }
+
+  if (!baseKey) baseKey = "space";
+  if (!modifiers) modifiers = "<Super>";
+
+  return [`${modifiers}${baseKey}`];
+}
+
