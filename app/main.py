@@ -7,7 +7,7 @@ import json
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw, Gio, GLib
+from gi.repository import Gtk, Adw, Gio, GLib, Gdk
 
 
 def set_uniform_margin(widget, margin: int):
@@ -39,7 +39,8 @@ from app.config_schema import (
     save_config,
     resolve_command_preview,
     validate_parameter_value,
-    get_config_path
+    get_config_path,
+    get_branding_config
 )
 
 class CmdBarApp(Adw.Application):
@@ -62,8 +63,12 @@ class CmdBarWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
         self.app = app
-        self.set_title("CmdBar Companion")
+        self.branding = get_branding_config(self.app.config)
+        app_title = self.branding["organization_name"] if self.branding.get("enabled") else "CmdBar Companion"
+        self.set_title(app_title)
         self.set_default_size(960, 640)
+
+        self._apply_branding_styles()
 
         # Main layouts
         self.toast_overlay = Adw.ToastOverlay()
@@ -85,6 +90,24 @@ class CmdBarWindow(Adw.ApplicationWindow):
         # Load empty state initially
         self._show_empty_state()
 
+    def _apply_branding_styles(self):
+        if self.branding.get("enabled") and self.branding.get("brand_color"):
+            brand_color = self.branding["brand_color"]
+            css = f"""
+            .title, .heading {{ color: {brand_color}; }}
+            button.suggested-action {{ background-color: {brand_color}; }}
+            """
+            try:
+                css_provider = Gtk.CssProvider()
+                css_provider.load_from_data(css.encode('utf-8'))
+                Gtk.StyleContext.add_provider_for_display(
+                    Gdk.Display.get_default(),
+                    css_provider,
+                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+                )
+            except Exception:
+                pass
+
     def _create_sidebar(self):
         sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         sidebar_box.set_size_request(260, -1)
@@ -93,7 +116,8 @@ class CmdBarWindow(Adw.ApplicationWindow):
         header_bar = Gtk.HeaderBar()
         header_bar.set_show_title_buttons(False)
         
-        title_label = Gtk.Label(label="CmdBar Menu")
+        header_title = self.branding["organization_name"] if self.branding.get("enabled") else "CmdBar Menu"
+        title_label = Gtk.Label(label=header_title)
         title_label.add_css_class("title")
         title_label.add_css_class("bold")
         header_bar.set_title_widget(title_label)

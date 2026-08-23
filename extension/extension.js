@@ -17,7 +17,7 @@ import {
   parseAccel,
   formatOutput,
 } from "./commandProcessor.js";
-import { loadConfig } from "./configSync.js";
+import { loadConfig, getBrandingConfig } from "./configSync.js";
 import {
   translateNaturalLanguageToCommand,
   isAICommand,
@@ -997,7 +997,9 @@ const CmdBarIndicator = GObject.registerClass(
      */
     updateShortcutTooltip(accelStr) {
       let hint = formatShortcutHint(accelStr);
-      let tooltipText = `CmdBar (${hint})`;
+      let branding = this._cachedConfig ? getBrandingConfig(this._cachedConfig) : { enabled: false, organization_name: "CmdBar" };
+      let appName = branding.enabled ? branding.organization_name : "CmdBar";
+      let tooltipText = `${appName} (${hint})`;
       if (typeof this.set_tooltip_text === "function") {
         this.set_tooltip_text(tooltipText);
       }
@@ -1017,6 +1019,17 @@ const CmdBarIndicator = GObject.registerClass(
         let configPath = this._getConfigPath();
         let extensionPath = this._extension.dir.get_path();
         let config = await loadConfig(configPath, extensionPath);
+        this._cachedConfig = config;
+
+        let branding = getBrandingConfig(config);
+        if (branding.enabled) {
+          let customLabel = this._extension && this._extension._settings
+            ? this._extension._settings.get_string("button-label")
+            : "";
+          if (!customLabel || !customLabel.trim()) {
+            this.setButtonLabel(branding.organization_name);
+          }
+        }
 
         if (config && config._isInvalid) {
           this._showNotification(

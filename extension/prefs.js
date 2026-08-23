@@ -133,6 +133,76 @@ export default class CmdBarPreferences extends ExtensionPreferences {
       Gio.SettingsBindFlags.DEFAULT,
     );
 
+    // Enterprise Custom Branding Group
+    const brandingGroup = new Adw.PreferencesGroup({
+      title: _("Enterprise Custom Branding (White Label)"),
+      description: _("Configure white labeling, brand colors, domain alias, and custom SSL for enterprise identity"),
+    });
+    page.add(brandingGroup);
+
+    const whiteLabelRow = new Adw.SwitchRow({
+      title: _("Enable White Label"),
+      subtitle: _("Apply custom enterprise logo, organization name, and colors"),
+    });
+    brandingGroup.add(whiteLabelRow);
+    settings.bind(
+      "white-label-enabled",
+      whiteLabelRow,
+      "active",
+      Gio.SettingsBindFlags.DEFAULT,
+    );
+
+    const orgNameRow = new Adw.EntryRow({
+      title: _("Organization Name"),
+      show_apply_button: false,
+    });
+    brandingGroup.add(orgNameRow);
+    settings.bind(
+      "organization-name",
+      orgNameRow,
+      "text",
+      Gio.SettingsBindFlags.DEFAULT,
+    );
+
+    const brandColorRow = new Adw.EntryRow({
+      title: _("Brand Color (Hex)"),
+      subtitle: _("e.g. #0055ff"),
+      show_apply_button: false,
+    });
+    brandingGroup.add(brandColorRow);
+    settings.bind(
+      "brand-color",
+      brandColorRow,
+      "text",
+      Gio.SettingsBindFlags.DEFAULT,
+    );
+
+    const domainAliasRow = new Adw.EntryRow({
+      title: _("Domain Alias"),
+      subtitle: _("e.g. cmdbar.acme.internal"),
+      show_apply_button: false,
+    });
+    brandingGroup.add(domainAliasRow);
+    settings.bind(
+      "domain-alias",
+      domainAliasRow,
+      "text",
+      Gio.SettingsBindFlags.DEFAULT,
+    );
+
+    const sslCertRow = new Adw.EntryRow({
+      title: _("Custom SSL Certificate Path"),
+      subtitle: _("Path to custom SSL/TLS cert for enterprise verification"),
+      show_apply_button: false,
+    });
+    brandingGroup.add(sslCertRow);
+    settings.bind(
+      "custom-ssl-cert",
+      sslCertRow,
+      "text",
+      Gio.SettingsBindFlags.DEFAULT,
+    );
+
     // Keyboard Shortcut Group
     const shortcutGroup = new Adw.PreferencesGroup({
       title: _("Keyboard Shortcut"),

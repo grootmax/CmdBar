@@ -42,7 +42,25 @@ def compute_signature(config_data, key):
     str_val = canonical_json(config_data)
     return hmac.new(key.encode("utf-8"), str_val.encode("utf-8"), hashlib.sha256).hexdigest()
 
+DEFAULT_BRANDING = {
+  "enabled": False,
+  "white_label": False,
+  "organization_name": "CmdBar Enterprise",
+  "logo_url": "",
+  "logo_path": "",
+  "brand_color": "#0055ff",
+  "accent_color": "#00aaff",
+  "domain_alias": "",
+  "custom_ssl": {
+    "cert_path": "",
+    "key_path": "",
+    "ca_path": "",
+    "verify_ssl": True
+  }
+}
+
 DEFAULT_CONFIG = {
+  "branding": DEFAULT_BRANDING,
   "ai": {
     "provider": "openai",
     "model": "gpt-4o",
@@ -81,6 +99,63 @@ DEFAULT_CONFIG = {
     }
   ]
 }
+
+def validate_branding_config(branding):
+    """
+    Validates branding configuration schema.
+    :visibility: public
+    """
+    if branding is None:
+        return True
+    if not isinstance(branding, dict):
+        return False
+    if "enabled" in branding and not isinstance(branding["enabled"], bool):
+        return False
+    if "white_label" in branding and not isinstance(branding["white_label"], bool):
+        return False
+    if "organization_name" in branding and not isinstance(branding["organization_name"], str):
+        return False
+    if "brand_color" in branding and not isinstance(branding["brand_color"], str):
+        return False
+    if "accent_color" in branding and not isinstance(branding["accent_color"], str):
+        return False
+    if "domain_alias" in branding and not isinstance(branding["domain_alias"], str):
+        return False
+    if "custom_ssl" in branding and branding["custom_ssl"] is not None:
+        if not isinstance(branding["custom_ssl"], dict):
+            return False
+        if "verify_ssl" in branding["custom_ssl"] and not isinstance(branding["custom_ssl"]["verify_ssl"], bool):
+            return False
+    return True
+
+def get_branding_config(config):
+    """
+    Returns resolved branding settings from configuration layout.
+    :visibility: public
+    """
+    if not isinstance(config, dict):
+        return dict(DEFAULT_BRANDING)
+    branding = config.get("branding", {})
+    if not isinstance(branding, dict):
+        branding = {}
+    is_enabled = bool(branding.get("enabled", False) or branding.get("white_label", False))
+    ssl_cfg = branding.get("custom_ssl", {}) if isinstance(branding.get("custom_ssl"), dict) else {}
+    return {
+        "enabled": is_enabled,
+        "white_label": is_enabled,
+        "organization_name": str(branding.get("organization_name") or "CmdBar Enterprise"),
+        "logo_url": str(branding.get("logo_url") or ""),
+        "logo_path": str(branding.get("logo_path") or ""),
+        "brand_color": str(branding.get("brand_color") or "#0055ff"),
+        "accent_color": str(branding.get("accent_color") or "#00aaff"),
+        "domain_alias": str(branding.get("domain_alias") or ""),
+        "custom_ssl": {
+            "cert_path": str(ssl_cfg.get("cert_path") or ""),
+            "key_path": str(ssl_cfg.get("key_path") or ""),
+            "ca_path": str(ssl_cfg.get("ca_path") or ""),
+            "verify_ssl": bool(ssl_cfg.get("verify_ssl", True))
+        }
+    }
 
 def get_config_path():
     config_dir = os.path.expanduser("~/.config/cmdbar")

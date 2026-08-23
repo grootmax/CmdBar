@@ -120,22 +120,55 @@ export function getAIApiKey(provider, config = {}) {
 }
 
 /**
- * Universal HTTP POST helper supporting Node.js fetch and GJS / curl fallback.
+ * Applies domain alias override to an endpoint URL if specified in branding config.
+ * @param {string} endpoint
+ * @param {string} domainAlias
+ * @returns {string}
+ */
+export function applyDomainAlias(endpoint, domainAlias) {
+  if (!endpoint || typeof endpoint !== "string") return endpoint || "";
+  if (!domainAlias || typeof domainAlias !== "string" || !domainAlias.trim()) {
+    return endpoint;
+  }
+  const alias = domainAlias.trim();
+  if (alias.startsWith("http://") || alias.startsWith("https://")) {
+    const base = alias.replace(/\/+$/, "");
+    try {
+      const parsedUrl = new URL(endpoint);
+      return `${base}${parsedUrl.pathname}${parsedUrl.search}`;
+    } catch (e) {
+      return `${base}/${endpoint.replace(/^\/+/, "")}`;
+    }
+  } else {
+    try {
+      const parsedUrl = new URL(endpoint);
+      parsedUrl.host = alias;
+      return parsedUrl.toString();
+    } catch (e) {
+      return endpoint;
+    }
+  }
+}
+
+/**
+ * Universal HTTP POST helper supporting Node.js fetch and GJS / curl fallback with Custom SSL support.
  * @param {string} url
  * @param {object} headers
  * @param {object} body
+ * @param {object} [sslOptions]
  * @returns {Promise<object>}
  */
-export async function httpPost(url, headers = {}, body = {}) {
+export async function httpPost(url, headers = {}, body = {}, sslOptions = null) {
   const jsonBody = JSON.stringify(body);
 
   // 1. Try global fetch if available (Node.js or modern GJS)
   if (typeof fetch === "function") {
-    const res = await fetch(url, {
+    const fetchOpts = {
       method: "POST",
       headers,
       body: jsonBody,
-    });
+    };
+    const res = await fetch(url, fetchOpts);
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
       throw new Error(`HTTP ${res.status}: ${res.statusText} - ${errText}`);
@@ -150,6 +183,12 @@ export async function httpPost(url, headers = {}, body = {}) {
     const execFilePromise = util.promisify(execFile);
 
     const args = ["-s", "-S", "-X", "POST", url];
+    if (sslOptions) {
+      if (sslOptions.verify_ssl === false) args.push("-k");
+      if (sslOptions.ca_path) args.push("--cacert", sslOptions.ca_path);
+      if (sslOptions.cert_path) args.push("--cert", sslOptions.cert_path);
+      if (sslOptions.key_path) args.push("--key", sslOptions.key_path);
+    }
     for (const [k, v] of Object.entries(headers)) {
       args.push("-H", `${k}: ${v}`);
     }
@@ -165,6 +204,12 @@ export async function httpPost(url, headers = {}, body = {}) {
   // 3. GJS environment fallback using Gio.Subprocess curl
   if (typeof Gio !== "undefined" && Gio.Subprocess) {
     const args = ["curl", "-s", "-S", "-X", "POST", url];
+    if (sslOptions) {
+      if (sslOptions.verify_ssl === false) args.push("-k");
+      if (sslOptions.ca_path) args.push("--cacert", sslOptions.ca_path);
+      if (sslOptions.cert_path) args.push("--cert", sslOptions.cert_path);
+      if (sslOptions.key_path) args.push("--key", sslOptions.key_path);
+    }
     for (const [k, v] of Object.entries(headers)) {
       args.push("-H", `${k}: ${v}`);
     }
@@ -212,9 +257,13 @@ export function buildAIRequest(provider, rawPrompt, options = {}) {
     "You are an expert Linux shell command assistant. Translate the natural language prompt into a concise, correct executable shell command. Output ONLY the raw executable command inside a ```bash ... ``` code block. Do not include explanation or Markdown outside the code block.";
   const temp = options.temperature ?? 0.2;
   const apiKey = getAIApiKey(prov, options);
+  const branding = options.branding || (options.branding_enabled ? options : {});
+  const domainAlias = options.domain_alias || branding.domain_alias;
 
+  let endpoint = "";
   if (prov === "openai") {
-    const endpoint = options.endpoint || "https://api.openai.com/v1/chat/completions";
+    endpoint = options.endpoint || "https://api.openai.com/v1/chat/completions";
+    endpoint = applyDomainAlias(endpoint, domainAlias);
     const model = options.model || "gpt-4o";
     const headers = {
       "Content-Type": "application/json",
@@ -232,7 +281,8 @@ export function buildAIRequest(provider, rawPrompt, options = {}) {
     };
     return { endpoint, headers, body, provider: "openai" };
   } else if (prov === "anthropic" || prov === "claude") {
-    const endpoint = options.endpoint || "https://api.anthropic.com/v1/messages";
+    endpoint = options.endpoint || "https://api.anthropic.com/v1/messages";
+    endpoint = applyDomainAlias(endpoint, domainAlias);
     const model = options.model || "claude-3-5-sonnet-20241022";
     const headers = {
       "Content-Type": "application/json",
@@ -251,7 +301,8 @@ export function buildAIRequest(provider, rawPrompt, options = {}) {
     };
     return { endpoint, headers, body, provider: "anthropic" };
   } else if (prov === "ollama") {
-    let endpoint = options.endpoint || "http://localhost:11434/api/generate";
+    endpoint = options.endpoint || "http://localhost:11434/api/generate";
+    endpoint = applyDomainAlias(endpoint, domainAlias);
     const model = options.model || "llama3";
     const headers = {
       "Content-Type": "application/json",
@@ -333,16 +384,19 @@ export async function translateNaturalLanguageToCommand(rawPrompt, config = {}) 
   }
 
   const aiConfig = config.ai || config || {};
+  const brandingConfig = config.branding || {};
   const primaryProvider = (aiConfig.provider || "openai").toLowerCase();
   const fallbackProvider = (aiConfig.fallback_provider || "ollama").toLowerCase();
+  const sslOptions = brandingConfig.custom_ssl || null;
 
   // Try Primary Provider
   try {
     const req = buildAIRequest(primaryProvider, prompt, {
       ...aiConfig,
+      branding: brandingConfig,
       apiKey: getAIApiKey(primaryProvider, config),
     });
-    const res = await httpPost(req.endpoint, req.headers, req.body);
+    const res = sslOptions ? await httpPost(req.endpoint, req.headers, req.body, sslOptions) : await httpPost(req.endpoint, req.headers, req.body);
     const text = extractAIResponseText(primaryProvider, res);
     const command = parseCommandFromAIResponse(text);
     if (command) {
@@ -362,11 +416,12 @@ export async function translateNaturalLanguageToCommand(rawPrompt, config = {}) 
     try {
       const fallbackOptions = {
         ...aiConfig,
+        branding: brandingConfig,
         model: aiConfig.fallback_model || (fallbackProvider === "ollama" ? "llama3" : aiConfig.model),
         apiKey: getAIApiKey(fallbackProvider, config),
       };
       const req = buildAIRequest(fallbackProvider, prompt, fallbackOptions);
-      const res = await httpPost(req.endpoint, req.headers, req.body);
+      const res = sslOptions ? await httpPost(req.endpoint, req.headers, req.body, sslOptions) : await httpPost(req.endpoint, req.headers, req.body);
       const text = extractAIResponseText(fallbackProvider, res);
       const command = parseCommandFromAIResponse(text);
       if (command) {

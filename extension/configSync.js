@@ -3,7 +3,25 @@
  * Runs in both GJS (GNOME Shell) and Node.js (Testing/Companion app) environments.
  */
 
+export const DEFAULT_BRANDING = {
+  enabled: false,
+  white_label: false,
+  organization_name: "CmdBar Enterprise",
+  logo_url: "",
+  logo_path: "",
+  brand_color: "#0055ff",
+  accent_color: "#00aaff",
+  domain_alias: "",
+  custom_ssl: {
+    cert_path: "",
+    key_path: "",
+    ca_path: "",
+    verify_ssl: true,
+  },
+};
+
 export const DEFAULT_CONFIG = {
+  branding: DEFAULT_BRANDING,
   ai: {
     provider: "openai",
     model: "gpt-4o",
@@ -97,12 +115,64 @@ function sleep(ms) {
 }
 
 /**
+ * Validates branding configuration options.
+ * @param {object} branding
+ * @returns {boolean}
+ */
+export function validateBrandingConfig(branding) {
+  if (branding === null || branding === undefined) return true;
+  if (typeof branding !== "object") return false;
+  if (branding.enabled !== undefined && typeof branding.enabled !== "boolean") return false;
+  if (branding.white_label !== undefined && typeof branding.white_label !== "boolean") return false;
+  if (branding.organization_name !== undefined && typeof branding.organization_name !== "string") return false;
+  if (branding.brand_color !== undefined && typeof branding.brand_color !== "string") return false;
+  if (branding.accent_color !== undefined && typeof branding.accent_color !== "string") return false;
+  if (branding.domain_alias !== undefined && typeof branding.domain_alias !== "string") return false;
+  if (branding.custom_ssl !== undefined && branding.custom_ssl !== null) {
+    if (typeof branding.custom_ssl !== "object") return false;
+    if (branding.custom_ssl.verify_ssl !== undefined && typeof branding.custom_ssl.verify_ssl !== "boolean") return false;
+  }
+  return true;
+}
+
+/**
+ * Returns normalized branding configuration.
+ * @param {object} config
+ * @returns {object}
+ */
+export function getBrandingConfig(config) {
+  if (!config || typeof config !== "object") {
+    return { ...DEFAULT_BRANDING };
+  }
+  const branding = config.branding && typeof config.branding === "object" ? config.branding : {};
+  const isEnabled = Boolean(branding.enabled || branding.white_label);
+  const ssl = branding.custom_ssl && typeof branding.custom_ssl === "object" ? branding.custom_ssl : {};
+  return {
+    enabled: isEnabled,
+    white_label: isEnabled,
+    organization_name: String(branding.organization_name || "CmdBar Enterprise"),
+    logo_url: String(branding.logo_url || ""),
+    logo_path: String(branding.logo_path || ""),
+    brand_color: String(branding.brand_color || "#0055ff"),
+    accent_color: String(branding.accent_color || "#00aaff"),
+    domain_alias: String(branding.domain_alias || ""),
+    custom_ssl: {
+      cert_path: String(ssl.cert_path || ""),
+      key_path: String(ssl.key_path || ""),
+      ca_path: String(ssl.ca_path || ""),
+      verify_ssl: ssl.verify_ssl !== false,
+    },
+  };
+}
+
+/**
  * Validates a configuration layout against schema and parsing requirements.
  * @param {object} config
  * @returns {boolean}
  */
 export function validateConfigSchema(config) {
   if (!config || typeof config !== "object") return false;
+  if (config.branding !== undefined && !validateBrandingConfig(config.branding)) return false;
   if (!Array.isArray(config.categories)) return false;
   for (const category of config.categories) {
     if (!category || typeof category !== "object") return false;
