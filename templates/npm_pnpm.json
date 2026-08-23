@@ -1,0 +1,54 @@
+[
+  {
+    "name": "pnpm Install Package",
+    "description": "Add a new dependency using pnpm",
+    "command": "pnpm add <package_name>",
+    "category": "npm/pnpm",
+    "icon": "system-software-install-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "package_name": {
+        "placeholder": "lodash",
+        "regex": "^@?[a-zA-Z0-9_/-]+$"
+      }
+    }
+  },
+  {
+    "name": "npm Run Build Script",
+    "description": "Execute npm build script",
+    "command": "npm run build",
+    "category": "npm/pnpm",
+    "icon": "system-run-symbolic",
+    "mode": "shell-quoted"
+  },
+  {
+    "name": "pnpm Audit Fix",
+    "description": "Scan and automatically fix security vulnerabilities",
+    "command": "pnpm audit --fix",
+    "category": "npm/pnpm",
+    "icon": "security-high-symbolic",
+    "mode": "shell-quoted"
+  },
+  {
+    "name": "npm Publish Dry Run",
+    "description": "Test package publish without actually uploading",
+    "command": "npm publish --dry-run",
+    "category": "npm/pnpm",
+    "icon": "document-send-symbolic",
+    "mode": "shell-quoted"
+  },
+  {
+    "name": "pnpm Recursive Run",
+    "description": "Run a script in all workspace packages",
+    "command": "pnpm -r run <script_name>",
+    "category": "npm/pnpm",
+    "icon": "format-indent-more-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "script_name": {
+        "placeholder": "test",
+        "regex": "^[a-zA-Z0-9_-]+$"
+      }
+    }
+  }
+]
