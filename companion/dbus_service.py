@@ -12,12 +12,16 @@ from companion.yubikey_auth import (
     generate_emergency_codes,
     verify_and_consume_emergency_code,
 )
+from companion.event_triggers import EventTriggerEngine
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
-    SSO authentication methods, YubiKey 2FA Methods, and manages signals.
+    TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
+    SSO authentication methods, YubiKey 2FA Methods, and manages signals for CommandExecuted,
+    CommandOutput, and EventTriggered.
+    :visibility: public
     """
 
     def __init__(self, config_path=None):
@@ -28,6 +32,8 @@ class CmdBarDBusService:
         config = load_config()
         self._sso_manager = SSOManager(config)
         self.auth_manager = YubiKeyAuthManager()
+        self._event_triggered_listeners = []
+        self.trigger_engine = EventTriggerEngine()
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:
@@ -314,3 +320,61 @@ class CmdBarDBusService:
         Validates category access for active SSO session.
         """
         return self._sso_manager.validate_category_access(session_id, category_name)
+
+    def add_event_listener(self, on_event_triggered=None):
+        if on_event_triggered:
+            self._event_triggered_listeners.append(on_event_triggered)
+
+    def trigger_event(self, event_type: str, payload_json: str = "{}") -> bool:
+        """
+        Triggers an event and processes matching triggers.
+        :visibility: public
+        """
+        try:
+            payload = json.loads(payload_json) if payload_json else {}
+        except Exception:
+            payload = {}
+
+        def executor(cmd, params, context):
+            return run_command_in_shell(cmd)
+
+        results = self.trigger_engine.process_event(event_type, payload, command_executor=executor)
+        for res in results:
+            for listener in self._event_triggered_listeners:
+                try:
+                    listener(res["trigger_id"], event_type, res["command"], res["success"])
+                except Exception:
+                    pass
+        return True
+
+    def get_triggers(self) -> list:
+        """
+        Returns list of registered triggers.
+        :visibility: public
+        """
+        return self.trigger_engine.get_triggers()
+
+    def get_triggers_json(self) -> str:
+        """
+        Returns registered triggers as JSON string.
+        :visibility: public
+        """
+        return json.dumps(self.get_triggers())
+
+    def add_trigger(self, trigger_json: str) -> bool:
+        """
+        Adds a trigger from JSON string.
+        :visibility: public
+        """
+        try:
+            trig = json.loads(trigger_json)
+            return self.trigger_engine.add_trigger(trig)
+        except Exception:
+            return False
+
+    def remove_trigger(self, trigger_id: str) -> bool:
+        """
+        Removes a trigger by ID.
+        :visibility: public
+        """
+        return self.trigger_engine.remove_trigger(trigger_id)

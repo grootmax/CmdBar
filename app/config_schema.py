@@ -247,7 +247,8 @@ DEFAULT_CONFIG = {
         }
       ]
     }
-  ]
+  ],
+  "triggers": []
 }
 
 
