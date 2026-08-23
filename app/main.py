@@ -215,6 +215,35 @@ class CmdBarWindow(Adw.ApplicationWindow):
                 if self.app.selected_category_idx == c_idx and self.app.selected_shortcut_idx == s_idx:
                     self.sidebar_list.select_row(sc_row)
 
+        # Numpad Macro Pad row
+        numpad_header_row = Gtk.ListBoxRow()
+        numpad_header_row.set_selectable(False)
+        nh_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        nh_box.set_margin_top(14)
+        nh_box.set_margin_bottom(4)
+        nh_box.set_margin_start(8)
+        nh_label = Gtk.Label()
+        nh_label.set_markup("<b>Hardware & Macros</b>")
+        nh_label.set_hexpand(True)
+        nh_label.set_xalign(0)
+        nh_box.append(nh_label)
+        numpad_header_row.set_child(nh_box)
+        self.sidebar_list.append(numpad_header_row)
+
+        np_row = Gtk.ListBoxRow()
+        np_row.is_numpad = True
+        np_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        np_box.set_margin_start(20)
+        np_box.set_margin_top(6)
+        np_box.set_margin_bottom(6)
+        np_icon = Gtk.Image.new_from_icon_name("input-dialpad-symbolic")
+        np_box.append(np_icon)
+        np_label = Gtk.Label(label="Numpad Macro Pad")
+        np_label.set_xalign(0)
+        np_box.append(np_label)
+        np_row.set_child(np_box)
+        self.sidebar_list.append(np_row)
+
     def _show_empty_state(self):
         # Clear content page
         child = self.content_box.get_first_child()
@@ -231,12 +260,148 @@ class CmdBarWindow(Adw.ApplicationWindow):
         self.content_box.append(status_page)
 
     def _on_sidebar_row_selected(self, listbox, row):
-        if row is None or not hasattr(row, "c_idx"):
+        if row is None:
+            return
+        if getattr(row, "is_numpad", False):
+            self.app.selected_category_idx = None
+            self.app.selected_shortcut_idx = None
+            self._load_numpad_editor()
+            return
+        if not hasattr(row, "c_idx"):
             return
         
         self.app.selected_category_idx = row.c_idx
         self.app.selected_shortcut_idx = row.s_idx
         self._load_shortcut_editor()
+
+    def _load_numpad_editor(self):
+        # Clear content page
+        child = self.content_box.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.content_box.remove(child)
+            child = next_child
+
+        numpad = self.app.config.setdefault("numpad", {})
+        if not numpad or "layers" not in numpad:
+            from app.config_schema import DEFAULT_CONFIG
+            numpad["enabled"] = True
+            numpad["active_layer"] = 0
+            numpad["layers"] = json.loads(json.dumps(DEFAULT_CONFIG["numpad"]["layers"]))
+
+        layers = numpad["layers"]
+        active_idx = numpad.get("active_layer", 0)
+        if active_idx < 0 or active_idx >= len(layers):
+            active_idx = 0
+            numpad["active_layer"] = 0
+
+        content_header = Gtk.HeaderBar()
+        content_header.set_show_title_buttons(False)
+
+        np_title = Gtk.Label(label="Numeric Keypad Shortcuts & Macro Pad")
+        np_title.add_css_class("title")
+        np_title.add_css_class("bold")
+        content_header.set_title_widget(np_title)
+
+        add_layer_btn = Gtk.Button(label="Add Layer")
+        add_layer_btn.connect("clicked", self._on_add_numpad_layer_clicked)
+        content_header.pack_end(add_layer_btn)
+
+        self.content_box.append(content_header)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_vexpand(True)
+
+        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        page_box.set_margin_top(16)
+        page_box.set_margin_bottom(16)
+        page_box.set_margin_start(16)
+        page_box.set_margin_end(16)
+
+        # Layer Selection Group
+        layer_group = Adw.PreferencesGroup(title="Active Macro Layer", description="Configure numpad shortcut layers")
+
+        model_list = Gtk.StringList()
+        for l_idx, lyr in enumerate(layers):
+            model_list.append(f"{lyr.get('name', 'Layer ' + str(l_idx + 1))}")
+
+        layer_combo = Adw.ComboRow(title="Current Layer", model=model_list)
+        layer_combo.set_selected(active_idx)
+
+        def _on_layer_changed(combo, param):
+            sel = combo.get_selected()
+            if sel >= 0 and sel < len(layers):
+                numpad["active_layer"] = sel
+                save_config(self.app.config)
+                self._load_numpad_editor()
+
+        layer_combo.connect("notify::selected", _on_layer_changed)
+        layer_group.add(layer_combo)
+
+        page_box.append(layer_group)
+
+        # 10 Key Cards Group
+        active_layer = layers[active_idx]
+        keys_dict = active_layer.get("keys", {})
+
+        keys_group = Adw.PreferencesGroup(
+            title=f"Keys Configuration ({active_layer.get('name', 'Layer ' + str(active_idx + 1))})",
+            description="Assign instant commands to numpad keys 0-9"
+        )
+
+        for k in [7, 8, 9, 4, 5, 6, 1, 2, 3, 0]:
+            k_str = str(k)
+            k_info = keys_dict.get(k_str, {})
+            if isinstance(k_info, str):
+                k_info = {"name": f"Key {k}", "command": k_info}
+
+            k_name = k_info.get("name", f"Numpad {k}")
+            k_cmd = k_info.get("command", "")
+
+            exp_row = Adw.ExpanderRow(title=f"Numpad Key {k}", subtitle=k_name or "Unassigned")
+
+            name_entry = Adw.EntryRow(title="Command Name")
+            name_entry.set_text(k_name)
+
+            cmd_entry = Adw.EntryRow(title="Command String")
+            cmd_entry.set_text(k_cmd)
+
+            def _make_key_updater(key_num, n_entry, c_entry, row_ref):
+                def _update(*args):
+                    kn = n_entry.get_text()
+                    kc = c_entry.get_text()
+                    active_layer.setdefault("keys", {})[str(key_num)] = {"name": kn, "command": kc}
+                    row_ref.set_subtitle(kn or "Unassigned")
+                    save_config(self.app.config)
+                return _update
+
+            updater = _make_key_updater(k, name_entry, cmd_entry, exp_row)
+            name_entry.connect("changed", updater)
+            cmd_entry.connect("changed", updater)
+
+            exp_row.add_row(name_entry)
+            exp_row.add_row(cmd_entry)
+            keys_group.add(exp_row)
+
+        page_box.append(keys_group)
+        scrolled.set_child(page_box)
+        self.content_box.append(scrolled)
+
+    def _on_add_numpad_layer_clicked(self, btn):
+        numpad = self.app.config.setdefault("numpad", {})
+        layers = numpad.setdefault("layers", [])
+        new_layer_num = len(layers) + 1
+        new_layer = {
+            "name": f"Layer {new_layer_num}",
+            "keys": {
+                str(i): {"name": f"Command {i}", "command": f"echo 'Numpad {i}'"}
+                for i in range(10)
+            }
+        }
+        layers.append(new_layer)
+        numpad["active_layer"] = len(layers) - 1
+        save_config(self.app.config)
+        self._load_numpad_editor()
 
     def _load_shortcut_editor(self):
         # Clear content page

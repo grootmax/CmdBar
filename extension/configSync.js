@@ -12,6 +12,42 @@ export const DEFAULT_CONFIG = {
     fallback_provider: "ollama",
     fallback_model: "llama3",
   },
+  numpad: {
+    enabled: true,
+    active_layer: 0,
+    layers: [
+      {
+        name: "Default",
+        keys: {
+          "0": { name: "Mute Audio", command: "pactl set-sink-mute @DEFAULT_SINK@ toggle" },
+          "1": { name: "Volume Down", command: "pactl set-sink-volume @DEFAULT_SINK@ -5%" },
+          "2": { name: "Volume Up", command: "pactl set-sink-volume @DEFAULT_SINK@ +5%" },
+          "3": { name: "Play/Pause", command: "playerctl play-pause" },
+          "4": { name: "Previous Track", command: "playerctl previous" },
+          "5": { name: "Next Track", command: "playerctl next" },
+          "6": { name: "Terminal", command: "gnome-terminal" },
+          "7": { name: "System Monitor", command: "gnome-system-monitor" },
+          "8": { name: "Screenshot", command: "gnome-screenshot" },
+          "9": { name: "Lock Screen", command: "loginctl lock-session" }
+        }
+      },
+      {
+        name: "Gaming",
+        keys: {
+          "0": { name: "Mute Mic", command: "pactl set-source-mute @DEFAULT_SOURCE@ toggle" },
+          "1": { name: "FPS Overlay", command: "echo 'Toggle FPS'" },
+          "2": { name: "Deafen", command: "pactl set-sink-mute @DEFAULT_SINK@ toggle" },
+          "3": { name: "Record Clip", command: "echo 'Record Clip'" },
+          "4": { name: "Stream Mode", command: "echo 'Stream Mode'" },
+          "5": { name: "Game Mode", command: "gamemoded -t" },
+          "6": { name: "Steam", command: "steam" },
+          "7": { name: "Lutris", command: "lutris" },
+          "8": { name: "OBS Studio", command: "obs" },
+          "9": { name: "Discord", command: "discord" }
+        }
+      }
+    ]
+  },
   categories: [
     {
       name: "AI Assistant",

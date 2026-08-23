@@ -131,3 +131,97 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def get_numpad_layers(self) -> dict:
+        config = load_config()
+        numpad = config.get("numpad", {})
+        if not numpad:
+            from app.config_schema import DEFAULT_CONFIG
+            numpad = DEFAULT_CONFIG["numpad"]
+        else:
+            if "enabled" not in numpad:
+                numpad["enabled"] = True
+            if "active_layer" not in numpad:
+                numpad["active_layer"] = 0
+            if "layers" not in numpad:
+                from app.config_schema import DEFAULT_CONFIG
+                numpad["layers"] = DEFAULT_CONFIG["numpad"]["layers"]
+        return numpad
+
+    def get_numpad_layers_json(self) -> str:
+        return json.dumps(self.get_numpad_layers())
+
+    def set_active_numpad_layer(self, layer_index: int) -> bool:
+        config = load_config()
+        numpad = config.setdefault("numpad", {})
+        layers = numpad.get("layers", [])
+        if not layers:
+            from app.config_schema import DEFAULT_CONFIG
+            numpad["layers"] = DEFAULT_CONFIG["numpad"]["layers"]
+            layers = numpad["layers"]
+
+        idx = int(layer_index)
+        if idx < 0 or idx >= len(layers):
+            idx = 0
+
+        numpad["active_layer"] = idx
+        save_config(config)
+
+        layer_name = layers[idx].get("name", f"Layer {idx + 1}") if idx < len(layers) else f"Layer {idx + 1}"
+        if hasattr(self, "_numpad_layer_listeners"):
+            for listener in self._numpad_layer_listeners:
+                try:
+                    listener(idx, layer_name)
+                except Exception:
+                    pass
+
+        return True
+
+    def execute_numpad_key(self, key_index: int) -> bool:
+        config = load_config()
+        numpad = config.get("numpad", {})
+        layers = numpad.get("layers", [])
+        active_idx = numpad.get("active_layer", 0)
+
+        if not layers or active_idx < 0 or active_idx >= len(layers):
+            from app.config_schema import DEFAULT_CONFIG
+            layers = DEFAULT_CONFIG["numpad"]["layers"]
+            active_idx = 0
+
+        active_layer = layers[active_idx]
+        keys = active_layer.get("keys", {})
+        k_str = str(key_index)
+
+        key_info = keys.get(k_str) or keys.get(int(key_index))
+        if not key_info:
+            return False
+
+        if isinstance(key_info, dict):
+            cmd_name = key_info.get("name", f"Numpad {key_index}")
+            cmd_str = key_info.get("command", "")
+        else:
+            cmd_name = f"Numpad {key_index}"
+            cmd_str = str(key_info)
+
+        if not cmd_str:
+            return False
+
+        code, stdout, stderr = run_command_in_shell(cmd_str)
+        success = (code == 0)
+
+        for listener in self._output_listeners:
+            try:
+                listener(cmd_name, stdout, stderr)
+            except Exception:
+                pass
+
+        for listener in self._executed_listeners:
+            try:
+                listener(cmd_name, code, success)
+            except Exception:
+                pass
+
+        return True
+
+    def toggle_numpad_overlay(self) -> bool:
+        return True
