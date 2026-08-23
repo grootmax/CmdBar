@@ -79,7 +79,8 @@ DEFAULT_CONFIG = {
         }
       ]
     }
-  ]
+  ],
+  "triggers": []
 }
 
 def get_config_path():

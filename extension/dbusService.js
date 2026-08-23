@@ -1,5 +1,6 @@
 import { loadConfig, saveConfig, getDefaultConfigPath } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
+import { EventTriggerManager } from "./eventTriggers.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -31,6 +32,28 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="stdout" type="s"/>
       <arg name="stderr" type="s"/>
     </signal>
+    <method name="TriggerEvent">
+      <arg name="event_type" type="s" direction="in"/>
+      <arg name="payload_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetTriggers">
+      <arg name="json_triggers" type="s" direction="out"/>
+    </method>
+    <method name="AddTrigger">
+      <arg name="trigger_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="RemoveTrigger">
+      <arg name="trigger_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <signal name="EventTriggered">
+      <arg name="trigger_id" type="s"/>
+      <arg name="event_type" type="s"/>
+      <arg name="command" type="s"/>
+      <arg name="success" type="b"/>
+    </signal>
   </interface>
 </node>`;
 
@@ -46,6 +69,7 @@ export class CmdBarDBusService {
     this._indicator = indicator;
     this._dbusImpl = null;
     this._busNameId = 0;
+    this._triggerManager = new EventTriggerManager();
   }
 
   export() {
@@ -253,6 +277,76 @@ export class CmdBarDBusService {
         );
       } catch (e) {
         console.error(`CmdBar D-Bus emitCommandOutput error: ${e.message}`);
+      }
+    }
+  }
+
+  async TriggerEvent(eventType, payloadJson) {
+    try {
+      let payload = {};
+      if (payloadJson && typeof payloadJson === "string") {
+        try {
+          payload = JSON.parse(payloadJson);
+        } catch (e) {}
+      }
+      const executor = async (cmd, params) => {
+        if (this._indicator && typeof this._indicator.executeCommand === "function") {
+          return this._indicator.executeCommand(cmd, cmd, params);
+        }
+        return true;
+      };
+
+      const results = await this._triggerManager.processEvent(eventType, payload, executor);
+      for (const res of results) {
+        this.emitEventTriggered(res.trigger_id, eventType, res.command, res.success);
+      }
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus TriggerEvent error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async GetTriggers() {
+    try {
+      const triggers = this._triggerManager.getTriggers();
+      return JSON.stringify(triggers);
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetTriggers error: ${e.message}`);
+      return JSON.stringify([]);
+    }
+  }
+
+  async AddTrigger(triggerJson) {
+    try {
+      if (!triggerJson || typeof triggerJson !== "string") return false;
+      const trigger = JSON.parse(triggerJson);
+      return this._triggerManager.addTrigger(trigger);
+    } catch (e) {
+      console.error(`CmdBar D-Bus AddTrigger error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async RemoveTrigger(triggerId) {
+    try {
+      if (!triggerId) return false;
+      return this._triggerManager.removeTrigger(triggerId);
+    } catch (e) {
+      console.error(`CmdBar D-Bus RemoveTrigger error: ${e.message}`);
+      return false;
+    }
+  }
+
+  emitEventTriggered(triggerId, eventType, command, success) {
+    if (this._dbusImpl && GLib) {
+      try {
+        this._dbusImpl.emit_signal(
+          "EventTriggered",
+          new GLib.Variant("(sssb)", [triggerId || "", eventType || "", command || "", Boolean(success)])
+        );
+      } catch (e) {
+        console.error(`CmdBar D-Bus emitEventTriggered error: ${e.message}`);
       }
     }
   }
