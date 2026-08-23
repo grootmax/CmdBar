@@ -370,9 +370,11 @@ jobs:
                   echo "Resolving conflict:"
                   echo "  $FILE"
 
-                  git checkout --theirs -- "$FILE"
-
-                  git add -- "$FILE"
+                  if git checkout --theirs -- "$FILE" 2>/dev/null; then
+                    git add -- "$FILE"
+                  else
+                    git rm -- "$FILE" 2>/dev/null || true
+                  fi
 
                 done
 
@@ -427,7 +429,12 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "HEAD:refs/heads/$HEAD_BRANCH"; then
+                echo "Warning: Failed to push $HEAD_BRANCH to origin."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               cd /
 
@@ -477,12 +484,31 @@ jobs:
               echo ""
               echo "Checking status checks for PR #$PR_NUMBER..."
 
-              CHECK_OUTPUT=$(
-                gh pr checks "$PR_NUMBER" \
+              HEAD_SHA=$(
+                gh pr view "$PR_NUMBER" \
                   --repo "$GH_REPO" \
-                  --json name,state,bucket,workflow \
-                  2>/dev/null || true
+                  --json headRefOid \
+                  --jq '.headRefOid' 2>/dev/null || echo ""
               )
+
+              if [ -n "$HEAD_SHA" ]; then
+                CHECK_OUTPUT=$(
+                  gh api "repos/$GH_REPO/commits/$HEAD_SHA/check-runs" --jq '
+                    [
+                      .check_runs[]
+                      | select(.name != "Process Jules PRs")
+                      | {
+                          name: .name,
+                          state: (if .status == "completed" then (if .conclusion == "success" then "SUCCESS" else "FAILURE" end) else "PENDING" end),
+                          bucket: (if .status != "completed" then "pending" else (if .conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped" then "pass" else "fail" end) end),
+                          workflow: .name
+                        }
+                    ]
+                  ' 2>/dev/null || echo "[]"
+                )
+              else
+                CHECK_OUTPUT="[]"
+              fi
 
               if [ -z "$CHECK_OUTPUT" ]; then
                 CHECK_OUTPUT="[]"
