@@ -97,6 +97,7 @@ export const DEFAULT_CONFIG = {
     fallback_provider: "ollama",
     fallback_model: "llama3",
   },
+  schedules: [],
   branding: {
     enabled: false,
     app_name: "CmdBar",
