@@ -1,23 +1,66 @@
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
-import pa11y from 'pa11y';
+
+process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true';
+
+function ensureNodeDependencies() {
+    const rootDir = process.cwd();
+    const pa11yDir = path.join(rootDir, 'node_modules', 'pa11y');
+    if (!fs.existsSync(pa11yDir)) {
+        console.log('Node dependencies not found in node_modules. Installing offline from local package cache...');
+        const npmCacheDir = path.join(rootDir, 'vendor', 'cache', 'npm');
+        const vendorNodeDir = path.join(rootDir, 'vendor', 'node');
+        
+        let installed = false;
+        if (fs.existsSync(npmCacheDir)) {
+            try {
+                execSync(`npm ci --offline --cache "${npmCacheDir}"`, { cwd: rootDir, stdio: 'inherit' });
+                installed = true;
+            } catch (e) {
+                console.warn('npm ci with offline cache failed:', e.message);
+            }
+        }
+        if (!installed && fs.existsSync(vendorNodeDir)) {
+            try {
+                const tmpCache = path.join(rootDir, '.npm_tmp_cache');
+                execSync(`npm cache add "${vendorNodeDir}"/*.tgz --cache "${tmpCache}"`, { cwd: rootDir, stdio: 'inherit' });
+                execSync(`npm install --offline --cache "${tmpCache}"`, { cwd: rootDir, stdio: 'inherit' });
+                fs.rmSync(tmpCache, { recursive: true, force: true });
+                installed = true;
+            } catch (e) {
+                console.error('Failed to install node packages from vendor tarballs:', e.message);
+            }
+        }
+    }
+}
 
 function findChromeExecutable() {
     if (process.env.CHROME_BIN && fs.existsSync(process.env.CHROME_BIN)) {
         return process.env.CHROME_BIN;
+    }
+    if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+        return process.env.PUPPETEER_EXECUTABLE_PATH;
     }
     const candidatePaths = [
         '/bin/google-chrome',
         '/usr/bin/google-chrome',
         '/usr/bin/chromium',
         '/usr/bin/chromium-browser',
+        '/usr/bin/chrome',
+        '/bin/chromium'
     ];
     for (const p of candidatePaths) {
         if (fs.existsSync(p)) {
             return p;
         }
     }
+    try {
+        const whichOut = execSync('which chromium || which google-chrome || which chromium-browser || which chrome', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+        if (whichOut && fs.existsSync(whichOut)) {
+            return whichOut;
+        }
+    } catch (e) {}
     return undefined;
 }
 
@@ -274,6 +317,9 @@ function escapeHtml(str) {
 
 async function runAudit() {
     const rootDir = process.cwd();
+    ensureNodeDependencies();
+    const { default: pa11y } = await import('pa11y');
+
     const buildDir = path.join(rootDir, 'build');
 
     console.log('==========================================');

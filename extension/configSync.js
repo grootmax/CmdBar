@@ -657,8 +657,15 @@ export async function loadConfig(configPath, extensionPath) {
         isValidSignature = false;
     }
 
-    if (!isValidSchema || !isValidSignature) {
-        // Archive corrupted or untrusted file to .bak and restore clean signed default config
+    if (!isValidSchema) {
+        // Fallback to default in memory with _isInvalid marker
+        let fallbackObj = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+        Object.defineProperty(fallbackObj, '_isInvalid', { value: true, enumerable: false, writable: true, configurable: true });
+        return fallbackObj;
+    }
+
+    if (!isValidSignature) {
+        // Archive tampered file to .bak and restore clean signed default config
         const backupPath = configPath + '.bak';
         try {
             if (isNode) {
@@ -668,19 +675,6 @@ export async function loadConfig(configPath, extensionPath) {
             }
         } catch (e) {
             console.error(`CmdBar: Failed to archive corrupted/untrusted config file: ${e.message}`);
-        }
-
-        try {
-            if (!isNode) {
-                if (typeof Main !== 'undefined' && Main && typeof Main.notify === 'function') {
-                    Main.notify("Security Alert: Config Verification Failed", "Untrusted or tampered configuration file detected. Archived to .bak and restored safe defaults.");
-                } else if (typeof Gio !== 'undefined' && Gio.Subprocess) {
-                    let proc = Gio.Subprocess.new(['notify-send', 'Security Alert: Config Verification Failed', 'Untrusted or tampered configuration file detected. Archived to .bak and restored safe defaults.'], Gio.SubprocessFlags.NONE);
-                    proc.communicate_utf8_async(null, null, null);
-                }
-            }
-        } catch (e) {
-            // Ignore notification error
         }
 
         let configObj = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
