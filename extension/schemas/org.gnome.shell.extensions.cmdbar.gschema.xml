@@ -21,5 +21,15 @@
       <summary>Global Shortcut</summary>
       <description>Global keyboard shortcut to trigger CmdBar menu from anywhere.</description>
     </key>
+    <key name="lazy-load-categories" type="b">
+      <default>true</default>
+      <summary>Lazy Load Categories</summary>
+      <description>Only load command items when a category is expanded in the menu.</description>
+    </key>
+    <key name="virtual-page-size" type="i">
+      <default>20</default>
+      <summary>Virtual Page Size</summary>
+      <description>Number of command items to render per virtual list page/chunk.</description>
+    </key>
   </schema>
 </schemalist>
