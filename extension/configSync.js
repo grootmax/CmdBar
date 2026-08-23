@@ -12,6 +12,28 @@ export const DEFAULT_CONFIG = {
     fallback_provider: "ollama",
     fallback_model: "llama3",
   },
+  sso: {
+    enabled: false,
+    default_provider: "azuread",
+    session_timeout_minutes: 480,
+    idle_timeout_minutes: 120,
+    jit_provisioning: {
+      enabled: true,
+      default_role: "user",
+      attribute_mapping: {
+        email: "email",
+        name: "name",
+        groups: "groups",
+      },
+    },
+    group_mappings: [
+      {
+        sso_group: "CmdBar-Admins",
+        role: "admin",
+        allowed_categories: ["*"],
+      },
+    ],
+  },
   categories: [
     {
       name: "AI Assistant",
