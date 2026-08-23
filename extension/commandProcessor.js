@@ -2,6 +2,8 @@
  * Core business logic for CmdBar extension command processing and validation.
  */
 
+export { ChainRunner, ChainStatus, StepStatus } from "./chainRunner.js";
+
 let GLib;
 try {
   if (typeof globalThis.imports !== "undefined" && globalThis.imports.gi) {
@@ -112,7 +114,10 @@ export async function writeConfigAtomically(targetPath, data) {
   } else {
     // GJS (GNOME Shell) environment
     const giModule = await import("gi");
-    const Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
+    const Gio =
+      giModule.Gio ||
+      (giModule.default && giModule.default.Gio) ||
+      giModule.default;
     const GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
     const file = Gio.File.new_for_path(targetPath);
     const tmpPath = targetPath + ".tmp";
@@ -416,7 +421,7 @@ export function getPreviewTokens(argv, placeholderMap, parametersSchema) {
  * @returns {string}
  */
 export function formatShortcutHint(accel) {
-  let str = Array.isArray(accel) ? (accel[0] || "") : (accel || "");
+  let str = Array.isArray(accel) ? accel[0] || "" : accel || "";
   if (!str) return "Super+Space";
 
   let parts = [];
@@ -557,7 +562,6 @@ export function highlightMatches(text, matches) {
   if (!matches || matches.length === 0) return escapeMarkup(text);
 
   const sortedMatches = [...matches].sort((a, b) => a - b);
-  const matchSet = new Set(sortedMatches);
 
   const ranges = [];
   let currentRange = null;
@@ -606,7 +610,9 @@ export function rankCommands(commands, query, usageMap = {}) {
 
   const results = [];
   for (const cmd of commands) {
-    const commandStr = cmd.command || "";
+    const commandStr = Array.isArray(cmd.command)
+      ? cmd.command.join(" ")
+      : String(cmd.command || "");
     const nameStr = cmd.name || "";
     const usage = (usageMap && (usageMap[commandStr] || usageMap[nameStr])) || 0;
 
@@ -623,6 +629,8 @@ export function rankCommands(commands, query, usageMap = {}) {
         matchResult: bestMatch,
         matches: bestMatch.matches,
         score: bestMatch.score,
+        highlightedName: highlightMatches(nameStr, nameMatch.matches),
+        highlightedCommand: highlightMatches(commandStr, cmdMatch.matches),
       });
     }
   }
