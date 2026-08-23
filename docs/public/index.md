@@ -17,3 +17,4 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
 - **Local Live Reload**: Configuration changes sync instantly.
+- **Shared Audit Trail**: Enterprise team audit logging with HMAC SHA-256 tamper-evident verification, GDPR privacy controls, automated compliance reports (SOC2, ISO27001, GDPR, HIPAA, PCI-DSS), SIEM export (CEF, LEEF, Syslog, Splunk, Elastic), anomaly detection rules, and real-time security alerts.
