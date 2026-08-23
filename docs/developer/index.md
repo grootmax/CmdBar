@@ -4,9 +4,10 @@ This directory contains internal technical specifications and architectural note
 
 ## Extension Lifecycle & Architecture
 
-The architecture of CmdBar is designed around two main components to maintain safety and speed:
+The architecture of CmdBar is designed around three main components to maintain safety, speed, and flexibility:
 1. **The GNOME Shell Extension (JavaScript / GJS)**: Direct interaction with the GNOME UI. Runs inside the shell's single-threaded event loop. Keep operations as non-blocking as possible.
 2. **The Companion App (Python)**: Handles disk operations, custom subprocess spawning, and configuration updates.
+3. **The Web Dashboard (HTML5/CSS3/JS + Python HTTP Server)**: Web-based configuration management system with drag-and-drop editor, real-time preview, team collaboration workspace merge engine, mobile responsiveness, and PWA offline capability.
 
 ### Command Audit Logging Architecture
 
@@ -38,6 +39,25 @@ CmdBar supports isolated sandboxed execution on a per-command basis:
 - **Integration**:
   - JavaScript wrapper (`extension/sandboxWrapper.js`) integrates into GJS execution paths (`runCommandAsync`, `_executeCommandAsync`, `executeCommand`).
   - Python wrapper (`app/sandbox_wrapper.py`) integrates into `app/config_schema.py` (`resolve_command_preview`) and `app/main.py` Libadwaita companion editor.
+
+### Web Dashboard Architecture & REST API
+
+The Web Dashboard (`companion/dashboard_server.py`, `scripts/serve_dashboard.py`, `dashboard/`) provides full web UI configuration control:
+- **REST API Endpoints**:
+  - `GET /api/config`: Reads local `config.json` with cryptographic signature verification.
+  - `POST /api/config`: Validates layout against schema, writes atomically to `config.json` and syncs `commands.json`.
+  - `GET /api/status`: Returns system health and offline readiness.
+  - `POST /api/preview`: Renders command parameter dry-run resolution.
+  - `POST /api/collaboration/merge`: Performs 2-way structural merge of local and team configs.
+  - `GET /api/events`: Server-Sent Events (SSE) stream for real-time collaboration updates across clients.
+- **Security Protections**:
+  - Path traversal checks on static asset requests.
+  - Cross-Origin POST protection enforcing origin/X-Requested-With verification.
+  - Strict input schema validation before writing configuration files.
+- **Offline PWA Engine**:
+  - Service Worker (`sw.js`) with cache-first and stale-while-revalidate strategies.
+  - Web App Manifest (`manifest.json`) for standalone installation.
+  - LocalStorage / IndexedDB fallback buffer when disconnected.
 
 ### Output Parser & Formatter Module
 
