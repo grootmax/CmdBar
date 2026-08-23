@@ -832,6 +832,7 @@ export function isUserInContext(userContext, ruleUsers, ruleGroups) {
 const DEFAULT_APPROVAL_SECRET = "cmdbar-approval-secret-key";
 
 /**
+/**
  * Helper to compute signature string for payload.
  * @param {string} payload
  * @param {string} [key]
