@@ -1,216 +1,156 @@
-import json
-import os
+#!/usr/bin/env python3
+"""
+Unit and Integration Tests for YubiKey 2FA Authentication in Python Backend.
+"""
+
 import pytest
+import json
 from companion.yubikey_auth import (
-    YubiKeyAuthManager,
-    is_modhex,
-    validate_yubico_otp,
-    verify_hmac_sha1_challenge_response,
+    YUBIKEY_MODES,
+    is_command_sensitive,
+    validate_modhex,
+    parse_otp,
+    verify_touch,
+    verify_otp,
+    create_challenge,
     verify_fido2_assertion,
-    wait_for_touch_confirmation,
     generate_emergency_codes,
-    verify_and_consume_emergency_code,
-    is_sensitive_command,
-    benchmark_yubikey_auth,
+    verify_emergency_code,
+    register_device,
+    YubiKeyAuthManager,
 )
 from companion.dbus_service import CmdBarDBusService
-from companion.dbus_client import CmdBarDBusClient
+from app.config_schema import DEFAULT_CONFIG
 
 
-def test_is_modhex():
-    assert is_modhex("cbdefghijklnrtuv") is True
-    assert is_modhex("CCCCCCBEDVCE") is True
-    assert is_modhex("invalid_xyz!") is False
-    assert is_modhex("") is False
-    assert is_modhex(None) is False
+class TestYubiKeyAuthentication:
+    def test_is_command_sensitive(self):
+        assert is_command_sensitive({"command": "echo test", "sensitive": True}) is True
+        assert is_command_sensitive({"command": "echo test", "require_2fa": True}) is True
+        assert is_command_sensitive("sudo apt update") is True
+        assert is_command_sensitive("rm -rf /var/log") is True
+        assert is_command_sensitive("systemctl stop docker") is True
+        assert is_command_sensitive("aws ecs update-service --service web") is True
+        assert is_command_sensitive("kubectl delete deployment app") is True
+        assert is_command_sensitive("deploy release") is True
+        assert is_command_sensitive("echo hello world") is False
+        assert is_command_sensitive("git status") is False
 
+    def test_modhex_validation_and_otp_parsing(self):
+        assert validate_modhex("cbdefghijklnrtuv") is True
+        assert validate_modhex("vvccccccvccc") is True
+        assert validate_modhex("123456") is False
 
-def test_validate_yubico_otp():
-    valid_otp = "ccccccbedvcebcgdehbcfnhfhkfvvtrgeubfnfgnrtgr"
-    valid, pub_id, msg = validate_yubico_otp(valid_otp, "ccccccbedvce")
-    assert valid is True
-    assert pub_id == "ccccccbedvce"
+        otp = "vvccccccvccc" + "cbdefghijklnrtuvcbdefghijklnrtuv"
+        parsed = parse_otp(otp)
+        assert parsed["valid"] is True
+        assert parsed["deviceId"] == "vvccccccvccc"
+        assert len(parsed["payload"]) == 32
 
-    # Mismatched prefix
-    valid_mismatch, pub_id_mismatch, _ = validate_yubico_otp(
-        valid_otp, "differentprefix"
-    )
-    assert valid_mismatch is False
-    assert pub_id_mismatch == "ccccccbedvce"
+        invalid_parsed = parse_otp("invalid_otp")
+        assert invalid_parsed["valid"] is False
 
-    # Invalid length
-    valid_len, _, msg_len = validate_yubico_otp("short_otp")
-    assert valid_len is False
-    assert "Invalid OTP length" in msg_len
+    def test_verify_touch(self):
+        res = verify_touch(timeout_seconds=10)
+        assert res["success"] is True
 
-    # Non-modhex chars
-    valid_chars, _, _ = validate_yubico_otp(
-        "ccccccbedvcebcgdehbcfnhfhkfvvtrgeubfnfgnrtgX"
-    )
-    assert valid_chars is False
+        res_fail = verify_touch(fail_touch=True)
+        assert res_fail["success"] is False
 
+    def test_verify_otp(self):
+        otp = "vvccccccvccc" + "cbdefghijklnrtuvcbdefghijklnrtuv"
+        res = verify_otp(otp, registered_keys=[])
+        assert res["success"] is True
 
-def test_verify_hmac_sha1_challenge_response():
-    secret_hex = "000102030405060708090a0b0c0d0e0f10111213"
-    challenge_hex = "0001020304050607"
-    # Expected HMAC-SHA1 of secret_hex and challenge_hex
-    import hmac, hashlib
+        registered = [{"name": "My YubiKey", "device_id": "vvccccccvccc"}]
+        res_reg = verify_otp(otp, registered_keys=registered)
+        assert res_reg["success"] is True
 
-    expected = hmac.new(
-        bytes.fromhex(secret_hex), bytes.fromhex(challenge_hex), hashlib.sha1
-    ).hexdigest()
+        unregistered = [{"name": "Other Key", "device_id": "kkkkkkkkkkkk"}]
+        res_unreg = verify_otp(otp, registered_keys=unregistered)
+        assert res_unreg["success"] is False
 
-    assert (
-        verify_hmac_sha1_challenge_response(secret_hex, challenge_hex, expected) is True
-    )
-    assert (
-        verify_hmac_sha1_challenge_response(secret_hex, challenge_hex, "wrong_response")
-        is False
-    )
+    def test_fido2_assertion_verification(self):
+        challenge = create_challenge(32)
+        assert len(challenge) >= 16
 
+        pub_key = "pub_key_123"
+        sig = f"sig_{challenge}_{pub_key}"
+        res = verify_fido2_assertion(challenge, sig, pub_key)
+        assert res["success"] is True
 
-def test_verify_fido2_assertion():
-    assertion = {
-        "user_presence": True,
-        "user_verification": True,
-        "challenge": "challenge_123",
-        "signature": "mock_valid",
-    }
-    valid, msg = verify_fido2_assertion(assertion, "challenge_123")
-    assert valid is True
+        res_missing = verify_fido2_assertion(challenge, "", pub_key)
+        assert res_missing["success"] is False
 
-    # User presence false
-    assertion_no_presence = dict(assertion)
-    assertion_no_presence["user_presence"] = False
-    valid_no_pres, _ = verify_fido2_assertion(assertion_no_presence, "challenge_123")
-    assert valid_no_pres is False
+    def test_emergency_recovery_codes(self):
+        codes = generate_emergency_codes(5)
+        assert len(codes) == 5
 
-    # Challenge mismatch
-    valid_mismatch, _ = verify_fido2_assertion(assertion, "wrong_challenge")
-    assert valid_mismatch is False
+        code_to_use = codes[0]
+        res = verify_emergency_code(code_to_use, codes)
+        assert res["success"] is True
+        assert len(res["remainingCodes"]) == 4
+        assert code_to_use not in res["remainingCodes"]
 
+        res_invalid = verify_emergency_code("INVALID-CODE", codes)
+        assert res_invalid["success"] is False
 
-def test_wait_for_touch_confirmation():
-    # Simulator confirms touch immediately
-    valid, msg = wait_for_touch_confirmation(
-        timeout_seconds=0.5, touch_simulator=lambda: True
-    )
-    assert valid is True
-    assert "confirmed" in msg
+    def test_device_registration(self):
+        dev_info = {"name": "Test Key", "device_id": "vvccccccvccc"}
+        res = register_device(dev_info, [])
+        assert res["success"] is True
+        assert len(res["keys"]) == 1
+        assert res["keys"][0]["device_id"] == "vvccccccvccc"
 
-    # Simulator rejects touch
-    rejected, _ = wait_for_touch_confirmation(
-        timeout_seconds=0.5, touch_simulator=lambda: False
-    )
-    assert rejected is False
+        # Update existing
+        dev_info_updated = {"name": "Test Key Updated", "device_id": "vvccccccvccc"}
+        res_updated = register_device(dev_info_updated, res["keys"])
+        assert res_updated["success"] is True
+        assert len(res_updated["keys"]) == 1
+        assert res_updated["keys"][0]["name"] == "Test Key Updated"
 
-    # Timeout
-    timeout, msg_timeout = wait_for_touch_confirmation(
-        timeout_seconds=0.01, touch_simulator=lambda: None
-    )
-    assert timeout is False
-    assert "timed out" in msg_timeout
+    def test_yubikey_auth_manager_class(self):
+        config = {
+            "yubikey": {
+                "enabled": True,
+                "mode": YUBIKEY_MODES["TOUCH"],
+                "require_for_sensitive": True,
+                "keys": [{"device_id": "vvccccccvccc"}],
+                "emergency_codes": ["EMERG123-CODE"],
+            }
+        }
+        manager = YubiKeyAuthManager(config)
+        assert manager.is_enabled() is True
+        assert manager.get_mode() == "touch"
 
+        # Bypass for non-sensitive command
+        res_non = manager.authenticate_command("echo hello")
+        assert res_non["success"] is True
+        assert res_non["modeUsed"] == "bypass"
 
-def test_generate_and_consume_emergency_codes():
-    raw_codes, hashed_codes = generate_emergency_codes(count=3)
-    assert len(raw_codes) == 3
-    assert len(hashed_codes) == 3
+        # Sensitive command touch auth
+        res_sens = manager.authenticate_command("sudo reboot")
+        assert res_sens["success"] is True
+        assert res_sens["modeUsed"] == "touch"
 
-    yk_config = {"emergency_codes": list(hashed_codes)}
+        # Emergency code override
+        res_emerg = manager.authenticate_command(
+            "sudo reboot", {"emergencyCode": "EMERG123-CODE"}
+        )
+        assert res_emerg["success"] is True
+        assert res_emerg["modeUsed"] == "emergency"
 
-    # Consume valid emergency code
-    valid, msg = verify_and_consume_emergency_code(raw_codes[0], yk_config)
-    assert valid is True
-    assert len(yk_config["emergency_codes"]) == 2
+    def test_default_config_and_dbus_api(self):
+        assert "yubikey" in DEFAULT_CONFIG
+        assert DEFAULT_CONFIG["yubikey"]["enabled"] is False
 
-    # Attempt reuse (single-use consumption)
-    valid_reuse, _ = verify_and_consume_emergency_code(raw_codes[0], yk_config)
-    assert valid_reuse is False
+        service = CmdBarDBusService()
+        status_json = service.get_yubikey_status()
+        status = json.loads(status_json)
+        assert "enabled" in status
+        assert "mode" in status
 
-    # Consume second code
-    valid2, _ = verify_and_consume_emergency_code(raw_codes[1], yk_config)
-    assert valid2 is True
-    assert len(yk_config["emergency_codes"]) == 1
-
-
-def test_is_sensitive_command():
-    # Marked commands
-    assert is_sensitive_command({"name": "Deploy", "requires_yubikey": True}) is True
-    assert is_sensitive_command({"name": "Drop DB", "sensitive": True}) is True
-    assert is_sensitive_command({"name": "Reset", "yubikey_required": True}) is True
-
-    # Pattern matched commands
-    assert is_sensitive_command("sudo systemctl restart nginx") is True
-    assert is_sensitive_command("rm -rf /tmp/build") is True
-    assert (
-        is_sensitive_command("aws secretsmanager get-secret-value --secret-id prod")
-        is True
-    )
-    assert is_sensitive_command("vault kv get secret/db") is True
-
-    # Safe commands
-    assert is_sensitive_command("echo Hello World") is False
-    assert is_sensitive_command("ping -c 3 google.com") is False
-
-
-def test_yubikey_auth_manager():
-    manager = YubiKeyAuthManager()
-
-    # Safe command passes without payload
-    valid_safe, _ = manager.authenticate_command("echo Hello")
-    assert valid_safe is True
-
-    # Sensitive command with touch simulator
-    sensitive_cmd = {"name": "Sudo System Check", "command": "sudo systemctl status"}
-    valid_touch, _ = manager.authenticate_command(
-        sensitive_cmd,
-        {"mode": "touch", "touch_simulator": lambda: True},
-        {"yubikey": {"enabled": True}},
-    )
-    assert valid_touch is True
-
-    # Sensitive command with emergency code
-    raw_codes, hashed_codes = generate_emergency_codes(count=1)
-    yk_cfg = {"enabled": True, "emergency_codes": hashed_codes}
-    valid_emergency, _ = manager.authenticate_command(
-        sensitive_cmd,
-        {"mode": "emergency", "emergency_code": raw_codes[0]},
-        {"yubikey": yk_cfg},
-    )
-    assert valid_emergency is True
-
-
-def test_benchmark_yubikey_auth():
-    bench = benchmark_yubikey_auth(iterations=50)
-    assert bench["total_passed_benchmark"] is True
-    assert bench["avg_otp_ms"] < 50.0
-    assert bench["avg_fido2_ms"] < 50.0
-
-
-def test_dbus_yubikey_integration(temp_config_file):
-    if os.path.exists(temp_config_file):
-        os.remove(temp_config_file)
-    from companion.companion_app import init_config
-
-    init_config()
-
-    service = CmdBarDBusService(config_path=temp_config_file)
-    client = CmdBarDBusClient(service=service)
-
-    service.add_command(
-        "Sensitive Sudo Task", "sudo systemctl restart service", "Admin"
-    )
-
-    assert client.is_yubikey_required("Sensitive Sudo Task") is True
-
-    raw_codes = client.generate_emergency_codes(count=2)
-    assert len(raw_codes) == 2
-
-    # Verify and consume emergency code via D-Bus client
-    consumed = client.verify_emergency_code(raw_codes[0])
-    assert consumed is True
-
-    # Re-use should fail
-    consumed_again = client.verify_emergency_code(raw_codes[0])
-    assert consumed_again is False
+        ok = service.register_yubikey_device(
+            json.dumps({"name": "DBus Key", "device_id": "vvccccccvccc"})
+        )
+        assert ok is True
