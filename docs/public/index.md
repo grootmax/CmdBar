@@ -11,6 +11,7 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 
 ## Core Features
 
+- **Environment Variable Profiles**: Switch named environment variable profiles ("Production", "Staging", "Development") directly from the top bar indicator menu or the command execution confirmation dialog. Filter command visibility using profile arrays.
 - **Dynamic Menu**: Fully driven by JSON config files.
 - **Command Favorites & Pinning**: Star commands with inline star buttons or keyboard shortcuts (`f` / `*`) to pin them into a dedicated "Favorites" category at the top of the menu.
 - **Snippet & Template Library**: Pre-built command templates for Git, Docker, Kubernetes, AWS CLI, npm/pnpm, and System utilities.
