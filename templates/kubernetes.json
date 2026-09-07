@@ -1,0 +1,92 @@
+[
+  {
+    "name": "Kubernetes Get Pods",
+    "description": "List pods in a specified namespace",
+    "command": "kubectl get pods -n <namespace>",
+    "category": "Kubernetes",
+    "icon": "view-list-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "namespace": {
+        "placeholder": "default",
+        "regex": "^[a-zA-Z0-9_-]+$"
+      }
+    }
+  },
+  {
+    "name": "Kubernetes Describe Deployment",
+    "description": "Describe deployment status and events",
+    "command": "kubectl describe deployment <deployment_name> -n <namespace>",
+    "category": "Kubernetes",
+    "icon": "dialog-information-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "deployment_name": {
+        "placeholder": "api-server",
+        "regex": "^[a-zA-Z0-9_-]+$"
+      },
+      "namespace": {
+        "placeholder": "default",
+        "regex": "^[a-zA-Z0-9_-]+$"
+      }
+    }
+  },
+  {
+    "name": "Kubernetes Pod Logs",
+    "description": "Tail logs from a specific pod",
+    "command": "kubectl logs -f <pod_name> -n <namespace>",
+    "category": "Kubernetes",
+    "icon": "document-open-recent-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "pod_name": {
+        "placeholder": "pod-12345",
+        "regex": "^[a-zA-Z0-9_-]+$"
+      },
+      "namespace": {
+        "placeholder": "default",
+        "regex": "^[a-zA-Z0-9_-]+$"
+      }
+    }
+  },
+  {
+    "name": "Kubernetes Port Forward",
+    "description": "Forward local port to a pod port",
+    "command": "kubectl port-forward <pod_name> <local_port>:<pod_port> -n <namespace>",
+    "category": "Kubernetes",
+    "icon": "network-workgroup-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "pod_name": {
+        "placeholder": "service-pod",
+        "regex": "^[a-zA-Z0-9_-]+$"
+      },
+      "local_port": {
+        "placeholder": "8080",
+        "regex": "^[0-9]+$"
+      },
+      "pod_port": {
+        "placeholder": "80",
+        "regex": "^[0-9]+$"
+      },
+      "namespace": {
+        "placeholder": "default",
+        "regex": "^[a-zA-Z0-9_-]+$"
+      }
+    }
+  },
+  {
+    "name": "Kubernetes Apply Manifest",
+    "description": "Apply a configuration manifest file",
+    "command": "kubectl apply -f <manifest_file>",
+    "category": "Kubernetes",
+    "icon": "document-save-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "manifest_file": {
+        "placeholder": "deployment.yaml",
+        "regex": "^[a-zA-Z0-9_/.-]+$"
+      }
+    }
+  }
+]

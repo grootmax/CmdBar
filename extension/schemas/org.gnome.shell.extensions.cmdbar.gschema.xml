@@ -21,10 +21,45 @@
       <summary>Global Shortcut</summary>
       <description>Global keyboard shortcut to trigger CmdBar menu from anywhere.</description>
     </key>
+    <key name="sandbox-engine" type="s">
+      <default>'bwrap'</default>
+      <summary>Default Sandbox Engine</summary>
+      <description>Default sandbox engine used for isolated execution (bwrap, flatpak-spawn, or firejail).</description>
+    </key>
+    <key name="enable-sandbox" type="b">
+      <default>false</default>
+      <summary>Enable Sandboxing by Default</summary>
+      <description>Toggle default sandboxed execution for all commands.</description>
+    </key>
     <key name="auto-format-output" type="b">
       <default>true</default>
       <summary>Auto-Format Command Output</summary>
       <description>Automatically format command output into pretty JSON, CSV/TSV tables, or code blocks.</description>
+    </key>
+    <key name="white-label-enabled" type="b">
+      <default>false</default>
+      <summary>Enable White Labeling</summary>
+      <description>Toggle enterprise white labeling option.</description>
+    </key>
+    <key name="custom-app-name" type="s">
+      <default>'CmdBar'</default>
+      <summary>Custom Brand Application Name</summary>
+      <description>White label application name overriding CmdBar branding.</description>
+    </key>
+    <key name="custom-logo-path" type="s">
+      <default>''</default>
+      <summary>Custom Logo Path or Icon Name</summary>
+      <description>File path or symbolic icon name for custom enterprise logo.</description>
+    </key>
+    <key name="brand-primary-color" type="s">
+      <default>'#3584e4'</default>
+      <summary>Brand Primary Color</summary>
+      <description>Primary hex color code for white label custom theme styling.</description>
+    </key>
+    <key name="domain-alias" type="s">
+      <default>''</default>
+      <summary>Enterprise Domain Alias</summary>
+      <description>Custom domain alias endpoint for enterprise server communications.</description>
     </key>
   </schema>
 </schemalist>

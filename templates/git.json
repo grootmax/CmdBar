@@ -1,0 +1,67 @@
+[
+  {
+    "name": "Git Checkout Branch",
+    "description": "Switch to specified Git branch",
+    "command": "git checkout <branch>",
+    "category": "Git Workflows",
+    "icon": "vcs-branch-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "branch": {
+        "placeholder": "main",
+        "regex": "^[a-zA-Z0-9_/.-]+$",
+        "error_message": "Invalid branch name"
+      }
+    }
+  },
+  {
+    "name": "Git Pull Rebase",
+    "description": "Fetch and rebase current branch onto remote branch",
+    "command": "git pull --rebase origin <branch>",
+    "category": "Git Workflows",
+    "icon": "vcs-merge-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "branch": {
+        "placeholder": "main",
+        "regex": "^[a-zA-Z0-9_/.-]+$"
+      }
+    }
+  },
+  {
+    "name": "Git Soft Reset Commit",
+    "description": "Undo last commit while keeping working directory changes",
+    "command": "git reset --soft HEAD~1",
+    "category": "Git Workflows",
+    "icon": "edit-undo-symbolic",
+    "mode": "shell-quoted"
+  },
+  {
+    "name": "Git Stash Save",
+    "description": "Stash current working changes with a message",
+    "command": "git stash save \"<message>\"",
+    "category": "Git Workflows",
+    "icon": "package-x-generic-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "message": {
+        "placeholder": "wip-changes",
+        "regex": "^[a-zA-Z0-9_ -]+$"
+      }
+    }
+  },
+  {
+    "name": "Git Cherry-Pick Commit",
+    "description": "Apply commit changes from another branch",
+    "command": "git cherry-pick <commit_hash>",
+    "category": "Git Workflows",
+    "icon": "edit-paste-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "commit_hash": {
+        "placeholder": "a1b2c3d",
+        "regex": "^[a-fA-F0-9]+$"
+      }
+    }
+  }
+]

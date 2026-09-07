@@ -1,0 +1,80 @@
+[
+  {
+    "name": "AWS S3 Sync Directory",
+    "description": "Sync local directory to an S3 bucket",
+    "command": "aws s3 sync <local_dir> s3://<bucket_name>/",
+    "category": "AWS CLI",
+    "icon": "folder-remote-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "local_dir": {
+        "placeholder": "./dist",
+        "regex": "^[a-zA-Z0-9_/.-]+$"
+      },
+      "bucket_name": {
+        "placeholder": "my-app-bucket",
+        "regex": "^[a-zA-Z0-9_.-]+$"
+      }
+    }
+  },
+  {
+    "name": "AWS EC2 Describe Instances",
+    "description": "List running EC2 instances in a region",
+    "command": "aws ec2 describe-instances --region <aws_region> --output table",
+    "category": "AWS CLI",
+    "icon": "computer-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "aws_region": {
+        "placeholder": "us-east-1",
+        "regex": "^[a-z0-9-]+$"
+      }
+    }
+  },
+  {
+    "name": "AWS ECR Login",
+    "description": "Authenticate Docker client to an Amazon ECR registry",
+    "command": "aws ecr get-login-password --region <aws_region> | docker login --username AWS --password-stdin <registry_url>",
+    "category": "AWS CLI",
+    "icon": "security-high-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "aws_region": {
+        "placeholder": "us-east-1",
+        "regex": "^[a-z0-9-]+$"
+      },
+      "registry_url": {
+        "placeholder": "1234567890.dkr.ecr.us-east-1.amazonaws.com",
+        "regex": "^[a-zA-Z0-9_.-]+$"
+      }
+    }
+  },
+  {
+    "name": "AWS SSM Start Session",
+    "description": "Start an interactive shell session with an EC2 instance via SSM",
+    "command": "aws ssm start-session --target <instance_id>",
+    "category": "AWS CLI",
+    "icon": "utilities-terminal-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "instance_id": {
+        "placeholder": "i-0123456789abcdef0",
+        "regex": "^i-[a-fA-F0-9]+$"
+      }
+    }
+  },
+  {
+    "name": "AWS Secret Value Get",
+    "description": "Retrieve secret string value from Secrets Manager",
+    "command": "aws secretsmanager get-secret-value --secret-id <secret_id>",
+    "category": "AWS CLI",
+    "icon": "dialog-password-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "secret_id": {
+        "placeholder": "prod/db/credentials",
+        "regex": "^[a-zA-Z0-9_/.-]+$"
+      }
+    }
+  }
+]

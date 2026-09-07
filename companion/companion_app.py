@@ -10,6 +10,13 @@ import hmac
 import hashlib
 import secrets
 from companion.ai_translator import is_ai_command, translate_natural_language_to_command
+from app.template_manager import (
+    load_all_templates,
+    load_template_file,
+    import_templates_to_config,
+    export_command_as_template,
+    export_templates_to_file,
+)
 
 def canonical_json(obj):
     if isinstance(obj, dict):
@@ -132,11 +139,11 @@ def init_config():
     return config_path
 
 
-def load_config():
+def load_config(path=None):
     """
     Loads and parses the configuration file, verifying its signature.
     """
-    config_path = init_config()
+    config_path = path if path else init_config()
     key_path = get_key_path(config_path)
     key = get_or_create_signing_key(key_path)
     try:
@@ -225,11 +232,11 @@ def load_config():
     return config_data
 
 
-def save_config(config_data):
+def save_config(config_data, path=None):
     """
     Saves the configuration to the file safely with a cryptographic signature.
     """
-    config_path = get_config_path()
+    config_path = path if path else get_config_path()
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
     if isinstance(config_data, dict):
         key_path = get_key_path(config_path)
@@ -378,9 +385,12 @@ def run_cli_mode():
         print("4. Edit Command")
         print("5. Delete Command/Category")
         print("6. Test-Run Command Template")
-        print("7. Exit")
+        print("7. Import from Template Library")
+        print("8. Export Custom Commands as Template")
+        print("9. Custom Branding & White Label")
+        print("10. Exit")
         
-        choice = input("\nEnter choice [1-7]: ").strip()
+        choice = input("\nEnter choice [1-10]: ").strip()
         if choice == "1":
             list_categories_and_commands(config_data)
         elif choice == "2":
@@ -394,10 +404,151 @@ def run_cli_mode():
         elif choice == "6":
             test_run_command_flow(config_data)
         elif choice == "7":
+            import_templates_cli_flow(config_data)
+        elif choice == "8":
+            export_templates_cli_flow(config_data)
+        elif choice == "9":
+            manage_branding(config_data)
+        elif choice == "10":
             print("Goodbye!")
             break
         else:
             print("Invalid choice, please try again.")
+
+
+def import_templates_cli_flow(config_data):
+    print("\nTemplate Library Import Wizard:")
+    print("1. Pre-built Template Library (Git, Docker, Kubernetes, AWS, npm/pnpm, System)")
+    print("2. Import from Local JSON File or HTTPS URL (Community Sharing)")
+    
+    choice = input("Enter choice [1-2]: ").strip()
+    templates = []
+    if choice == "1":
+        all_tmpls = load_all_templates()
+        if not all_tmpls:
+            print("No pre-built templates found.")
+            return
+        print("\nAvailable Templates:")
+        for idx, tmpl in enumerate(all_tmpls, 1):
+            print(f"{idx}. [{tmpl.get('category')}] {tmpl.get('name')} -> {tmpl.get('command')}")
+        sel = input("\nEnter numbers of templates to import (e.g. 1,3,5 or 'all'): ").strip()
+        if sel.lower() == "all":
+            templates = all_tmpls
+        else:
+            try:
+                indices = [int(i.strip()) - 1 for i in sel.split(",") if i.strip()]
+                templates = [all_tmpls[i] for i in indices if 0 <= i < len(all_tmpls)]
+            except Exception:
+                print("Invalid selection.")
+                return
+    elif choice == "2":
+        path_str = input("Enter JSON template file path or URL: ").strip()
+        if not path_str:
+            return
+        try:
+            templates = load_template_file(path_str)
+        except Exception as e:
+            print(f"Error loading template file: {e}")
+            return
+    else:
+        print("Invalid choice.")
+        return
+
+    if not templates:
+        print("No templates selected.")
+        return
+
+    config_data, count = import_templates_to_config(config_data, templates)
+    if save_config(config_data):
+        print(f"Successfully imported {count} command template(s) into your configuration!")
+
+
+def export_templates_cli_flow(config_data):
+    categories = config_data.get("categories", [])
+    all_cmds = []
+    for cat in categories:
+        for cmd in cat.get("commands", []):
+            all_cmds.append((cat["name"], cmd))
+            
+    if not all_cmds:
+        print("No commands available to export.")
+        return
+
+    print("\nSelect Command to Export as Template:")
+    for idx, (cat_name, cmd) in enumerate(all_cmds, 1):
+        print(f"{idx}. [{cat_name}] {cmd.get('name')} -> {cmd.get('command') or cmd.get('template')}")
+        
+    try:
+        selection = int(input("Enter choice: ")) - 1
+        if not (0 <= selection < len(all_cmds)):
+            print("Invalid selection.")
+            return
+    except Exception:
+        print("Invalid input.")
+        return
+
+    cat_name, cmd = all_cmds[selection]
+    out_path = input("Enter destination JSON file path [default: exported_template.json]: ").strip()
+    if not out_path:
+        out_path = "exported_template.json"
+        
+    author = input("Enter author name (optional): ").strip()
+    tmpl = export_command_as_template(cmd, category_name=cat_name, author=author or None)
+    
+    export_templates_to_file([tmpl], out_path, author=author or None)
+    print(f"Successfully exported template '{tmpl['name']}' to {out_path}!")
+
+
+def manage_branding(config_data):
+    from app.config_schema import get_effective_branding
+    branding = get_effective_branding(config_data)
+    print("\n--- Custom Branding & White Label Options ---")
+    print(f"Enabled: {branding['enabled']}")
+    print(f"Brand Application Name: {branding['app_name']}")
+    print(f"Logo Path: {branding['logo_path']}")
+    print(f"Primary Color: {branding['brand_colors']['primary']}")
+    print(f"Domain Alias: {branding['domain_alias']}")
+    print(f"Organization Name: {branding['enterprise_identity']['organization_name']}")
+    
+    print("\n1. Toggle White Labeling (Enable/Disable)")
+    print("2. Set Application Name")
+    print("3. Set Logo Path")
+    print("4. Set Brand Primary Color")
+    print("5. Set Domain Alias")
+    print("6. Back to Main Menu")
+    
+    choice = input("\nEnter choice [1-6]: ").strip()
+    if choice == "1":
+        branding["enabled"] = not branding["enabled"]
+        config_data["branding"] = branding
+        save_config(config_data)
+        print(f"White labeling status set to: {branding['enabled']}")
+    elif choice == "2":
+        name = input("Enter custom app name: ").strip()
+        if name:
+            branding["app_name"] = name
+            config_data["branding"] = branding
+            save_config(config_data)
+            print(f"App name set to: {name}")
+    elif choice == "3":
+        logo = input("Enter logo path or icon name: ").strip()
+        branding["logo_path"] = logo
+        config_data["branding"] = branding
+        save_config(config_data)
+        print(f"Logo set to: {logo}")
+    elif choice == "4":
+        color = input("Enter primary color (e.g. #1e3a8a): ").strip()
+        if color:
+            branding["brand_colors"]["primary"] = color
+            config_data["branding"] = branding
+            save_config(config_data)
+            print(f"Primary color set to: {color}")
+    elif choice == "5":
+        domain = input("Enter domain alias (e.g. cmd.acme.corp): ").strip()
+        branding["domain_alias"] = domain
+        config_data["branding"] = branding
+        save_config(config_data)
+        print(f"Domain alias set to: {domain}")
 
 
 def list_categories_and_commands(config_data):
@@ -917,6 +1068,16 @@ if GUI_AVAILABLE:
             add_btn = Gtk.Button(label="Add Command")
             add_btn.connect("clicked", self.on_add_command_clicked)
             header.pack_start(add_btn)
+
+            # Import Template Button
+            import_btn = Gtk.Button(label="Import Template")
+            import_btn.connect("clicked", self.on_import_template_clicked)
+            header.pack_start(import_btn)
+
+            # Export Template Button
+            export_btn = Gtk.Button(label="Export Template")
+            export_btn.connect("clicked", self.on_export_template_clicked)
+            header.pack_start(export_btn)
             
             # Content Pane
             paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
@@ -1095,6 +1256,37 @@ if GUI_AVAILABLE:
             save_config(self.config_data)
             self.refresh_list()
 
+        def on_import_template_clicked(self, btn):
+            all_tmpls = load_all_templates()
+            if not all_tmpls:
+                return
+            config, count = import_templates_to_config(self.config_data, all_tmpls)
+            save_config(config)
+            self.config_data = config
+            self.refresh_list()
+
+        def on_export_template_clicked(self, btn):
+            if not self.selected_cmd or not self.selected_category:
+                return
+            tmpl = export_command_as_template(
+                self.selected_cmd,
+                category_name=self.selected_category.get("name", "Custom")
+            )
+            config_dir = os.path.dirname(get_config_path())
+            export_path = os.path.join(config_dir, "exported_templates.json")
+            existing = []
+            if os.path.exists(export_path):
+                try:
+                    with open(export_path, "r", encoding="utf-8") as f:
+                        existing = json.load(f)
+                except Exception:
+                    existing = []
+            if not isinstance(existing, list):
+                existing = [existing]
+            existing.append(tmpl)
+            export_templates_to_file(existing, export_path)
+
+
 
     class CmdBarApp(Adw.Application):
         def __init__(self, **kwargs):
@@ -1114,11 +1306,38 @@ if GUI_AVAILABLE:
 def main():
     parser = argparse.ArgumentParser(description="CmdBar Companion App")
     parser.add_argument("--cli", action="store_true", help="Force running in Command Line Interface mode")
+    parser.add_argument("--branding", action="store_true", help="Print current branding configuration")
+    parser.add_argument("--enable-white-label", action="store_true", help="Enable enterprise white labeling")
+    parser.add_argument("--disable-white-label", action="store_true", help="Disable enterprise white labeling")
+    parser.add_argument("--set-app-name", type=str, help="Set white label application name")
     args = parser.parse_args()
     
     # Initialize config directory/file
     init_config()
     
+    if args.branding or args.enable_white_label or args.disable_white_label or args.set_app_name:
+        from app.config_schema import get_effective_branding
+        config = load_config()
+        branding = get_effective_branding(config)
+        if args.enable_white_label:
+            branding["enabled"] = True
+            config["branding"] = branding
+            save_config(config)
+            print("Enterprise white labeling enabled.")
+        elif args.disable_white_label:
+            branding["enabled"] = False
+            config["branding"] = branding
+            save_config(config)
+            print("Enterprise white labeling disabled.")
+        if args.set_app_name:
+            branding["app_name"] = args.set_app_name
+            config["branding"] = branding
+            save_config(config)
+            print(f"White label application name set to '{args.set_app_name}'.")
+        if args.branding:
+            print(json.dumps(branding, indent=2))
+        return
+
     if args.cli or not GUI_AVAILABLE:
         if not GUI_AVAILABLE and not args.cli:
             print("GUI libraries (GTK4 / Libadwaita) are not available. Falling back to CLI mode.\n")
