@@ -267,9 +267,13 @@ jobs:
               echo ""
               echo "Cloning repository..."
 
-              git clone \
+              if ! git clone \
                 "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" \
-                "$WORKDIR"
+                "$WORKDIR"; then
+                echo "ERROR: Failed to clone repository."
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               cd "$WORKDIR"
 
@@ -292,11 +296,12 @@ jobs:
               echo ""
               echo "Fetching base branch..."
 
-              git fetch origin "$BASE_BRANCH"
-
-              echo "Fetching Jules branch..."
-
-              git fetch origin "$HEAD_BRANCH"
+              if ! git fetch origin "$BASE_BRANCH" || ! git fetch origin "$HEAD_BRANCH"; then
+                echo "ERROR: Failed to fetch origin branches."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               # ==================================================
               # CHECKOUT JULES BRANCH
@@ -305,9 +310,14 @@ jobs:
               echo ""
               echo "Checking out Jules branch..."
 
-              git checkout -B \
+              if ! git checkout -B \
                 "$HEAD_BRANCH" \
-                "origin/$HEAD_BRANCH"
+                "origin/$HEAD_BRANCH"; then
+                echo "ERROR: Failed to checkout branch $HEAD_BRANCH."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               # ==================================================
               # MERGE BASE INTO JULES BRANCH
@@ -374,7 +384,7 @@ jobs:
                     echo "Resolving conflict:"
                     echo "  $FILE"
 
-                    git checkout --theirs -- "$FILE" 2>/dev/null || git rm -f -- "$FILE"
+                    git checkout --theirs -- "$FILE" 2>/dev/null || git rm -f -- "$FILE" 2>/dev/null || git rm -rf -- "$FILE" 2>/dev/null || true
 
                     git add -- "$FILE" 2>/dev/null || true
                   fi
@@ -433,7 +443,12 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo "ERROR: Failed to push updated branch $HEAD_BRANCH."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               cd /
 
