@@ -61,7 +61,7 @@ jobs:
           # 2. NO PRs
           # ==================================================
 
-          if [ "$TOTAL_PR_COUNT" -eq 0 ]; then
+          if [ "${TOTAL_PR_COUNT:-0}" -eq 0 ]; then
 
             echo ""
             echo "No open pull requests found."
@@ -102,7 +102,7 @@ jobs:
           # 4. NO JULES PRs
           # ==================================================
 
-          if [ "$JULES_PR_COUNT" -eq 0 ]; then
+          if [ "${JULES_PR_COUNT:-0}" -eq 0 ]; then
 
             echo ""
             echo "No open Jules PRs found."
@@ -403,7 +403,7 @@ jobs:
                   --diff-filter=U |
                   wc -l)
 
-                if [ "$REMAINING_CONFLICTS" -ne 0 ]; then
+                if [ "${REMAINING_CONFLICTS:-0}" -ne 0 ]; then
 
                   echo ""
                   echo "ERROR:"
@@ -533,7 +533,7 @@ jobs:
               # --------------------------------------------------
               # ACCESSIBILITY CHECK MISSING (NOT REPORTED YET)
               # --------------------------------------------------
-              if [ "$A11Y_COUNT" -eq 0 ]; then
+              if [ "${A11Y_COUNT:-0}" -eq 0 ]; then
                 echo ""
                 echo "Dedicated accessibility status check has not reported yet."
                 echo "Blocking merge while check is pending."
@@ -557,7 +557,7 @@ jobs:
                 end
               ' 2>/dev/null || echo "0")
 
-              if [ "$A11Y_FAILED" -gt 0 ]; then
+              if [ "${A11Y_FAILED:-0}" -gt 0 ]; then
                 echo ""
                 echo "Dedicated accessibility check has failed."
                 echo "Blocking merge due to accessibility compliance failure."
@@ -581,7 +581,7 @@ jobs:
                 end
               ' 2>/dev/null || echo "0")
 
-              if [ "$A11Y_PENDING" -gt 0 ]; then
+              if [ "${A11Y_PENDING:-0}" -gt 0 ]; then
                 echo ""
                 echo "Dedicated accessibility check is still running."
                 echo "Blocking merge while check is pending."
@@ -627,7 +627,7 @@ jobs:
                 end
               ' 2>/dev/null || echo "0")
 
-              if [ "$OTHER_FAILED" -gt 0 ]; then
+              if [ "${OTHER_FAILED:-0}" -gt 0 ]; then
                 echo ""
                 echo "One or more status checks have failed."
                 echo "Stopping processing."
@@ -635,7 +635,7 @@ jobs:
                 break
               fi
 
-              if [ "$OTHER_PENDING" -gt 0 ]; then
+              if [ "${OTHER_PENDING:-0}" -gt 0 ]; then
                 echo ""
                 echo "One or more status checks are still running."
                 echo "Stopping processing."
