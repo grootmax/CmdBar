@@ -966,7 +966,6 @@ export {
 } from "./yubikeyAuth.js";
 
 /**
- * Checks if search text triggers calculator mode (> prefix, = prefix, or calc prefix).
  * @param {string} text
  * @returns {boolean}
  */
