@@ -105,6 +105,25 @@ DEFAULT_CONFIG = {
       "refresh_threshold_seconds": 300
     }
   },
+  "audit": {
+    "enabled": True,
+    "privacy_mode": False,
+    "sensitive_keywords": [
+      "password",
+      "passwd",
+      "secret",
+      "token",
+      "api_key",
+      "apikey",
+      "key",
+      "credentials",
+      "cred",
+      "sudo",
+      "auth",
+      "bearer",
+      "private_key"
+    ]
+  },
   "ai": {
     "provider": "openai",
     "model": "gpt-4o",
@@ -162,6 +181,31 @@ DEFAULT_CONFIG = {
               "error_message": "Invalid argument format! Must be alphanumeric or underscore."
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "Git",
+      "commands": [
+        {
+          "name": "Git Status",
+          "command": "git status",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Pull",
+          "command": "git pull origin {git-branch}",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Push",
+          "command": "git push origin {git-branch}",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Commit",
+          "command": "git commit -m \"<commit-message>\"",
+          "mode": "shell-quoted"
         }
       ]
     }
@@ -364,6 +408,11 @@ def resolve_command_preview(command_template, mode, parameter_values, parameters
             preview_values[name] = "*" * len(val) if val else ""
         else:
             preview_values[name] = val
+
+    if isinstance(parameter_values, dict):
+        for k, v in parameter_values.items():
+            if k not in preview_values:
+                preview_values[k] = str(v).strip() if v is not None else ""
 
     pattern = r"\{\{([^}]+)\}\}|<([^>]+)>|\{([^}]+)\}"
     if mode == "shell-quoted":

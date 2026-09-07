@@ -61,15 +61,25 @@
       <summary>Enterprise Domain Alias</summary>
       <description>Custom domain alias endpoint for enterprise server communications.</description>
     </key>
-    <key name="enable-command-caching" type="b">
+    <key name="audit-logging-enabled" type="b">
       <default>true</default>
-      <summary>Enable Command Caching</summary>
-      <description>Cache output of read-only commands with TTL.</description>
+      <summary>Enable Audit Logging</summary>
+      <description>Log command executions to ~/.local/share/cmdbar/audit.log</description>
     </key>
-    <key name="default-cache-ttl" type="i">
-      <default>60</default>
-      <summary>Default Cache TTL</summary>
-      <description>Default time-to-live in seconds for cacheable commands.</description>
+    <key name="audit-privacy-mode" type="b">
+      <default>false</default>
+      <summary>Audit Privacy Mode</summary>
+      <description>Exclude sensitive commands containing passwords or marked secure from audit log.</description>
+    </key>
+    <key name="lazy-load-categories" type="b">
+      <default>true</default>
+      <summary>Lazy Load Categories</summary>
+      <description>Only load command items when a category is expanded in the menu.</description>
+    </key>
+    <key name="virtual-page-size" type="i">
+      <default>20</default>
+      <summary>Virtual Page Size</summary>
+      <description>Number of command items to render per virtual list page/chunk.</description>
     </key>
   </schema>
 </schemalist>
