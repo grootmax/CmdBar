@@ -376,10 +376,10 @@ jobs:
 
                   [ -z "$FILE" ] && continue
 
-                    git checkout --theirs -- "$FILE" 2>/dev/null || git rm -f -- "$FILE"
+                  git checkout --theirs -- "$FILE" 2>/dev/null || git rm -f -- "$FILE"
 
-                    git add -- "$FILE" 2>/dev/null || true
-                  fi
+                  git add -- "$FILE" 2>/dev/null || true
+
                 done
 
                 # ==================================================
