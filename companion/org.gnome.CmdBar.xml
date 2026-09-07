@@ -29,6 +29,22 @@
       <arg name="json_commands" type="s" direction="out"/>
     </method>
     
+    <method name="GetBranding">
+      <annotation name="org.freedesktop.DBus.Description" value="Get white label branding configuration as JSON string"/>
+      <arg name="json_branding" type="s" direction="out"/>
+    </method>
+    
+    <method name="SetBranding">
+      <annotation name="org.freedesktop.DBus.Description" value="Update white label branding configuration"/>
+      <arg name="json_branding" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    
+    <method name="GetEffectiveAppName">
+      <annotation name="org.freedesktop.DBus.Description" value="Get effective brand application name"/>
+      <arg name="app_name" type="s" direction="out"/>
+    </method>
+    
     <signal name="CommandExecuted">
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a command finishes execution"/>
       <arg name="name" type="s"/>
