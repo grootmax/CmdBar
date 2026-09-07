@@ -6,6 +6,7 @@ import subprocess
 import hmac
 import hashlib
 import secrets
+from companion.numpad_manager import DEFAULT_NUMPAD_CONFIG
 
 
 def canonical_json(obj):
@@ -319,6 +320,61 @@ DEFAULT_CONFIG = {
         "sensor_triggers": [],
     },
     "triggers": [],
+    "numpad": DEFAULT_NUMPAD_CONFIG,
+  "categories": [
+    {
+      "name": "System Utilities",
+      "commands": [
+        {
+          "name": "Ping Host",
+          "command": "ping -c 3 <host>",
+          "mode": "shell-quoted",
+          "parameters": {
+            "host": {
+              "regex": "^[a-zA-Z0-9.-]+$",
+              "error_message": "Invalid host format! Must contain only alphanumeric, dots, and dashes."
+            }
+          }
+        },
+        {
+          "name": "Direct Exec",
+          "command": "/usr/bin/echo \"Hello\" <arg>",
+          "mode": "direct-array",
+          "parameters": {
+            "arg": {
+              "regex": "^[a-zA-Z0-9_]+$",
+              "error_message": "Invalid argument format! Must be alphanumeric or underscore."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Git",
+      "commands": [
+        {
+          "name": "Git Status",
+          "command": "git status",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Pull",
+          "command": "git pull origin {git-branch}",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Push",
+          "command": "git push origin {git-branch}",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Commit",
+          "command": "git commit -m \"<commit-message>\"",
+          "mode": "shell-quoted"
+        }
+      ]
+    }
+  ]
 }
 
 
@@ -411,6 +467,9 @@ def load_config(path=None):
             config_data.get("yubikey"), dict
         ):
             config_data["yubikey"] = json.loads(json.dumps(DEFAULT_CONFIG["yubikey"]))
+            migrated = True
+        if "numpad" not in config_data or not isinstance(config_data.get("numpad"), dict):
+            config_data["numpad"] = json.loads(json.dumps(DEFAULT_NUMPAD_CONFIG))
             migrated = True
         for cat in config_data.get("categories", []):
             # Migrate shortcuts to commands

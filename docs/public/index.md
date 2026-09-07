@@ -28,3 +28,4 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 - **Mobile Companion App**: iOS and Android companion integration featuring Push Notifications (APNs & FCM), Quick Actions, Home Screen & Lock Screen Widget support, Challenge-Response Biometric Auth, and Persistent Offline Queue.
 - **Enterprise White Label & Custom Branding**: Rebrand the top panel indicator with custom enterprise logo, application name, primary brand colors, domain alias endpoints, and custom SSL certificate bundles.
 - **Live Terminal Sharing**: Real-time collaborative terminal sessions with WebRTC streaming, cursor tracking, permission control, session recording, and E2E encryption.
+- **Numpad Macro Pad**: Transform keys 0-9 on your numpad into instant macro hotkeys with configurable layers (Default, Gaming, Developer), layer cycle hotkey (`Super+KP_Add`), and on-screen visual overlay HUD (`Super+KP_Subtract`).

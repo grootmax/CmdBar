@@ -6,6 +6,7 @@
 import { sanitizeHistoryItem, MAX_HISTORY_ITEMS } from "./commandProcessor.js";
 import { DEFAULT_POLICY_CONFIG } from "./policyEngine.js";
 import { DEFAULT_RBAC_CONFIG } from "./rbacManager.js";
+import { DEFAULT_NUMPAD_CONFIG } from "./numpadManager.js";
 
 export const DEFAULT_CONFIG = {
   sso: {
@@ -146,6 +147,7 @@ export const DEFAULT_CONFIG = {
   ],
   active_profile: "Development",
   policy: DEFAULT_POLICY_CONFIG,
+  numpad: DEFAULT_NUMPAD_CONFIG,
   categories: [
     {
       name: "AI Assistant",
@@ -400,6 +402,10 @@ export function validateConfigSchema(config) {
     typeof config.activeProfile !== "string"
   ) {
     return false;
+  }
+  if (config.numpad !== undefined) {
+    if (typeof config.numpad !== "object" || config.numpad === null) return false;
+    if (config.numpad.layers !== undefined && !Array.isArray(config.numpad.layers)) return false;
   }
   for (const category of config.categories) {
     if (!category || typeof category !== "object") return false;
