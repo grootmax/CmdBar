@@ -11,6 +11,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
+- **Quick Calculator & Eval** – Type `> 2+2`, `= (100 - 25) / 5`, or `calc sin(45)` directly in the search box to evaluate math expressions inline and press Enter to copy the evaluated result to your clipboard
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Sandboxed Execution Mode** – Option to execute commands in a sandbox container using `bwrap` (Bubblewrap), `flatpak-spawn`, or `firejail` with configurable security profiles (`strict`, `permissive`, `custom`), filesystem isolation, and network isolation toggles
 - **Pre-built Snippet & Template Library** – Includes pre-built, ready-to-use command templates for Git workflows, Docker operations, Kubernetes (`kubectl`), AWS CLI, `npm`/`pnpm`, and System utilities.
@@ -23,6 +24,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 - **Categories** – Group commands (Projects, Infrastructure, ECS, Tickets, etc.)
 - **Copy to clipboard** – Each command menu item includes a copy button (`wl-copy` on Wayland / `xclip` on X11) to copy command strings without executing
 - **Argument support** – Commands that need input (e.g. `prod <task-id>`, `feature TFG-877`) open a clean dialog
+- **Command History & Recents Tracking** – Maintains `~/.config/cmdbar/history.json` tracking up to 50 executed commands with parameters, timestamp, and automatic sanitization of sensitive credentials (passwords, tokens, API keys). Features a "Recent" section at the top of the menu with one-click re-run, "Clear History" action, and global keyboard shortcut (`Super+Shift+H` by default).
 - **Management App** – Beautiful Libadwaita app to add, edit, reorder and test shortcuts
 - **Plugin Architecture & Extension System** – Extend CmdBar capabilities with third-party plugins stored in `~/.config/cmdbar/plugins/` featuring sandboxed execution, permission checks, custom commands, events, and marketplace catalog search
 - **Live reload** – Changes in the JSON are reflected after a quick reload

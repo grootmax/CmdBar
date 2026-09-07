@@ -18,34 +18,24 @@ import {
   formatOutput,
 } from "./commandProcessor.js";
 import { wrapCommandInSandbox, isSandboxEnabled } from "./sandboxWrapper.js";
-import { loadConfig } from "./configSync.js";
+import { loadConfig, getEffectiveBranding, getEffectiveDomainUrl } from "./configSync.js";
 import {
   translateNaturalLanguageToCommand,
   isAICommand,
   cleanAIPrompt,
 } from "./aiTranslator.js";
-import { PluginManager } from "./pluginManager.js";
 
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
     if (Main && typeof Main.notify === "function") {
-      Main.notify(
-        "CmdBar AI Assistant",
-        "Translating prompt to shell command...",
-      );
+      Main.notify("CmdBar AI Assistant", "Translating prompt to shell command...");
     }
 
-    const generatedCmd = await translateNaturalLanguageToCommand(
-      commandStr,
-      config || {},
-    );
+    const generatedCmd = await translateNaturalLanguageToCommand(commandStr, config || {});
 
     if (!generatedCmd) {
       if (Main && typeof Main.notify === "function") {
-        Main.notify(
-          "AI Translation Failed",
-          "AI model returned an empty command.",
-        );
+        Main.notify("AI Translation Failed", "AI model returned an empty command.");
       }
       return;
     }
@@ -65,11 +55,9 @@ async function handleAICommandExecution(commandStr, config, onComplete) {
           if (onComplete) onComplete();
         },
         () => {
-          console.log(
-            "CmdBar AI: User cancelled execution of AI generated command.",
-          );
+          console.log("CmdBar AI: User cancelled execution of AI generated command.");
           if (onComplete) onComplete();
-        },
+        }
       );
     } else {
       _executeDirectTokens(tokens, "AI Command");
@@ -87,7 +75,7 @@ function _executeDirectTokens(argv, commandName) {
   try {
     let proc = Gio.Subprocess.new(
       argv,
-      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
     );
 
     proc.communicate_utf8_async(null, null, (subprocess, result) => {
@@ -286,13 +274,7 @@ function requestCommandConfirmation(
  * @param {object} [cmdObj]
  * @param {object} [placeholderMap]
  */
-function runCommandAsync(
-  commandName,
-  commandString,
-  cmdObj,
-  placeholderMap,
-  config,
-) {
+function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, config) {
   let rawCmdStr = Array.isArray(commandString)
     ? commandString.join(" ")
     : String(commandString || "");
@@ -562,11 +544,7 @@ const CommandInputMenuItem = GObject.registerClass(
                 let argv = substituteTokens(tokens, placeholderMap);
                 let fullCmdStr = argv.join(" ");
 
-                if (
-                  isAICommand(fullCmdStr) ||
-                  isAICommand(this._commandTemplate) ||
-                  isAICommand(text)
-                ) {
+                if (isAICommand(fullCmdStr) || isAICommand(this._commandTemplate) || isAICommand(text)) {
                   let promptText = isAICommand(text) ? text : fullCmdStr;
                   handleAICommandExecution(
                     promptText,
@@ -579,7 +557,7 @@ const CommandInputMenuItem = GObject.registerClass(
                       ) {
                         this._indicator.menu.close();
                       }
-                    },
+                    }
                   );
                   return;
                 }
@@ -705,8 +683,14 @@ export function copyToClipboard(text) {
   } catch (e) {}
 
   let tools = isWayland
-    ? [["wl-copy"], ["xclip", "-selection", "clipboard"]]
-    : [["xclip", "-selection", "clipboard"], ["wl-copy"]];
+    ? [
+        ["wl-copy"],
+        ["xclip", "-selection", "clipboard"],
+      ]
+    : [
+        ["xclip", "-selection", "clipboard"],
+        ["wl-copy"],
+      ];
 
   let success = false;
   for (let argv of tools) {
@@ -735,10 +719,6 @@ export function copyToClipboard(text) {
  * @returns {boolean}
  */
 export function pasteClipboardText(text) {
-  if (text) {
-    copyToClipboard(text);
-  }
-
   let isWayland = false;
   try {
     let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
@@ -1025,12 +1005,54 @@ const CmdBarIndicator = GObject.registerClass(
     }
 
     /**
+     * Apply custom white label branding options to top bar indicator and popup menu.
+     * @param {object} branding
+     */
+    _applyBranding(branding) {
+      if (!branding) return;
+      this._effectiveBranding = branding;
+
+      // Custom icon / logo
+      if (branding.enabled && branding.logo_path && branding.logo_path.trim()) {
+        const logo = branding.logo_path.trim();
+        if (logo.includes("/") && Gio.File && Gio.File.new_for_path(logo).query_exists(null)) {
+          try {
+            let gicon = new Gio.FileIcon({ file: Gio.File.new_for_path(logo) });
+            this._icon.gicon = gicon;
+          } catch (e) {
+            this._icon.icon_name = logo;
+          }
+        } else {
+          this._icon.icon_name = logo;
+        }
+      } else {
+        this._icon.icon_name = "system-run-symbolic";
+      }
+
+      // Custom brand color styling
+      if (branding.enabled && branding.brand_colors) {
+        const primary = branding.brand_colors.primary || "#3584e4";
+        const text = branding.brand_colors.text || "#ffffff";
+        this._box.style = `color: ${text};`;
+        if (this.menu && this.menu.actor) {
+          this.menu.actor.style = `border-top: 2px solid ${primary};`;
+        }
+      } else {
+        this._box.style = null;
+        if (this.menu && this.menu.actor) {
+          this.menu.actor.style = null;
+        }
+      }
+    }
+
+    /**
      * Update indicator button tooltip with shortcut hint.
      * @param {string|string[]} accelStr
      */
     updateShortcutTooltip(accelStr) {
       let hint = formatShortcutHint(accelStr);
-      let tooltipText = `CmdBar (${hint})`;
+      let appName = (this._effectiveBranding && this._effectiveBranding.enabled && this._effectiveBranding.app_name) || "CmdBar";
+      let tooltipText = `${appName} (${hint})`;
       if (typeof this.set_tooltip_text === "function") {
         this.set_tooltip_text(tooltipText);
       }
@@ -1051,9 +1073,12 @@ const CmdBarIndicator = GObject.registerClass(
         let extensionPath = this._extension.dir.get_path();
         let config = await loadConfig(configPath, extensionPath);
 
+        let branding = getEffectiveBranding(config);
+        this._applyBranding(branding);
+
         if (config && config._isInvalid) {
           this._showNotification(
-            "CmdBar Configuration Error",
+            `${branding.enabled ? branding.app_name : "CmdBar"} Configuration Error`,
             "Invalid configuration file detected. Using in-memory default settings without overwriting your file.",
           );
         }
@@ -1098,25 +1123,17 @@ const CmdBarIndicator = GObject.registerClass(
           }
         });
 
-        if (
-          this._extension &&
-          this._extension._pluginManager &&
-          typeof this._extension._pluginManager.getAllCommands === "function"
-        ) {
-          const pluginCmds = this._extension._pluginManager.getAllCommands();
-          if (pluginCmds && pluginCmds.length > 0) {
+        // Add enterprise identity footer if configured
+        if (branding.enabled && branding.enterprise_identity) {
+          const ent = branding.enterprise_identity;
+          if (ent.organization_name || ent.footer_text) {
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-            this.menu.addMenuItem(new CategoryHeaderMenuItem("Plugins"));
-            pluginCmds.forEach((cmd) => {
-              this.menu.addMenuItem(
-                new CommandMenuItem(
-                  this,
-                  cmd.name,
-                  cmd.command || cmd.name,
-                  cmd,
-                ),
-              );
-            });
+            const footerText = ent.footer_text || `Managed by ${ent.organization_name}`;
+            const footerItem = new PopupMenu.PopupMenuItem(footerText, { reactive: false });
+            if (footerItem.label) {
+              footerItem.label.style = "font-size: 0.8em; opacity: 0.7;";
+            }
+            this.menu.addMenuItem(footerItem);
           }
         }
       } catch (e) {
@@ -1383,32 +1400,6 @@ export default class CmdBarExtension extends Extension {
   enable() {
     this._settings = this.getSettings();
 
-    // Initialize Plugin Manager and load plugins
-    this._pluginManager = new PluginManager(null, {
-      copyToClipboard,
-      pasteClipboardText,
-      notify: (title, message) => {
-        if (Main && typeof Main.notify === "function") {
-          Main.notify(title, message);
-        }
-      },
-      onCommandRegistered: () => {
-        if (this._indicator) {
-          this._indicator._reloadMenu();
-        }
-      },
-      onCommandUnregistered: () => {
-        if (this._indicator) {
-          this._indicator._reloadMenu();
-        }
-      },
-    });
-    try {
-      this._pluginManager.loadPlugins();
-    } catch (e) {
-      console.error(`CmdBar: Error loading plugins: ${e.message}`);
-    }
-
     this._indicator = new CmdBarIndicator(this);
     // Add to the system status bar panel
     Main.panel.addToStatusArea("cmdbar-indicator", this._indicator);
@@ -1487,9 +1478,15 @@ export default class CmdBarExtension extends Extension {
           }
         } catch (e) {}
 
-        Main.wm.addKeybinding("shortcut", this._settings, flags, mode, () => {
-          this._toggleMenu();
-        });
+        Main.wm.addKeybinding(
+          "shortcut",
+          this._settings,
+          flags,
+          mode,
+          () => {
+            this._toggleMenu();
+          },
+        );
       }
     } catch (e) {
       console.error(`CmdBar: Failed to register keybinding: ${e.message}`);
@@ -1555,11 +1552,6 @@ export default class CmdBarExtension extends Extension {
         this._shortcutId = 0;
       }
       this._settings = null;
-    }
-
-    if (this._pluginManager) {
-      this._pluginManager.unloadAllPlugins();
-      this._pluginManager = null;
     }
 
     if (this._indicator) {
