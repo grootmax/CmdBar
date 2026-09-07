@@ -1516,3 +1516,4 @@ export function hasNonGitPlaceholders(commandTemplate) {
 
   return hasPlaceholder(stripped);
 }
+
