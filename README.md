@@ -11,7 +11,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
-- **Enterprise SSO Integration (SAML 2.0 & OIDC)** – Full Single Sign-On integration supporting Azure AD, Okta, and Google Workspace SSO, JIT user provisioning, group mapping, and session management
+- **Quick Calculator & Eval** – Type `> 2+2`, `= (100 - 25) / 5`, or `calc sin(45)` directly in the search box to evaluate math expressions inline and press Enter to copy the evaluated result to your clipboard
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Sandboxed Execution Mode** – Option to execute commands in a sandbox container using `bwrap` (Bubblewrap), `flatpak-spawn`, or `firejail` with configurable security profiles (`strict`, `permissive`, `custom`), filesystem isolation, and network isolation toggles
 - **Pre-built Snippet & Template Library** – Includes pre-built, ready-to-use command templates for Git workflows, Docker operations, Kubernetes (`kubectl`), AWS CLI, `npm`/`pnpm`, and System utilities.
