@@ -643,6 +643,11 @@ class StreamDeckManager:
 
         return {"status": "unknown"}
 
+    def trigger_button_press(self, key_index: int) -> bool:
+        """Simulates a button press for a given key index."""
+        res = self.handle_key_down("dbus_ctx", key_index)
+        return res.get("status") in ["executed", "profile_switched"]
+
     def update_command_feedback(self, command_name: str, exit_code: int, success: bool, execution_time_ms: float = 0.0):
         """
         Updates button visual feedback state across all profiles upon command execution signal.

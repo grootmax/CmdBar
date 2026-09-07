@@ -195,6 +195,93 @@ class CmdBarDBusClient:
         res = self._call_method("TriggerStreamDeckButton", key_index)
         return bool(res)
 
+    def get_notes(self) -> list:
+        """Retrieve all notes."""
+        res = self._call_method("GetNotes")
+        if isinstance(res, list):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return []
+        return []
+
+    def get_note(self, note_id: str) -> dict:
+        """Retrieve single note by ID."""
+        res = self._call_method("GetNote", note_id)
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def add_note(self, title: str, content: str, tags_json: str = "[]") -> dict:
+        """Add a note."""
+        res = self._call_method("AddNote", title, content, tags_json)
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def delete_note(self, note_id: str) -> bool:
+        """Delete a note by ID."""
+        res = self._call_method("DeleteNote", note_id)
+        return bool(res)
+
+    def get_scratchpad(self) -> dict:
+        """Retrieve scratchpad note."""
+        res = self._call_method("GetScratchpad")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def update_scratchpad(self, content: str) -> dict:
+        """Update scratchpad content."""
+        res = self._call_method("UpdateScratchpad", content)
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def search_notes(self, query: str) -> list:
+        """Search notes by query."""
+        res = self._call_method("SearchNotes", query)
+        if isinstance(res, list):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return []
+        return []
+
+    def share_note_link(self, note_id: str) -> str:
+        """Generate share link for a note."""
+        res = self._call_method("ShareNoteLink", note_id)
+        return str(res or "")
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
         self._executed_callbacks.append(callback)
