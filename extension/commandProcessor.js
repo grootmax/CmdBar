@@ -1113,9 +1113,7 @@ export function evaluateCommandPolicy(command, userContext = null, policy = null
 }
 
 export {
-  evaluateCommandPolicy,
   CommandPolicyManager,
-  matchPattern,
   globToRegex,
   resolveUserContext,
   DEFAULT_BLACKLIST_PATTERNS,

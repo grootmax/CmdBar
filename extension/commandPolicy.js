@@ -83,7 +83,7 @@ export function globToRegex(pattern) {
  * @returns {boolean}
  * @public
  */
-export function matchPattern(commandStr, pattern) {
+export function matchPattern(commandStr, pattern, strategy) {
   if (commandStr === null || commandStr === undefined) return false;
   if (!pattern) return false;
 
@@ -97,9 +97,28 @@ export function matchPattern(commandStr, pattern) {
   const strPattern = String(pattern).trim();
   if (!strPattern) return false;
 
-  // 2. Explicit Regex Prefix ("regex:...")
-  if (strPattern.startsWith("regex:")) {
-    const rawRegex = strPattern.slice(6).trim();
+  // Explicit strategy matches
+  if (strategy === "exact") {
+    return cleanCmd === strPattern || cleanCmd.toLowerCase() === strPattern.toLowerCase();
+  }
+
+  if (strategy === "substring") {
+    return cleanCmd.toLowerCase().includes(strPattern.toLowerCase());
+  }
+
+  if (strategy === "binary") {
+    const cmdTokens = cleanCmd.split(/\s+/);
+    const firstToken = cmdTokens[0] || "";
+    return (
+      firstToken.toLowerCase() === strPattern.toLowerCase() ||
+      firstToken.toLowerCase().endsWith("/" + strPattern.toLowerCase())
+    );
+  }
+
+  if (strategy === "regex" || strPattern.startsWith("regex:")) {
+    const rawRegex = strPattern.startsWith("regex:")
+      ? strPattern.slice(6).trim()
+      : strPattern;
     try {
       const rx = new RegExp(rawRegex, "i");
       return rx.test(cleanCmd);
@@ -108,26 +127,32 @@ export function matchPattern(commandStr, pattern) {
     }
   }
 
-  // 3. Exact Match
+  if (strategy === "glob" || strPattern.includes("*") || strPattern.includes("?")) {
+    const rx = globToRegex(strPattern);
+    return rx.test(cleanCmd);
+  }
+
+  // Exact Match
   if (cleanCmd.toLowerCase() === strPattern.toLowerCase()) {
     return true;
   }
 
-  // 4. Glob / Wildcard Match
+  // Glob / Wildcard Match fallback
   if (strPattern.includes("*") || strPattern.includes("?")) {
     const rx = globToRegex(strPattern);
     return rx.test(cleanCmd);
   }
 
-  // 5. Prefix / Binary Match fallback (e.g. pattern "rm" matches "rm -rf /")
+  // Prefix / Binary Match fallback (e.g. pattern "rm" matches "rm -rf /")
   const cmdTokens = cleanCmd.split(/\s+/);
   const firstToken = cmdTokens[0] || "";
   const patternTokens = strPattern.split(/\s+/);
 
   if (patternTokens.length === 1) {
-    // If pattern is a single word like "rm" or "shutdown", check binary name match or command start
-    if (firstToken.toLowerCase() === strPattern.toLowerCase() ||
-        firstToken.toLowerCase().endsWith("/" + strPattern.toLowerCase())) {
+    if (
+      firstToken.toLowerCase() === strPattern.toLowerCase() ||
+      firstToken.toLowerCase().endsWith("/" + strPattern.toLowerCase())
+    ) {
       return true;
     }
   }
@@ -147,9 +172,10 @@ export function matchPattern(commandStr, pattern) {
  * @public
  */
 export function resolveUserContext(customContext = {}) {
-  let user = customContext.user || customContext.username;
-  let group = customContext.group;
-  let groups = Array.isArray(customContext.groups) ? [...customContext.groups] : [];
+  const ctx = customContext || {};
+  let user = ctx.user || ctx.username;
+  let group = ctx.group;
+  let groups = Array.isArray(ctx.groups) ? [...ctx.groups] : [];
 
   if (!user) {
     try {

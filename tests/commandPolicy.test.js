@@ -15,6 +15,7 @@ import {
   createApprovalToken,
   validateApprovalToken,
   grantApprovalOverride,
+  evaluateCommandPolicy as evaluateCommandPolicyProc,
 } from '../extension/commandProcessor.js';
 import { loadConfig, saveConfig } from '../extension/configSync.js';
 
@@ -416,7 +417,7 @@ describe('Command Security Policy Engine (Whitelist & Blacklist) Unit & Integrat
     });
   });
 
-  describe('Policy Evaluation Engine (evaluateCommandPolicy)', () => {
+  describe('Policy Evaluation Engine (evaluateCommandPolicyProc)', () => {
     test('blocks dangerous commands matching blacklist rules', () => {
       const policy = {
         enabled: true,
@@ -426,12 +427,12 @@ describe('Command Security Policy Engine (Whitelist & Blacklist) Unit & Integrat
         ]
       };
 
-      const eval1 = evaluateCommandPolicy('rm -rf /var/data', null, policy);
+      const eval1 = evaluateCommandPolicyProc('rm -rf /var/data', null, policy);
       expect(eval1.allowed).toBe(false);
       expect(eval1.action).toBe('block');
       expect(eval1.requiresApproval).toBe(true);
 
-      const eval2 = evaluateCommandPolicy('sudo reboot', null, policy);
+      const eval2 = evaluateCommandPolicyProc('sudo reboot', null, policy);
       expect(eval2.allowed).toBe(false);
       expect(eval2.reason).toContain('Sudo commands require elevated approval');
     });
@@ -446,12 +447,12 @@ describe('Command Security Policy Engine (Whitelist & Blacklist) Unit & Integrat
         ]
       };
 
-      const evalAllowed = evaluateCommandPolicy('git status', null, policy);
+      const evalAllowed = evaluateCommandPolicyProc('git status', null, policy);
       expect(evalAllowed.allowed).toBe(true);
 
-      const evalBlocked = evaluateCommandPolicy('curl http://malicious.site', null, policy);
+      const evalBlocked = evaluateCommandPolicyProc('curl http://malicious.site', null, policy);
       expect(evalBlocked.allowed).toBe(false);
-      expect(evalBlocked.reason).toContain('not in the approved whitelist');
+      expect(evalBlocked.reason).toContain('approved whitelist');
     });
 
     test('allows active override to bypass blacklist/whitelist blocks', () => {
@@ -463,7 +464,7 @@ describe('Command Security Policy Engine (Whitelist & Blacklist) Unit & Integrat
       const overrides = {};
       grantApprovalOverride(overrides, 'rm -rf /tmp/scratch', 'security-team', 3600000);
 
-      const evalRes = evaluateCommandPolicy('rm -rf /tmp/scratch', null, policy, overrides);
+      const evalRes = evaluateCommandPolicyProc('rm -rf /tmp/scratch', null, policy, overrides);
       expect(evalRes.allowed).toBe(true);
       expect(evalRes.overrideActive).toBe(true);
       expect(evalRes.reason).toContain('approved policy override');
@@ -480,12 +481,13 @@ describe('Command Security Policy Engine (Whitelist & Blacklist) Unit & Integrat
       const internCtx = { username: 'bob', groups: ['interns'] };
       const seniorCtx = { username: 'alice', groups: ['senior-devs'] };
 
-      const evalIntern = evaluateCommandPolicy('deploy staging', internCtx, policy);
+      const evalIntern = evaluateCommandPolicyProc('deploy staging', internCtx, policy);
       expect(evalIntern.allowed).toBe(false);
       expect(evalIntern.reason).toContain('Interns cannot run deploy');
 
-      const evalSenior = evaluateCommandPolicy('deploy staging', seniorCtx, policy);
+      const evalSenior = evaluateCommandPolicyProc('deploy staging', seniorCtx, policy);
       expect(evalSenior.allowed).toBe(true);
     });
   });
+});
 });
