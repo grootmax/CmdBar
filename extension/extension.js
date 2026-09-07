@@ -16,12 +16,6 @@ import {
   formatShortcutHint,
   parseAccel,
   formatOutput,
-  getProfiles,
-  getActiveProfileName,
-  getProfileEnv,
-  isCommandVisibleInProfile,
-  getMergedEnvironment,
-  spawnSubprocess,
 } from "./commandProcessor.js";
 import { wrapCommandInSandbox, isSandboxEnabled } from "./sandboxWrapper.js";
 import { loadConfig, saveConfig, getEffectiveBranding, getEffectiveDomainUrl } from "./configSync.js";
@@ -32,6 +26,14 @@ import {
   cleanAIPrompt,
 } from "./aiTranslator.js";
 import { ChainRunner, ChainStatus, StepStatus } from "./chainRunner.js";
+import {
+  isCommandCacheable,
+  getCommandTTL,
+  CommandCacheStore,
+} from "./commandCache.js";
+
+export const globalCacheStore = new CommandCacheStore();
+globalCacheStore.init().catch(() => {});
 
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
@@ -148,19 +150,12 @@ function _executeDirectTokens(argv, commandName) {
 // Native GNOME Shell Modal Dialog for command execution confirmation
 const ExecutionConfirmationDialog = GObject.registerClass(
   class ExecutionConfirmationDialog extends ModalDialog.ModalDialog {
-    _init(commandName, binaryPath, argsList, onConfirm, onCancel, config, initialProfile) {
+    _init(commandName, binaryPath, argsList, onConfirm, onCancel) {
       super._init({ style_class: "cmdbar-confirmation-dialog" });
 
       this._onConfirm = onConfirm;
       this._onCancel = onCancel;
       this._executed = false;
-
-      let profiles = getProfiles(config);
-      this._selectedProfile = initialProfile || getActiveProfileName(config) || (profiles.length > 0 ? profiles[0].name : "Default");
-      let profileNames = profiles.map((p) => p.name);
-      if (profileNames.length === 0) {
-        profileNames = ["Default"];
-      }
 
       let mainBox = new St.BoxLayout({
         vertical: true,
@@ -206,39 +201,9 @@ const ExecutionConfirmationDialog = GObject.registerClass(
         argsList && argsList.length > 0 ? argsList.join(" ") : "(None)";
       let argsLabel = new St.Label({
         text: `Arguments: ${argsText}`,
-        style: "font-family: monospace; margin-bottom: 12px;",
+        style: "font-family: monospace; margin-bottom: 16px;",
       });
       mainBox.add_child(argsLabel);
-
-      // Profile Selector Dropdown / Button Row
-      let profileRow = new St.BoxLayout({
-        vertical: false,
-        style: "margin-bottom: 16px; align-items: center;",
-      });
-
-      let profileLabel = new St.Label({
-        text: "Environment Profile: ",
-        style: "font-weight: bold; margin-right: 8px;",
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      profileRow.add_child(profileLabel);
-
-      this._profileBtn = new St.Button({
-        label: `${this._selectedProfile} ▾`,
-        style_class: "button",
-        style: "padding: 4px 12px; border-radius: 4px; background-color: #333333; color: #ffffff;",
-        can_focus: true,
-      });
-
-      this._profileBtn.connect("clicked", () => {
-        let idx = profileNames.indexOf(this._selectedProfile);
-        let nextIdx = (idx + 1) % profileNames.length;
-        this._selectedProfile = profileNames[nextIdx];
-        this._profileBtn.label = `${this._selectedProfile} ▾`;
-      });
-
-      profileRow.add_child(this._profileBtn);
-      mainBox.add_child(profileRow);
 
       this.contentLayout.add_child(mainBox);
 
@@ -259,7 +224,7 @@ const ExecutionConfirmationDialog = GObject.registerClass(
           this._executed = true;
           this.close();
           if (this._onConfirm) {
-            this._onConfirm(this._selectedProfile);
+            this._onConfirm();
           }
         },
         default: true,
@@ -275,12 +240,9 @@ function requestCommandConfirmation(
   cmdObj,
   onConfirm,
   onCancel,
-  config,
-  initialProfile,
 ) {
-  let activeProf = initialProfile || getActiveProfileName(config);
   if (cmdObj && cmdObj.verified === true) {
-    onConfirm(activeProf);
+    onConfirm();
     return;
   }
 
@@ -295,8 +257,6 @@ function requestCommandConfirmation(
         argsList,
         onConfirm,
         onCancel,
-        config,
-        initialProfile,
       );
       dialog.open();
       return;
@@ -583,18 +543,22 @@ export function executeChain(cmdObj, placeholderMap, config) {
 
 /**
  * Run a command asynchronously as a direct tokenized array and notify the user when done.
+ * Supports command output caching with TTL, manual refresh, and cache invalidation.
  * @param {string} commandName
  * @param {string|string[]} commandString
  * @param {object} [cmdObj]
  * @param {object} [placeholderMap]
+ * @param {object} [config]
+ * @param {object} [options] Options object (e.g. { forceRefresh: true })
+ * @public
  */
-function runCommandAsync(
+export function runCommandAsync(
   commandName,
   commandString,
   cmdObj,
   placeholderMap,
   config,
-  initialProfile,
+  options = {},
 ) {
   if (cmdObj && (cmdObj.type === "chain" || Array.isArray(cmdObj.steps))) {
     executeChain(cmdObj, placeholderMap, config);
@@ -614,16 +578,38 @@ function runCommandAsync(
     : tokenizeCommand(commandString);
   let argv = substituteTokens(tokens, placeholderMap);
   if (argv.length === 0) {
-    Main.notify(
-      "Command Execution Failed",
-      "Command parsed to empty argument list.",
-    );
+    if (Main && typeof Main.notify === "function") {
+      Main.notify(
+        "Command Execution Failed",
+        "Command parsed to empty argument list.",
+      );
+    }
     return;
   }
 
   let execArgv = isSandboxEnabled(cmdObj)
     ? wrapCommandInSandbox(argv, cmdObj)
     : argv;
+  let cacheKey = argv.join(" ");
+  let cacheable = isCommandCacheable(cmdObj);
+  let forceRefresh = Boolean(options && options.forceRefresh);
+
+  if (cacheable && !forceRefresh) {
+    let cached = globalCacheStore.get(cacheKey);
+    if (cached) {
+      let age = Math.max(0, Math.round((Date.now() - cached.timestamp) / 1000));
+      let title = `Command Succeeded (Cached ${age}s ago): ${commandName}`;
+      let body = `Exit status: ${cached.exitStatus}`;
+      if (cached.stdout && cached.stdout.trim()) {
+        const formatted = formatOutput(cached.stdout);
+        body += `\n\nOutput (${formatted.format}):\n${formatted.text}`;
+      }
+      if (Main && typeof Main.notify === "function") {
+        Main.notify(title, body);
+      }
+      return cached;
+    }
+  }
 
   let previewArgv = getPreviewTokens(
     execArgv,
@@ -636,14 +622,12 @@ function runCommandAsync(
     execArgv,
     previewArgv,
     cmdObj,
-    (selectedProfile) => {
+    () => {
       const startTime = Date.now();
       try {
-        let proc = spawnSubprocess(
+        let proc = Gio.Subprocess.new(
           execArgv,
           Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
-          config,
-          selectedProfile,
         );
 
         proc.communicate_utf8_async(null, null, (subprocess, result) => {
@@ -670,12 +654,26 @@ function runCommandAsync(
             });
 
             if (success) {
-              let title = `Command Succeeded: ${commandName}`;
+              if (cacheable) {
+                let ttl = getCommandTTL(cmdObj);
+                globalCacheStore.set(cacheKey, rawCmdStr, {
+                  stdout: stdout || "",
+                  stderr: stderr || "",
+                  exitStatus,
+                }, ttl);
+              }
+
+              let title = forceRefresh
+                ? `Command Refreshed: ${commandName}`
+                : `Command Succeeded: ${commandName}`;
               let body = `Exit status: ${exitStatus}`;
               if (stdout && stdout.trim()) {
-                body += `\n\nOutput:\n${stdout.trim()}`;
+                const formatted = formatOutput(stdout);
+                body += `\n\nOutput (${formatted.format}):\n${formatted.text}`;
               }
-              Main.notify(title, body);
+              if (Main && typeof Main.notify === "function") {
+                Main.notify(title, body);
+              }
             } else {
               let title = `Command Failed: ${commandName}`;
               let body = `Exit status: ${exitStatus}`;
@@ -684,22 +682,28 @@ function runCommandAsync(
               } else if (stdout && stdout.trim()) {
                 body += `\n\nOutput:\n${stdout.trim()}`;
               }
-              Main.notify(title, body);
+              if (Main && typeof Main.notify === "function") {
+                Main.notify(title, body);
+              }
             }
           } catch (err) {
             console.error(`CmdBar: error finishing command: ${err.message}`);
-            Main.notify(
-              `Command Error: ${commandName}`,
-              `Failed to execute: ${err.message}`,
-            );
+            if (Main && typeof Main.notify === "function") {
+              Main.notify(
+                `Command Error: ${commandName}`,
+                `Failed to execute: ${err.message}`,
+              );
+            }
           }
         });
       } catch (e) {
         console.error(`CmdBar: failed to spawn command: ${e.message}`);
-        Main.notify(
-          `Command Launch Failed: ${commandName}`,
-          `Could not start command: ${e.message}`,
-        );
+        if (Main && typeof Main.notify === "function") {
+          Main.notify(
+            `Command Launch Failed: ${commandName}`,
+            `Could not start command: ${e.message}`,
+          );
+        }
       }
     },
     () => {
@@ -707,9 +711,39 @@ function runCommandAsync(
         `CmdBar: Command execution cancelled by user: ${commandName}`,
       );
     },
-    config,
-    initialProfile,
   );
+}
+
+/**
+ * Manually refreshes the cache for a given command.
+ * @param {string} commandName
+ * @param {string|string[]} commandString
+ * @param {object} [cmdObj]
+ * @param {object} [placeholderMap]
+ * @param {object} [config]
+ * @public
+ */
+export function refreshCommandCache(commandName, commandString, cmdObj, placeholderMap, config) {
+  return runCommandAsync(commandName, commandString, cmdObj, placeholderMap, config, { forceRefresh: true });
+}
+
+/**
+ * Invalidates cache entry for a given command string.
+ * @param {string|string[]} commandString
+ * @returns {boolean}
+ * @public
+ */
+export function invalidateCommandCache(commandString) {
+  let key = Array.isArray(commandString) ? commandString.join(" ") : String(commandString || "");
+  return globalCacheStore.invalidate(key);
+}
+
+/**
+ * Clears all cached command outputs.
+ * @public
+ */
+export function clearCommandCache() {
+  globalCacheStore.clear();
 }
 
 /**
@@ -717,10 +751,8 @@ function runCommandAsync(
  *
  * @param {string|string[]} commandLineString The command string to execute.
  * @param {object} [cmdObj]
- * @param {object} [config]
- * @param {string} [initialProfile]
  */
-function _executeCommandAsync(commandLineString, cmdObj, config, initialProfile) {
+function _executeCommandAsync(commandLineString, cmdObj) {
   try {
     let argv = Array.isArray(commandLineString)
       ? commandLineString
@@ -748,13 +780,11 @@ function _executeCommandAsync(commandLineString, cmdObj, config, initialProfile)
       execArgv,
       previewArgv,
       cmdObj,
-      (selectedProfile) => {
+      () => {
         const startTime = Date.now();
-        let proc = spawnSubprocess(
+        let proc = Gio.Subprocess.new(
           execArgv,
           Gio.SubprocessFlags.STDERR_PIPE,
-          config,
-          selectedProfile,
         );
         proc.communicate_utf8_async(null, null, (subprocess, result) => {
           const durationMs = Date.now() - startTime;
@@ -956,15 +986,12 @@ const CommandInputMenuItem = GObject.registerClass(
                   execArgv,
                   previewArgv,
                   this._cmdObj,
-                  (selectedProfile) => {
+                  () => {
                     const startTime = Date.now();
                     try {
-                      let cfg = this._indicator ? this._indicator._cachedConfig : {};
-                      let cmdProc = spawnSubprocess(
+                      let cmdProc = Gio.Subprocess.new(
                         execArgv,
                         Gio.SubprocessFlags.NONE,
-                        cfg,
-                        selectedProfile,
                       );
                       cmdProc.wait_async(null, (proc, res) => {
                         const durationMs = Date.now() - startTime;
@@ -1008,8 +1035,6 @@ const CommandInputMenuItem = GObject.registerClass(
                       `CmdBar: Command execution cancelled by user: ${commandName}`,
                     );
                   },
-                  this._indicator ? this._indicator._cachedConfig : {},
-                  this._indicator ? this._indicator._activeProfile : null,
                 );
               } else {
                 console.warn(
@@ -1103,7 +1128,7 @@ export function copyToClipboard(text) {
 
 /**
  * Helper function supporting wl-copy/wtype/ydotool (Wayland) and xclip/xdotool/xte (X11) to paste/type text.
- * @param {string} text
+ * @param {string} [text]
  * @returns {boolean}
  */
 export function pasteClipboardText(text) {
@@ -1131,7 +1156,7 @@ export function pasteClipboardText(text) {
       ]
     : [
         ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
-        ["xdotool", "type", text],
+        ["xdotool", "type", text || ""],
         ["xte", "kd Control_L", "k v", "ku Control_L"],
       ];
 
@@ -1142,11 +1167,15 @@ export function pasteClipboardText(text) {
         argv,
         Gio.SubprocessFlags.NONE,
       );
-      proc.communicate_utf8_async(null, null, (subprocess, result) => {
-        try {
-          subprocess.communicate_utf8_finish(result);
-        } catch (err) {}
-      });
+      if (proc && typeof proc.communicate_utf8_async === "function") {
+        proc.communicate_utf8_async(null, null, (subprocess, result) => {
+          try {
+            if (subprocess && typeof subprocess.communicate_utf8_finish === "function") {
+              subprocess.communicate_utf8_finish(result);
+            }
+          } catch (err) {}
+        });
+      }
       success = true;
       break;
     } catch (e) {
@@ -1225,6 +1254,38 @@ const CommandMenuItem = GObject.registerClass(
       });
       this.box.add_child(this.copyButton);
 
+      // Refresh Button for Cacheable Commands
+      if (isCommandCacheable(this._cmdObj)) {
+        this.refreshButton = new St.Button({
+          child: new St.Icon({
+            icon_name: "view-refresh-symbolic",
+            style_class: "popup-menu-icon",
+          }),
+          style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
+          track_hover: true,
+          can_focus: true,
+        });
+
+        this.refreshButton.connect("clicked", () => {
+          runCommandAsync(
+            this._commandName,
+            this._commandTemplate,
+            this._cmdObj,
+            null,
+            null,
+            { forceRefresh: true }
+          );
+          if (
+            this._indicator &&
+            this._indicator.menu &&
+            typeof this._indicator.menu.close === "function"
+          ) {
+            this._indicator.menu.close();
+          }
+        });
+        this.box.add_child(this.refreshButton);
+      }
+
       // Execute Button
       this.executeButton = new St.Button({
         child: new St.Icon({
@@ -1237,14 +1298,7 @@ const CommandMenuItem = GObject.registerClass(
       });
 
       this.executeButton.connect("clicked", () => {
-        runCommandAsync(
-          this._commandName,
-          this._commandTemplate,
-          this._cmdObj,
-          {},
-          this._indicator ? this._indicator._cachedConfig : null,
-          this._indicator ? this._indicator._activeProfile : null,
-        );
+        runCommandAsync(this._commandName, this._commandTemplate, this._cmdObj);
         if (
           this._indicator &&
           this._indicator.menu &&
@@ -1258,14 +1312,7 @@ const CommandMenuItem = GObject.registerClass(
       this.add_child(this.box);
 
       this._activateId = this.connect("activate", () => {
-        runCommandAsync(
-          this._commandName,
-          this._commandTemplate,
-          this._cmdObj,
-          {},
-          this._indicator ? this._indicator._cachedConfig : null,
-          this._indicator ? this._indicator._activeProfile : null,
-        );
+        runCommandAsync(this._commandName, this._commandTemplate, this._cmdObj);
       });
     }
 
@@ -1329,65 +1376,6 @@ const JobMenuItem = GObject.registerClass(
       });
 
       this.box.add_child(this.cancelButton);
-      this.add_child(this.box);
-    }
-  },
-);
-
-// Menu item for selecting active Environment Profile
-const ProfileHeaderMenuItem = GObject.registerClass(
-  class ProfileHeaderMenuItem extends PopupMenu.PopupBaseMenuItem {
-    _init(label, activeProfile, profiles, onSelect) {
-      super._init({
-        reactive: false,
-        activate: false,
-      });
-
-      this.box = new St.BoxLayout({
-        orientation: Clutter.Orientation.HORIZONTAL,
-        style_class: "cmdbar-category-header",
-        x_expand: true,
-        style: "padding: 4px 8px;",
-      });
-
-      this.icon = new St.Icon({
-        icon_name: "preferences-system-symbolic",
-        style_class: "popup-menu-icon",
-        style: "margin-right: 8px;",
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      this.box.add_child(this.icon);
-
-      this.label = new St.Label({
-        text: "Profile:",
-        style: "font-weight: bold; color: #888888; font-size: 0.9em; margin-right: 8px;",
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      this.box.add_child(this.label);
-
-      profiles.forEach((p) => {
-        let isSelected =
-          p.name &&
-          activeProfile &&
-          p.name.toLowerCase() === activeProfile.toLowerCase();
-        let btn = new St.Button({
-          label: p.name,
-          style: isSelected
-            ? "padding: 2px 8px; border-radius: 4px; background-color: #3584e4; color: #ffffff; margin-right: 4px; font-size: 0.85em;"
-            : "padding: 2px 8px; border-radius: 4px; background-color: #333333; color: #aaaaaa; margin-right: 4px; font-size: 0.85em;",
-          track_hover: true,
-          can_focus: true,
-          reactive: true,
-        });
-
-        btn.connect("clicked", () => {
-          if (typeof onSelect === "function") {
-            onSelect(p.name);
-          }
-        });
-        this.box.add_child(btn);
-      });
-
       this.add_child(this.box);
     }
   },
@@ -1554,10 +1542,7 @@ const CmdBarIndicator = GObject.registerClass(
       if (!cmdObj) return;
       try {
         let configPath = this._getConfigPath();
-        let extensionPath =
-          this._extension && this._extension.dir
-            ? this._extension.dir.get_path()
-            : null;
+        let extensionPath = this._extension && this._extension.dir ? this._extension.dir.get_path() : null;
         let config = await loadConfig(configPath, extensionPath);
 
         if (!config || !config.categories) return;
@@ -1601,16 +1586,8 @@ const CmdBarIndicator = GObject.registerClass(
     async _reloadMenu() {
       try {
         let configPath = this._getConfigPath();
-        let extensionPath =
-          this._extension && this._extension.dir
-            ? this._extension.dir.get_path()
-            : null;
+        let extensionPath = this._extension && this._extension.dir ? this._extension.dir.get_path() : null;
         let config = await loadConfig(configPath, extensionPath);
-        this._cachedConfig = config;
-        this._configPath = configPath;
-        if (!this._activeProfile) {
-          this._activeProfile = getActiveProfileName(config) || "Development";
-        }
 
         let branding = getEffectiveBranding(config);
         this._applyBranding(branding);
@@ -1627,28 +1604,6 @@ const CmdBarIndicator = GObject.registerClass(
         // Clear all current items in menu
         this.menu.removeAll();
 
-        // Profile Selector Header
-        let profiles = getProfiles(config);
-        if (profiles.length > 0) {
-          this.menu.addMenuItem(
-            new ProfileHeaderMenuItem(
-              "Profile",
-              this._activeProfile,
-              profiles,
-              (newProfile) => {
-                this._activeProfile = newProfile;
-                if (config) {
-                  config.active_profile = newProfile;
-                  config.activeProfile = newProfile;
-                  saveConfig(config, configPath).catch(() => {});
-                }
-                this._reloadMenu();
-              },
-            ),
-          );
-          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        }
-
         if (!config || !config.categories || config.categories.length === 0) {
           let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
           this.menu.addMenuItem(infoItem);
@@ -1660,11 +1615,7 @@ const CmdBarIndicator = GObject.registerClass(
         config.categories.forEach((category) => {
           if (category.commands && Array.isArray(category.commands)) {
             category.commands.forEach((cmd) => {
-              if (
-                cmd &&
-                (cmd.favorite || cmd.pinned) &&
-                isCommandVisibleInProfile(cmd, this._activeProfile)
-              ) {
+              if (cmd && (cmd.favorite || cmd.pinned)) {
                 favoriteCommands.push(cmd);
               }
             });
@@ -1698,48 +1649,39 @@ const CmdBarIndicator = GObject.registerClass(
           this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         }
 
-        let renderedCategories = 0;
+        // 3. Render categories with favorites sorted first within each category
         config.categories.forEach((category, catIndex) => {
-          let visibleCmds = (category.commands || []).filter((cmd) =>
-            isCommandVisibleInProfile(cmd, this._activeProfile),
-          );
-          if (visibleCmds.length === 0) return;
-
-          // Category header
-          if (renderedCategories > 0) {
+          if (catIndex > 0) {
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
           }
           this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
-          renderedCategories++;
 
-          // Sort favorites first within category
-          let sortedCmds = [...visibleCmds].sort((a, b) => {
-            let aFav = Boolean(a && (a.favorite || a.pinned));
-            let bFav = Boolean(b && (b.favorite || b.pinned));
-            if (aFav === bFav) return 0;
-            return bFav ? -1 : 1;
-          });
+          if (category.commands && Array.isArray(category.commands)) {
+            let sortedCmds = [...category.commands].sort((a, b) => {
+              let aFav = Boolean(a && (a.favorite || a.pinned));
+              let bFav = Boolean(b && (b.favorite || b.pinned));
+              if (aFav === bFav) return 0;
+              return bFav ? -1 : 1;
+            });
 
-          // Category commands
-          sortedCmds.forEach((cmd) => {
-            if (hasPlaceholder(cmd.command)) {
-              // Commands requiring text inputs (Requirement 1 & 2)
-              this.menu.addMenuItem(
-                new CommandInputMenuItem(
-                  this,
-                  cmd.name,
-                  cmd.command,
-                  cmd.placeholder,
-                  cmd,
-                ),
-              );
-            } else {
-              // Ordinary parameterless commands
-              this.menu.addMenuItem(
-                new CommandMenuItem(this, cmd.name, cmd.command, cmd),
-              );
-            }
-          });
+            sortedCmds.forEach((cmd) => {
+              if (hasPlaceholder(cmd.command)) {
+                this.menu.addMenuItem(
+                  new CommandInputMenuItem(
+                    this,
+                    cmd.name,
+                    cmd.command,
+                    cmd.placeholder,
+                    cmd,
+                  ),
+                );
+              } else {
+                this.menu.addMenuItem(
+                  new CommandMenuItem(this, cmd.name, cmd.command, cmd),
+                );
+              }
+            });
+          }
         });
 
         // Add enterprise identity footer if configured
