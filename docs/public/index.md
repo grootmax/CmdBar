@@ -12,6 +12,7 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 ## Core Features
 
 - **Environment Variable Profiles**: Switch named environment variable profiles ("Production", "Staging", "Development") directly from the top bar indicator menu or the command execution confirmation dialog. Filter command visibility using profile arrays.
+- **Quick Calculator & Eval Mode**: Type `> 2+2`, `> sin(pi/4)`, `> 10 km to miles`, or `> 100 USD to EUR` to instantly calculate results offline, with right-click or Enter to copy result.
 - **Dynamic Menu**: Fully driven by JSON config files.
 - **Command Favorites & Pinning**: Star commands with inline star buttons or keyboard shortcuts (`f` / `*`) to pin them into a dedicated "Favorites" category at the top of the menu.
 - **Snippet & Template Library**: Pre-built command templates for Git, Docker, Kubernetes, AWS CLI, npm/pnpm, and System utilities.
