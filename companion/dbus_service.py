@@ -34,6 +34,7 @@ from companion.window_manager import (
 )
 
 
+
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
