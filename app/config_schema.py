@@ -338,6 +338,7 @@ DEFAULT_CONFIG = {
     "triggers": [],
 }
 
+
 def get_branding_config(config):
     """
     Returns resolved branding settings from configuration layout.
