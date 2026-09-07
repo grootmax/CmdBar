@@ -1350,12 +1350,13 @@ export function evaluateMathExpression(expr) {
 }
 
 const isNode =
-  typeof process !== "undefined" && process.versions && process.versions.node;
+  typeof process !== "undefined" &&
+  process.versions &&
+  process.versions.node;
 
 let nodeFs = null;
 let nodeCp = null;
 let nodePath = null;
-
 if (isNode) {
   try {
     nodeFs = (await import("fs")).default || (await import("fs"));
