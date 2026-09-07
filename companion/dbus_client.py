@@ -160,19 +160,17 @@ class CmdBarDBusClient:
         return {}
 
     def get_stream_deck_profiles(self) -> dict:
-        """Get active and available Stream Deck profiles."""
+        """Retrieve Stream Deck active and available profiles."""
         res = self._call_method("GetStreamDeckProfiles")
         if isinstance(res, dict):
             return res
         if isinstance(res, str):
             try:
-                clean_str = res
-                if clean_str.startswith("'") and clean_str.endswith("'"):
-                    clean_str = clean_str[1:-1]
+                clean_str = res.strip("'\"")
                 return json.loads(clean_str)
             except Exception:
-                return {}
-        return {}
+                return {"active_profile": "Default", "profiles": ["Default"]}
+        return {"active_profile": "Default", "profiles": ["Default"]}
 
     def set_stream_deck_profile(self, profile_name: str) -> bool:
         """Switch active Stream Deck profile by name."""
@@ -180,15 +178,13 @@ class CmdBarDBusClient:
         return bool(res)
 
     def get_stream_deck_status(self) -> dict:
-        """Get Stream Deck status summary & performance stats."""
+        """Retrieve diagnostic status summary for Stream Deck integration."""
         res = self._call_method("GetStreamDeckStatus")
         if isinstance(res, dict):
             return res
         if isinstance(res, str):
             try:
-                clean_str = res
-                if clean_str.startswith("'") and clean_str.endswith("'"):
-                    clean_str = clean_str[1:-1]
+                clean_str = res.strip("'\"")
                 return json.loads(clean_str)
             except Exception:
                 return {}

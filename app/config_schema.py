@@ -48,211 +48,243 @@ def compute_signature(config_data, key):
         key.encode("utf-8"), str_val.encode("utf-8"), hashlib.sha256
     ).hexdigest()
 
-from app.policy_engine import DEFAULT_POLICY_CONFIG
 
 DEFAULT_CONFIG = {
-    "sso": {
-        "enabled": False,
-        "default_provider": "azure",
-        "auto_provision": True,
-        "allowed_domains": ["example.com"],
-        "default_role": "user",
-        "group_claim": "groups",
-        "providers": {
-            "azure": {
-                "name": "Azure Active Directory",
-                "type": "azure",
-                "protocol": "oidc",
-                "tenant_id": "common",
-                "client_id": "",
-                "client_secret": "",
-                "redirect_uri": "http://localhost:8080/callback/sso",
-                "saml_sso_url": "https://login.microsoftonline.com/common/saml2",
-                "saml_entity_id": "https://sts.windows.net/common/",
-            },
-            "okta": {
-                "name": "Okta Workforce Identity",
-                "type": "okta",
-                "protocol": "oidc",
-                "domain": "company.okta.com",
-                "client_id": "",
-                "client_secret": "",
-                "redirect_uri": "http://localhost:8080/callback/sso",
-                "saml_sso_url": "https://company.okta.com/app/sso/saml",
-                "saml_entity_id": "http://www.okta.com/default",
-            },
-            "google": {
-                "name": "Google Workspace SSO",
-                "type": "google",
-                "protocol": "oidc",
-                "client_id": "",
-                "client_secret": "",
-                "redirect_uri": "http://localhost:8080/callback/sso",
-                "saml_sso_url": "https://accounts.google.com/o/saml2/idp",
-                "saml_entity_id": "https://accounts.google.com/o/saml2?idpid=default",
-            },
-        },
-        "group_mappings": [
-            {
-                "id": "rule-admin",
-                "group_pattern": "Admins",
-                "match_type": "contains",
-                "role": "admin",
-                "categories": [
-                    "System Utilities",
-                    "Infrastructure",
-                    "AI Assistant",
-                    "Projects",
-                ],
-            },
-            {
-                "id": "rule-dev",
-                "group_pattern": "Developers",
-                "match_type": "contains",
-                "role": "developer",
-                "categories": ["Projects", "AI Assistant"],
-            },
-        ],
-        "session": {"max_ttl_seconds": 28800, "refresh_threshold_seconds": 300},
+  "sso": {
+    "enabled": False,
+    "default_provider": "azure",
+    "auto_provision": True,
+    "allowed_domains": ["example.com"],
+    "default_role": "user",
+    "group_claim": "groups",
+    "providers": {
+      "azure": {
+        "name": "Azure Active Directory",
+        "type": "azure",
+        "protocol": "oidc",
+        "tenant_id": "common",
+        "client_id": "",
+        "client_secret": "",
+        "redirect_uri": "http://localhost:8080/callback/sso",
+        "saml_sso_url": "https://login.microsoftonline.com/common/saml2",
+        "saml_entity_id": "https://sts.windows.net/common/"
+      },
+      "okta": {
+        "name": "Okta Workforce Identity",
+        "type": "okta",
+        "protocol": "oidc",
+        "domain": "company.okta.com",
+        "client_id": "",
+        "client_secret": "",
+        "redirect_uri": "http://localhost:8080/callback/sso",
+        "saml_sso_url": "https://company.okta.com/app/sso/saml",
+        "saml_entity_id": "http://www.okta.com/default"
+      },
+      "google": {
+        "name": "Google Workspace SSO",
+        "type": "google",
+        "protocol": "oidc",
+        "client_id": "",
+        "client_secret": "",
+        "redirect_uri": "http://localhost:8080/callback/sso",
+        "saml_sso_url": "https://accounts.google.com/o/saml2/idp",
+        "saml_entity_id": "https://accounts.google.com/o/saml2?idpid=default"
+      }
     },
-    "audit": {
-        "enabled": True,
-        "privacy_mode": False,
-        "sensitive_keywords": [
-            "password",
-            "passwd",
-            "secret",
-            "token",
-            "api_key",
-            "apikey",
-            "key",
-            "credentials",
-            "cred",
-            "sudo",
-            "auth",
-            "bearer",
-            "private_key",
-        ],
-    },
-    "ai": {
-        "provider": "openai",
-        "model": "gpt-4o",
-        "temperature": 0.2,
-        "require_confirmation": True,
-        "fallback_provider": "ollama",
-        "fallback_model": "llama3",
-    },
-    "branding": {
-        "enabled": False,
-        "app_name": "CmdBar",
-        "logo_path": "",
-        "brand_colors": {
-            "primary": "#3584e4",
-            "accent": "#1c71d8",
-            "background": "#2d2d2d",
-            "text": "#ffffff",
-        },
-        "domain_alias": "",
-        "custom_ssl": {
-            "cert_path": "",
-            "key_path": "",
-            "ca_path": "",
-            "verify_ssl": True,
-        },
-        "enterprise_identity": {
-            "organization_name": "",
-            "support_url": "",
-            "support_email": "",
-            "footer_text": "",
-        },
-    },
-    "yubikey": {
-        "enabled": False,
-        "default_mode": "touch",
-        "timeout_seconds": 30,
-        "registered_keys": [],
-        "emergency_codes": [],
-    },
-    "policy": DEFAULT_POLICY_CONFIG,
-    "profiles": [
-        {
-            "name": "Production",
-            "env": {
-                "ENV": "production",
-                "LOG_LEVEL": "warn",
-            },
-        },
-        {
-            "name": "Staging",
-            "env": {
-                "ENV": "staging",
-                "LOG_LEVEL": "info",
-            },
-        },
-        {
-            "name": "Development",
-            "env": {
-                "ENV": "development",
-                "LOG_LEVEL": "debug",
-            },
-        },
+    "group_mappings": [
+      {
+        "id": "rule-admin",
+        "group_pattern": "Admins",
+        "match_type": "contains",
+        "role": "admin",
+        "categories": ["System Utilities", "Infrastructure", "AI Assistant", "Projects"]
+      },
+      {
+        "id": "rule-dev",
+        "group_pattern": "Developers",
+        "match_type": "contains",
+        "role": "developer",
+        "categories": ["Projects", "AI Assistant"]
+      }
     ],
-    "active_profile": "Development",
-    "categories": [
-        {
-            "name": "System Utilities",
-            "commands": [
-                {
-                    "name": "Ping Host",
-                    "command": "ping -c 3 <host>",
-                    "mode": "shell-quoted",
-                    "parameters": {
-                        "host": {
-                            "regex": "^[a-zA-Z0-9.-]+$",
-                            "error_message": "Invalid host format! Must contain only alphanumeric, dots, and dashes.",
-                        }
-                    },
-                },
-                {
-                    "name": "Direct Exec",
-                    "command": '/usr/bin/echo "Hello" <arg>',
-                    "mode": "direct-array",
-                    "parameters": {
-                        "arg": {
-                            "regex": "^[a-zA-Z0-9_]+$",
-                            "error_message": "Invalid argument format! Must be alphanumeric or underscore.",
-                        }
-                    },
-                },
-            ],
-        },
-        {
-            "name": "Git",
-            "commands": [
-                {
-                    "name": "Git Status",
-                    "command": "git status",
-                    "mode": "shell-quoted",
-                },
-                {
-                    "name": "Git Pull",
-                    "command": "git pull origin {git-branch}",
-                    "mode": "shell-quoted",
-                },
-                {
-                    "name": "Git Push",
-                    "command": "git push origin {git-branch}",
-                    "mode": "shell-quoted",
-                },
-                {
-                    "name": "Git Commit",
-                    "command": 'git commit -m "<commit-message>"',
-                    "mode": "shell-quoted",
-                },
-            ],
-        },
+    "session": {
+      "max_ttl_seconds": 28800,
+      "refresh_threshold_seconds": 300
+    }
+  },
+  "audit": {
+    "enabled": True,
+    "privacy_mode": False,
+    "sensitive_keywords": [
+      "password",
+      "passwd",
+      "secret",
+      "token",
+      "api_key",
+      "apikey",
+      "key",
+      "credentials",
+      "cred",
+      "sudo",
+      "auth",
+      "bearer",
+      "private_key"
+    ]
+  },
+  "ai": {
+    "provider": "openai",
+    "model": "gpt-4o",
+    "temperature": 0.2,
+    "require_confirmation": True,
+    "fallback_provider": "ollama",
+    "fallback_model": "llama3"
+  },
+  "branding": {
+    "enabled": False,
+    "app_name": "CmdBar",
+    "logo_path": "",
+    "brand_colors": {
+      "primary": "#3584e4",
+      "accent": "#1c71d8",
+      "background": "#2d2d2d",
+      "text": "#ffffff"
+    },
+    "domain_alias": "",
+    "custom_ssl": {
+      "cert_path": "",
+      "key_path": "",
+      "ca_path": "",
+      "verify_ssl": True
+    },
+    "enterprise_identity": {
+      "organization_name": "",
+      "support_url": "",
+      "support_email": "",
+      "footer_text": ""
+    }
+  },
+  "yubikey": {
+    "enabled": False,
+    "default_mode": "touch",
+    "timeout_seconds": 30,
+    "registered_keys": [],
+    "emergency_codes": []
+  },
+  "profiles": [
+    {
+      "name": "Production",
+      "env": {
+        "ENV": "production",
+        "LOG_LEVEL": "warn"
+      }
+    },
+    {
+      "name": "Staging",
+      "env": {
+        "ENV": "staging",
+        "LOG_LEVEL": "info"
+      }
+    },
+    {
+      "name": "Development",
+      "env": {
+        "ENV": "development",
+        "LOG_LEVEL": "debug"
+      }
+    }
+  ],
+  "active_profile": "Development",
+  "policy": {
+    "enabled": True,
+    "mode": "blacklist",
+    "blacklist": [
+      "rm -rf *",
+      "rm -rf /",
+      "mkfs*",
+      "dd if=*",
+      ":(){ :|:& };:",
+      "chmod -R 777 *",
+      "shutdown*",
+      "reboot*",
+      "> /dev/sd*",
+      "wget * | sh",
+      "curl * | sh",
+      "wget * | bash",
+      "curl * | bash"
     ],
-
+    "whitelist": [
+      "echo *",
+      "make *",
+      "git *",
+      "aws *",
+      "ping *",
+      "docker *",
+      "python*",
+      "node *",
+      "npm *",
+      "notify-send *",
+      "deploy *",
+      "pkill *",
+      "zenity *"
+    ],
+    "rules": [],
+    "overrides": []
+  },
+  "categories": [
+    {
+      "name": "System Utilities",
+      "commands": [
+        {
+          "name": "Ping Host",
+          "command": "ping -c 3 <host>",
+          "mode": "shell-quoted",
+          "parameters": {
+            "host": {
+              "regex": "^[a-zA-Z0-9.-]+$",
+              "error_message": "Invalid host format! Must contain only alphanumeric, dots, and dashes."
+            }
+          }
+        },
+        {
+          "name": "Direct Exec",
+          "command": "/usr/bin/echo \"Hello\" <arg>",
+          "mode": "direct-array",
+          "parameters": {
+            "arg": {
+              "regex": "^[a-zA-Z0-9_]+$",
+              "error_message": "Invalid argument format! Must be alphanumeric or underscore."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Git",
+      "commands": [
+        {
+          "name": "Git Status",
+          "command": "git status",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Pull",
+          "command": "git pull origin {git-branch}",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Push",
+          "command": "git push origin {git-branch}",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Commit",
+          "command": "git commit -m \"<commit-message>\"",
+          "mode": "shell-quoted"
+        }
+      ]
+    }
+  ],
+  "triggers": []
 }
 
 
@@ -520,6 +552,7 @@ def resolve_command_preview(
 
         if sandbox_config and is_sandbox_enabled(sandbox_config):
             resolved_parts = wrap_command_in_sandbox(resolved_parts, sandbox_config)
+
 
         # Preview representation for direct-array is the list of individual args
         array_preview = "Direct Array: " + " ".join(
