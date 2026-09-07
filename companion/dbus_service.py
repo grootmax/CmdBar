@@ -4,6 +4,7 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from app.config_schema import validate_branding_config, get_effective_branding
 
 class CmdBarDBusService:
     """
@@ -131,3 +132,29 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def get_branding(self) -> dict:
+        config = load_config(self.config_path) if self.config_path else load_config()
+        return get_effective_branding(config)
+
+    def get_branding_json(self) -> str:
+        return json.dumps(self.get_branding())
+
+    def set_branding(self, json_branding: str) -> bool:
+        if not json_branding or not str(json_branding).strip():
+            return False
+        try:
+            parsed = json.loads(json_branding) if isinstance(json_branding, str) else json_branding
+            if not validate_branding_config(parsed):
+                return False
+            config = load_config(self.config_path) if self.config_path else load_config()
+            config["branding"] = parsed
+            return save_config(config, self.config_path) if self.config_path else save_config(config)
+        except Exception:
+            return False
+
+    def get_effective_app_name(self) -> str:
+        branding = self.get_branding()
+        if branding.get("enabled"):
+            return branding.get("app_name") or "CmdBar"
+        return "CmdBar"
