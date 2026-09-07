@@ -13,6 +13,7 @@ from companion.yubikey_auth import (
     verify_and_consume_emergency_code,
 )
 from companion.event_triggers import EventTriggerEngine
+from companion.mobile_companion import MobileCompanionService
 from companion.stream_deck import get_stream_deck_manager
 
 class CmdBarDBusService:
@@ -20,7 +21,7 @@ class CmdBarDBusService:
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, and manages signals for CommandExecuted,
+    SSO authentication methods, YubiKey 2FA Methods, mobile companion methods, Stream Deck integration, and manages signals for CommandExecuted,
     CommandOutput, and EventTriggered.
     :visibility: public
     """
@@ -35,6 +36,7 @@ class CmdBarDBusService:
         self.auth_manager = YubiKeyAuthManager()
         self._event_triggered_listeners = []
         self.trigger_engine = EventTriggerEngine()
+        self.mobile_service = MobileCompanionService()
         self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
 
     def is_yubikey_required(self, name: str) -> bool:
@@ -392,6 +394,63 @@ class CmdBarDBusService:
         :visibility: public
         """
         return self.trigger_engine.remove_trigger(trigger_id)
+
+    def register_mobile_device(self, device_id: str, name: str, platform: str, push_token: str = "") -> bool:
+        """
+        Registers a mobile device via D-Bus.
+        :visibility: public
+        """
+        try:
+            self.mobile_service.device_mgr.register_device(device_id, name, platform, push_token)
+            self.mobile_service.save_config()
+            return True
+        except Exception:
+            return False
+
+    def get_mobile_devices(self) -> list:
+        """
+        Returns paired mobile devices list via D-Bus.
+        :visibility: public
+        """
+        return self.mobile_service.device_mgr.list_devices()
+
+    def get_mobile_devices_json(self) -> str:
+        """
+        Returns JSON string of paired mobile devices.
+        :visibility: public
+        """
+        return json.dumps(self.get_mobile_devices())
+
+    def get_mobile_widget_payload(self, platform: str = "ios", family: str = "medium") -> str:
+        """
+        Returns widget payload JSON string for mobile widgets.
+        :visibility: public
+        """
+        payload = self.mobile_service.widget_mgr.get_widget_payload(
+            platform=platform,
+            widget_family=family,
+            queue_count=self.mobile_service.queue_mgr.get_stats().get("queued", 0)
+        )
+        return json.dumps(payload)
+
+    def process_mobile_offline_queue(self, max_items: int = 50) -> str:
+        """
+        Processes pending offline queue items and returns result JSON.
+        :visibility: public
+        """
+        results = self.mobile_service.queue_mgr.process_queue(max_items=max_items)
+        return json.dumps(results)
+
+    def send_mobile_push_notification(self, device_id: str, title: str, body: str) -> bool:
+        """
+        Dispatches a push notification to a registered device.
+        :visibility: public
+        """
+        try:
+            self.mobile_service.push_mgr.send_push_notification(device_id, title, body)
+            return True
+        except Exception:
+            return False
 
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
