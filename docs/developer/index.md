@@ -27,3 +27,10 @@ CmdBar supports isolated sandboxed execution on a per-command basis:
   - JavaScript wrapper (`extension/sandboxWrapper.js`) integrates into GJS execution paths (`runCommandAsync`, `_executeCommandAsync`, `executeCommand`).
   - Python wrapper (`app/sandbox_wrapper.py`) integrates into `app/config_schema.py` (`resolve_command_preview`) and `app/main.py` Libadwaita companion editor.
 
+### Output Parser & Formatter Module
+
+The output parser module (`extension/outputFormatter.js`) automatically detects and formats command outputs:
+- **Format Auto-Detection**: Detects JSON, CSV, TSV, Code, and plain text formats automatically.
+- **JSON Pretty-Printing & Syntax Highlighting**: Formats raw JSON strings with configurable indentation, Pango markup syntax highlighting for GNOME Shell labels, and ANSI color codes.
+- **Table View**: Parses CSV/TSV data into aligned ASCII tables with column dividers.
+- **Code Blocks**: Formats code snippets in monospaced boxed blocks or `<font face="monospace">` Pango markup.

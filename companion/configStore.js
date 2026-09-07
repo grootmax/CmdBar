@@ -136,6 +136,13 @@ export function saveConfigAtomically(configData, customPath) {
     // enabling an atomic `rename` operation.
     const tempPath = `${targetPath}.${Date.now()}.${Math.random().toString(36).substring(2, 8)}.tmp`;
 
+    let mode;
+    if (fs.existsSync(targetPath)) {
+        try {
+            mode = fs.statSync(targetPath).mode;
+        } catch (e) {}
+    }
+
     try {
         const jsonString = JSON.stringify(configData, null, 2);
 

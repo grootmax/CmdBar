@@ -480,154 +480,163 @@ export function parseAccel(text) {
 }
 
 /**
- * Escapes special XML/HTML markup characters.
+ * Escapes HTML/XML markup characters in a string.
  * @param {string} text
  * @returns {string}
  */
 export function escapeMarkup(text) {
-  if (!text || typeof text !== "string") return "";
-  return text
+  if (text === null || text === undefined) return "";
+  return String(text)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+    .replace(/'/g, "&#39;");
 }
 
 /**
- * Fuzzy matches pattern against text.
+ * Performs fuzzy sequence matching on text against pattern.
  * @param {string} pattern
  * @param {string} text
  * @param {number} [usageCount=0]
- * @returns {{match: boolean, matches: number[], score: number}}
+ * @returns {{ match: boolean, matches: number[], score: number }}
  */
 export function fuzzyMatch(pattern, text, usageCount = 0) {
-  if (!text || typeof text !== "string") {
-    return { match: false, matches: [], score: 0 };
-  }
-  const cleanPattern = (pattern || "").trim().toLowerCase();
-  const lowerText = text.toLowerCase();
+  if (text === null || text === undefined) text = "";
+  if (pattern === null || pattern === undefined) pattern = "";
 
-  if (!cleanPattern) {
-    return {
-      match: true,
-      matches: [],
-      score: (usageCount || 0) * 10,
-    };
+  const trimmedPattern = pattern.trim();
+  if (trimmedPattern === "") {
+    return { match: true, matches: [], score: usageCount * 10 };
   }
 
+  const pLower = trimmedPattern.toLowerCase();
+  const tLower = text.toLowerCase();
+
+  let pIdx = 0;
   const matches = [];
-  let patternIdx = 0;
-  let score = 0;
-  let consecutiveBonus = 0;
 
-  for (let i = 0; i < lowerText.length && patternIdx < cleanPattern.length; i++) {
-    if (lowerText[i] === cleanPattern[patternIdx]) {
+  for (let i = 0; i < tLower.length; i++) {
+    if (tLower[i] === pLower[pIdx]) {
       matches.push(i);
-      patternIdx++;
-      score += 10 + consecutiveBonus;
-      consecutiveBonus += 5;
-    } else {
-      consecutiveBonus = 0;
+      pIdx++;
+      if (pIdx === pLower.length) break;
     }
   }
 
-  if (patternIdx < cleanPattern.length) {
+  if (pIdx < pLower.length) {
     return { match: false, matches: [], score: 0 };
   }
 
-  if (lowerText === cleanPattern) {
-    score += 100;
-  } else if (lowerText.startsWith(cleanPattern)) {
+  let score = 100;
+  if (text.length === trimmedPattern.length) {
     score += 50;
+  } else {
+    score += Math.max(0, 30 - (text.length - trimmedPattern.length));
   }
 
-  score += (usageCount || 0) * 10;
+  for (let i = 1; i < matches.length; i++) {
+    if (matches[i] === matches[i - 1] + 1) {
+      score += 15;
+    }
+  }
+
+  score += usageCount * 10;
 
   return { match: true, matches, score };
 }
 
 /**
- * Highlights matched characters in text using <b> tags.
+ * Highlights character matches in text using <b> tags and escaped markup.
  * @param {string} text
  * @param {number[]} matches
  * @returns {string}
  */
 export function highlightMatches(text, matches) {
-  if (!text || typeof text !== "string") return "";
-  if (!matches || !Array.isArray(matches) || matches.length === 0) {
-    return escapeMarkup(text);
-  }
+  if (!text) return "";
+  if (!matches || matches.length === 0) return escapeMarkup(text);
 
-  const isMatched = new Array(text.length).fill(false);
-  for (const idx of matches) {
-    if (idx >= 0 && idx < text.length) {
-      isMatched[idx] = true;
+  const sortedMatches = [...matches].sort((a, b) => a - b);
+  const matchSet = new Set(sortedMatches);
+
+  const ranges = [];
+  let currentRange = null;
+
+  for (const idx of sortedMatches) {
+    if (!currentRange) {
+      currentRange = [idx, idx];
+    } else if (idx === currentRange[1] + 1) {
+      currentRange[1] = idx;
+    } else {
+      ranges.push(currentRange);
+      currentRange = [idx, idx];
     }
+  }
+  if (currentRange) {
+    ranges.push(currentRange);
   }
 
   let result = "";
-  let inBold = false;
+  let lastIdx = 0;
 
-  for (let i = 0; i < text.length; i++) {
-    const char = escapeMarkup(text[i]);
-    if (isMatched[i]) {
-      if (!inBold) {
-        result += "<b>";
-        inBold = true;
-      }
-      result += char;
-    } else {
-      if (inBold) {
-        result += "</b>";
-        inBold = false;
-      }
-      result += char;
+  for (const [start, end] of ranges) {
+    if (start > lastIdx) {
+      result += escapeMarkup(text.substring(lastIdx, start));
     }
+    result += "<b>" + escapeMarkup(text.substring(start, end + 1)) + "</b>";
+    lastIdx = end + 1;
   }
 
-  if (inBold) {
-    result += "</b>";
+  if (lastIdx < text.length) {
+    result += escapeMarkup(text.substring(lastIdx));
   }
 
   return result;
 }
 
 /**
- * Ranks list of commands by matching query.
- * @param {Array<object>} commands
+ * Ranks commands based on fuzzy match score and usage frequency.
+ * @param {Array<Object>} commands
  * @param {string} query
- * @param {object} [usageMap={}]
- * @returns {Array<object>}
+ * @param {Object.<string, number>} [usageMap={}]
+ * @returns {Array<Object>}
  */
 export function rankCommands(commands, query, usageMap = {}) {
-  if (!commands || !Array.isArray(commands)) return [];
+  if (!Array.isArray(commands)) return [];
+
   const results = [];
-
   for (const cmd of commands) {
-    const cmdStr = cmd.command
-      ? Array.isArray(cmd.command)
-        ? cmd.command.join(" ")
-        : String(cmd.command)
-      : "";
+    const commandStr = cmd.command || "";
     const nameStr = cmd.name || "";
-    const usageCount = (usageMap && (usageMap[cmdStr] || usageMap[nameStr])) || 0;
+    const usage = (usageMap && (usageMap[commandStr] || usageMap[nameStr])) || 0;
 
-    const nameMatch = fuzzyMatch(query, nameStr, usageCount);
-    const cmdMatch = fuzzyMatch(query, cmdStr, usageCount);
+    const cmdMatch = fuzzyMatch(query, commandStr, usage);
+    const nameMatch = fuzzyMatch(query, nameStr, usage);
 
-    if (nameMatch.match || cmdMatch.match) {
-      const bestScore = Math.max(nameMatch.score, cmdMatch.score);
-      const bestMatches = nameMatch.score >= cmdMatch.score ? nameMatch.matches : cmdMatch.matches;
+    const bestMatch = (cmdMatch.match && nameMatch.match)
+      ? (cmdMatch.score >= nameMatch.score ? cmdMatch : nameMatch)
+      : (cmdMatch.match ? cmdMatch : (nameMatch.match ? nameMatch : null));
+
+    if (bestMatch) {
       results.push({
         command: cmd,
-        score: bestScore,
-        matches: bestMatches,
+        matchResult: bestMatch,
+        matches: bestMatch.matches,
+        score: bestMatch.score,
       });
     }
   }
 
-  return results.sort((a, b) => b.score - a.score);
+  results.sort((a, b) => b.score - a.score);
+  return results;
 }
 
-
+export {
+  detectFormat,
+  parseCsvLine,
+  parseCsvOrTsv,
+  formatTable,
+  formatJson,
+  formatCodeBlock,
+  formatOutput,
+} from "./outputFormatter.js";

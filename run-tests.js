@@ -2,7 +2,7 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands } from './extension/commandProcessor.js';
+import { validateInput, hasPlaceholder, substituteCommand, fuzzyMatch, highlightMatches, rankCommands, detectFormat, formatOutput } from './extension/commandProcessor.js';
 import { saveConfigAtomically, saveConfigAtomicallyAsync } from './companion/configStore.js';
 
 console.log('Running standalone verification tests...');
@@ -42,7 +42,21 @@ try {
     ], 'gp', { 'git pull origin': 5 });
     assert.strictEqual(ranked[0].command.name, 'Git Pull', 'Should rank higher usage frequency first');
 
-    // 4. Atomic Persistence Tests (Sync & Async)
+    // 5. Output Formatter Tests
+    assert.strictEqual(detectFormat('{"a":1}'), 'json', 'Should detect JSON format');
+    assert.strictEqual(detectFormat('A,B\n1,2'), 'csv', 'Should detect CSV format');
+    assert.strictEqual(detectFormat('A\tB\n1\t2'), 'tsv', 'Should detect TSV format');
+    assert.strictEqual(detectFormat('function foo() {}'), 'code', 'Should detect Code format');
+
+    const jsonFmt = formatOutput('{"key":"val"}');
+    assert.strictEqual(jsonFmt.format, 'json', 'formatOutput should detect json');
+    assert.strictEqual(jsonFmt.text, '{\n  "key": "val"\n}', 'JSON should be pretty printed');
+
+    const csvFmt = formatOutput('Name,Role\nAlice,Admin');
+    assert.strictEqual(csvFmt.format, 'csv', 'formatOutput should detect csv');
+    assert.ok(csvFmt.text.includes('+-------+-------+'), 'CSV should render table border');
+
+    // 6. Atomic Persistence Tests (Sync & Async)
     const tempDir = path.join(os.tmpdir(), `cmdbar-standalone-test-${Date.now()}`);
     const tempFile = path.join(tempDir, 'config.json');
 

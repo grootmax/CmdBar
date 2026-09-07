@@ -1,0 +1,66 @@
+[
+  {
+    "name": "Docker Container Run",
+    "description": "Run an interactive Docker container",
+    "command": "docker run -it --rm <image_name>",
+    "category": "Docker Operations",
+    "icon": "utilities-terminal-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "image_name": {
+        "placeholder": "ubuntu:latest",
+        "regex": "^[a-zA-Z0-9_.:/-]+$"
+      }
+    }
+  },
+  {
+    "name": "Docker Compose Up",
+    "description": "Start Docker Compose services in detached mode",
+    "command": "docker compose up -d <service_name>",
+    "category": "Docker Operations",
+    "icon": "media-playback-start-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "service_name": {
+        "placeholder": "web",
+        "regex": "^[a-zA-Z0-9_-]*$"
+      }
+    }
+  },
+  {
+    "name": "Docker System Prune",
+    "description": "Remove unused Docker containers, networks, and images",
+    "command": "docker system prune -f",
+    "category": "Docker Operations",
+    "icon": "edit-clear-all-symbolic",
+    "mode": "shell-quoted"
+  },
+  {
+    "name": "Docker Container Exec Shell",
+    "description": "Execute interactive bash inside a running container",
+    "command": "docker exec -it <container_id> /bin/bash",
+    "category": "Docker Operations",
+    "icon": "system-run-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "container_id": {
+        "placeholder": "container-id-or-name",
+        "regex": "^[a-zA-Z0-9_-]+$"
+      }
+    }
+  },
+  {
+    "name": "Docker Container Logs",
+    "description": "Tail recent logs from a running container",
+    "command": "docker logs -f --tail 100 <container_id>",
+    "category": "Docker Operations",
+    "icon": "document-open-recent-symbolic",
+    "mode": "shell-quoted",
+    "parameters": {
+      "container_id": {
+        "placeholder": "container-id-or-name",
+        "regex": "^[a-zA-Z0-9_-]+$"
+      }
+    }
+  }
+]
