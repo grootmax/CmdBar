@@ -16,16 +16,9 @@ import {
   formatShortcutHint,
   parseAccel,
   formatOutput,
-  addHistoryItem,
-  sanitizeHistoryItem,
-  sanitizeSensitiveData,
 } from "./commandProcessor.js";
 import { wrapCommandInSandbox, isSandboxEnabled } from "./sandboxWrapper.js";
-import {
-  loadConfig,
-  loadCommandHistory,
-  saveCommandHistory,
-} from "./configSync.js";
+import { loadConfig, getEffectiveBranding, getEffectiveDomainUrl } from "./configSync.js";
 import {
   translateNaturalLanguageToCommand,
   isAICommand,
@@ -281,7 +274,7 @@ function requestCommandConfirmation(
  * @param {object} [cmdObj]
  * @param {object} [placeholderMap]
  */
-function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, config, indicator) {
+function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, config) {
   let rawCmdStr = Array.isArray(commandString)
     ? commandString.join(" ")
     : String(commandString || "");
@@ -319,16 +312,6 @@ function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, con
     previewArgv,
     cmdObj,
     () => {
-      let activeIndicator = indicator || globalThis._cmdBarIndicatorInstance;
-      if (activeIndicator && typeof activeIndicator.recordCommandExecution === "function") {
-        activeIndicator.recordCommandExecution(
-          commandName,
-          rawCmdStr,
-          placeholderMap,
-          argv.join(" ")
-        );
-      }
-
       try {
         let proc = Gio.Subprocess.new(
           execArgv,
@@ -606,15 +589,6 @@ const CommandInputMenuItem = GObject.registerClass(
                   previewArgv,
                   this._cmdObj,
                   () => {
-                    let activeIndicator = this._indicator || globalThis._cmdBarIndicatorInstance;
-                    if (activeIndicator && typeof activeIndicator.recordCommandExecution === "function") {
-                      activeIndicator.recordCommandExecution(
-                        commandName,
-                        this._commandTemplate,
-                        placeholderMap,
-                        argv.join(" ")
-                      );
-                    }
                     try {
                       let cmdProc = Gio.Subprocess.new(
                         execArgv,
@@ -977,148 +951,16 @@ const CategoryHeaderMenuItem = GObject.registerClass(
   },
 );
 
-// Recent Category Header Menu Item with Clear History button
-const RecentHeaderMenuItem = GObject.registerClass(
-  class RecentHeaderMenuItem extends PopupMenu.PopupBaseMenuItem {
-    _init(categoryName, onClear) {
-      super._init({
-        reactive: false,
-        activate: false,
-      });
-
-      this.box = new St.BoxLayout({
-        vertical: false,
-        style_class: "cmdbar-category-header",
-        x_expand: true,
-      });
-
-      this.icon = new St.Icon({
-        icon_name: "document-open-recent-symbolic",
-        style_class: "popup-menu-icon",
-        style: "margin-right: 8px; margin-top: 6px; margin-bottom: 2px;",
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      this.box.add_child(this.icon);
-
-      this.label = new St.Label({
-        text: categoryName,
-        style:
-          "font-weight: bold; color: #888888; font-size: 0.95em; margin-top: 6px; margin-bottom: 2px;",
-        y_align: Clutter.ActorAlign.CENTER,
-        x_expand: true,
-      });
-      this.box.add_child(this.label);
-
-      if (typeof onClear === "function") {
-        this.clearButton = new St.Button({
-          child: new St.Icon({
-            icon_name: "edit-clear-all-symbolic",
-            style_class: "popup-menu-icon",
-            style: "color: #e01b24;",
-          }),
-          style: "padding: 2px 6px; border-radius: 4px; margin-top: 4px;",
-          track_hover: true,
-          can_focus: true,
-          reactive: true,
-        });
-        this.clearButton.connect("clicked", () => {
-          onClear();
-        });
-        this.box.add_child(this.clearButton);
-      }
-
-      this.add_child(this.box);
-    }
-  },
-);
-
-// Menu item representing a recent command execution item
-const RecentCommandMenuItem = GObject.registerClass(
-  class RecentCommandMenuItem extends PopupMenu.PopupBaseMenuItem {
-    _init(indicator, historyItem, onReRun) {
-      super._init({
-        reactive: true,
-        activate: false,
-      });
-
-      this._indicator = indicator;
-      this._historyItem = historyItem;
-
-      this.box = new St.BoxLayout({
-        vertical: false,
-        x_expand: true,
-      });
-
-      this.icon = new St.Icon({
-        icon_name: "system-run-symbolic",
-        style_class: "popup-menu-icon",
-        style: "margin-right: 8px;",
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      this.box.add_child(this.icon);
-
-      let nameText = historyItem.name || historyItem.resolvedCommand || "Recent Command";
-      let subText =
-        historyItem.resolvedCommand && historyItem.resolvedCommand !== nameText
-          ? ` (${historyItem.resolvedCommand})`
-          : "";
-
-      this.label = new St.Label({
-        text: nameText + subText,
-        y_align: Clutter.ActorAlign.CENTER,
-        x_expand: true,
-      });
-      this.box.add_child(this.label);
-
-      // Re-run button
-      this.reRunButton = new St.Button({
-        child: new St.Icon({
-          icon_name: "media-playback-start-symbolic",
-          style_class: "popup-menu-icon",
-        }),
-        style: "padding: 4px 6px; border-radius: 4px;",
-        track_hover: true,
-        can_focus: true,
-      });
-
-      this.reRunButton.connect("clicked", () => {
-        if (typeof onReRun === "function") {
-          onReRun();
-        }
-      });
-      this.box.add_child(this.reRunButton);
-
-      this.add_child(this.box);
-
-      this._activateId = this.connect("activate", () => {
-        if (typeof onReRun === "function") {
-          onReRun();
-        }
-      });
-    }
-
-    destroy() {
-      if (this._activateId) {
-        this.disconnect(this._activateId);
-        this._activateId = 0;
-      }
-      super.destroy();
-    }
-  },
-);
-
 // The top bar status area panel indicator
 const CmdBarIndicator = GObject.registerClass(
   class CmdBarIndicator extends PanelMenu.Button {
     _init(extension) {
       super._init(0.0, "CmdBar");
 
-      globalThis._cmdBarIndicatorInstance = this;
       this._extension = extension;
       this._monitor = null;
       this._cachedConfig = null;
       this._timeoutId = 0;
-      this._commandHistory = [];
 
       // Container box to support text and icon side-by-side
       this._box = new St.BoxLayout({
@@ -1145,55 +987,11 @@ const CmdBarIndicator = GObject.registerClass(
       // Harvest environment asynchronously on startup
       harvestEnvironment();
 
-      // Initialize command history
-      this._initCommandHistory();
-
       // Load configuration and construct the dynamic menu
       this._reloadMenu();
 
       // Setup File Monitor for Live Reloading of JSON configuration
       this._setupFileMonitor();
-    }
-
-    async _initCommandHistory() {
-      try {
-        this._commandHistory = await loadCommandHistory();
-      } catch (e) {
-        this._commandHistory = [];
-      }
-      this._reloadMenu();
-    }
-
-    recordCommandExecution(commandName, commandTemplate, placeholderMap, resolvedCommand) {
-      let rawResolved = Array.isArray(resolvedCommand)
-        ? resolvedCommand.join(" ")
-        : String(resolvedCommand || "");
-      if (!rawResolved) {
-        rawResolved = typeof commandTemplate === "string" ? commandTemplate : commandName;
-      }
-      let item = {
-        name: commandName || rawResolved,
-        command: typeof commandTemplate === "string" ? commandTemplate : rawResolved,
-        resolvedCommand: rawResolved,
-        parameters: placeholderMap || {},
-        timestamp: Date.now(),
-      };
-
-      this._commandHistory = addHistoryItem(this._commandHistory, item);
-      saveCommandHistory(this._commandHistory).catch((err) => {
-        console.warn(`CmdBar: Failed to save history: ${err.message}`);
-      });
-      this._reloadMenu();
-    }
-
-    async clearHistory() {
-      this._commandHistory = [];
-      try {
-        await saveCommandHistory([]);
-      } catch (e) {
-        console.warn(`CmdBar: Failed to clear history: ${e.message}`);
-      }
-      this._reloadMenu();
     }
 
     setButtonLabel(labelText) {
@@ -1207,12 +1005,54 @@ const CmdBarIndicator = GObject.registerClass(
     }
 
     /**
+     * Apply custom white label branding options to top bar indicator and popup menu.
+     * @param {object} branding
+     */
+    _applyBranding(branding) {
+      if (!branding) return;
+      this._effectiveBranding = branding;
+
+      // Custom icon / logo
+      if (branding.enabled && branding.logo_path && branding.logo_path.trim()) {
+        const logo = branding.logo_path.trim();
+        if (logo.includes("/") && Gio.File && Gio.File.new_for_path(logo).query_exists(null)) {
+          try {
+            let gicon = new Gio.FileIcon({ file: Gio.File.new_for_path(logo) });
+            this._icon.gicon = gicon;
+          } catch (e) {
+            this._icon.icon_name = logo;
+          }
+        } else {
+          this._icon.icon_name = logo;
+        }
+      } else {
+        this._icon.icon_name = "system-run-symbolic";
+      }
+
+      // Custom brand color styling
+      if (branding.enabled && branding.brand_colors) {
+        const primary = branding.brand_colors.primary || "#3584e4";
+        const text = branding.brand_colors.text || "#ffffff";
+        this._box.style = `color: ${text};`;
+        if (this.menu && this.menu.actor) {
+          this.menu.actor.style = `border-top: 2px solid ${primary};`;
+        }
+      } else {
+        this._box.style = null;
+        if (this.menu && this.menu.actor) {
+          this.menu.actor.style = null;
+        }
+      }
+    }
+
+    /**
      * Update indicator button tooltip with shortcut hint.
      * @param {string|string[]} accelStr
      */
     updateShortcutTooltip(accelStr) {
       let hint = formatShortcutHint(accelStr);
-      let tooltipText = `CmdBar (${hint})`;
+      let appName = (this._effectiveBranding && this._effectiveBranding.enabled && this._effectiveBranding.app_name) || "CmdBar";
+      let tooltipText = `${appName} (${hint})`;
       if (typeof this.set_tooltip_text === "function") {
         this.set_tooltip_text(tooltipText);
       }
@@ -1233,45 +1073,18 @@ const CmdBarIndicator = GObject.registerClass(
         let extensionPath = this._extension.dir.get_path();
         let config = await loadConfig(configPath, extensionPath);
 
+        let branding = getEffectiveBranding(config);
+        this._applyBranding(branding);
+
         if (config && config._isInvalid) {
           this._showNotification(
-            "CmdBar Configuration Error",
+            `${branding.enabled ? branding.app_name : "CmdBar"} Configuration Error`,
             "Invalid configuration file detected. Using in-memory default settings without overwriting your file.",
           );
         }
 
         // Clear all current items in menu
         this.menu.removeAll();
-
-        // Render Recent pseudo-category if command history exists
-        if (this._commandHistory && this._commandHistory.length > 0) {
-          let recentHeader = new RecentHeaderMenuItem("Recent", () => this.clearHistory());
-          this.menu.addMenuItem(recentHeader);
-
-          let topRecents = this._commandHistory.slice(0, 10);
-          topRecents.forEach((histItem) => {
-            let item = new RecentCommandMenuItem(this, histItem, () => {
-              let cmdStr = histItem.resolvedCommand || histItem.command;
-              runCommandAsync(
-                histItem.name,
-                cmdStr,
-                { verified: true },
-                histItem.parameters,
-                this._cachedConfig,
-                this
-              );
-            });
-            this.menu.addMenuItem(item);
-          });
-
-          let clearItem = new PopupMenu.PopupMenuItem("Clear History");
-          clearItem.connect("activate", () => {
-            this.clearHistory();
-          });
-          this.menu.addMenuItem(clearItem);
-
-          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        }
 
         if (!config || !config.categories || config.categories.length === 0) {
           let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
@@ -1309,6 +1122,20 @@ const CmdBarIndicator = GObject.registerClass(
             });
           }
         });
+
+        // Add enterprise identity footer if configured
+        if (branding.enabled && branding.enterprise_identity) {
+          const ent = branding.enterprise_identity;
+          if (ent.organization_name || ent.footer_text) {
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+            const footerText = ent.footer_text || `Managed by ${ent.organization_name}`;
+            const footerItem = new PopupMenu.PopupMenuItem(footerText, { reactive: false });
+            if (footerItem.label) {
+              footerItem.label.style = "font-size: 0.8em; opacity: 0.7;";
+            }
+            this.menu.addMenuItem(footerItem);
+          }
+        }
       } catch (e) {
         console.error(`CmdBar: error reloading menu: ${e.message}`);
       }
@@ -1628,13 +1455,6 @@ export default class CmdBarExtension extends Extension {
         this._registerKeybinding();
       },
     );
-
-    this._historyShortcutId = this._settings.connect(
-      "changed::history-shortcut",
-      () => {
-        this._registerKeybinding();
-      },
-    );
   }
 
   /**
@@ -1655,22 +1475,11 @@ export default class CmdBarExtension extends Extension {
         try {
           if (typeof Main.wm.removeKeybinding === "function") {
             Main.wm.removeKeybinding("shortcut");
-            Main.wm.removeKeybinding("history-shortcut");
           }
         } catch (e) {}
 
         Main.wm.addKeybinding(
           "shortcut",
-          this._settings,
-          flags,
-          mode,
-          () => {
-            this._toggleMenu();
-          },
-        );
-
-        Main.wm.addKeybinding(
-          "history-shortcut",
           this._settings,
           flags,
           mode,
@@ -1691,7 +1500,6 @@ export default class CmdBarExtension extends Extension {
     try {
       if (Main && Main.wm && typeof Main.wm.removeKeybinding === "function") {
         Main.wm.removeKeybinding("shortcut");
-        Main.wm.removeKeybinding("history-shortcut");
       }
     } catch (e) {
       console.error(`CmdBar: Failed to unregister keybinding: ${e.message}`);
@@ -1742,10 +1550,6 @@ export default class CmdBarExtension extends Extension {
       if (this._shortcutId) {
         this._settings.disconnect(this._shortcutId);
         this._shortcutId = 0;
-      }
-      if (this._historyShortcutId) {
-        this._settings.disconnect(this._historyShortcutId);
-        this._historyShortcutId = 0;
       }
       this._settings = null;
     }
