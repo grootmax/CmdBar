@@ -220,3 +220,39 @@ class CmdBarDBusClient:
                 cb(name, stdout, stderr)
             except Exception:
                 pass
+
+    def get_stream_deck_profiles(self) -> dict:
+        res = self._call_method("GetStreamDeckProfiles")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        res = self._call_method("SetStreamDeckProfile", profile_name)
+        return bool(res)
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        res = self._call_method("TriggerStreamDeckButton", key_index)
+        return bool(res)
+
+    def get_stream_deck_status(self) -> dict:
+        res = self._call_method("GetStreamDeckStatus")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
