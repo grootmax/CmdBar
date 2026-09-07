@@ -9,6 +9,8 @@ const mockGetenv = jest.fn();
 const mockSetText = jest.fn();
 
 jest.unstable_mockModule('gi', () => ({
+  Meta: {},
+  Shell: {},
   St: {
     Clipboard: {
       get_default: () => ({
@@ -96,12 +98,8 @@ jest.unstable_mockModule('gi', () => ({
   GObject: {
     registerClass: (cls) => cls,
   },
-  Meta: {
-    KeyBindingFlags: { NONE: 0 },
-  },
-  Shell: {
-    ActionMode: { ALL: 1 },
-  },
+  Meta: { KeyBindingFlags: { NONE: 0 } },
+  Shell: { ActionMode: { ALL: 1 } },
 }), { virtual: true });
 
 jest.unstable_mockModule('resource:///org/gnome/shell/extensions/extension.js', () => ({

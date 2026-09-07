@@ -2,6 +2,8 @@
  * Core business logic for CmdBar extension command processing and validation.
  */
 
+export { ChainRunner, ChainStatus, StepStatus } from "./chainRunner.js";
+
 let GLib;
 try {
   if (typeof globalThis.imports !== "undefined" && globalThis.imports.gi) {
@@ -112,7 +114,10 @@ export async function writeConfigAtomically(targetPath, data) {
   } else {
     // GJS (GNOME Shell) environment
     const giModule = await import("gi");
-    const Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
+    const Gio =
+      giModule.Gio ||
+      (giModule.default && giModule.default.Gio) ||
+      giModule.default;
     const GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
     const file = Gio.File.new_for_path(targetPath);
     const tmpPath = targetPath + ".tmp";
@@ -416,7 +421,7 @@ export function getPreviewTokens(argv, placeholderMap, parametersSchema) {
  * @returns {string}
  */
 export function formatShortcutHint(accel) {
-  let str = Array.isArray(accel) ? (accel[0] || "") : (accel || "");
+  let str = Array.isArray(accel) ? accel[0] || "" : accel || "";
   if (!str) return "Super+Space";
 
   let parts = [];
@@ -480,13 +485,13 @@ export function parseAccel(text) {
 }
 
 /**
- * Escapes special XML/Pango markup characters.
- * @param {string} str
+ * Escapes HTML/XML markup characters in a string.
+ * @param {string} text
  * @returns {string}
  */
-export function escapeMarkup(str) {
-  if (str === null || str === undefined) return "";
-  return String(str)
+export function escapeMarkup(text) {
+  if (text === null || text === undefined) return "";
+  return String(text)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -495,189 +500,137 @@ export function escapeMarkup(str) {
 }
 
 /**
- * Checks if pattern fuzzy-matches text and calculates relevance score.
- * @param {string} pattern Search query
- * @param {string} text Text to match against
- * @param {number} [usageCount=0] Frequency of command usage
- * @returns {{ match: boolean, score: number, matches: number[] }}
+ * Performs fuzzy sequence matching on text against pattern.
+ * @param {string} pattern
+ * @param {string} text
+ * @param {number} [usageCount=0]
+ * @returns {{ match: boolean, matches: number[], score: number }}
  */
 export function fuzzyMatch(pattern, text, usageCount = 0) {
-  if (text === null || text === undefined) {
-    return { match: false, score: 0, matches: [] };
-  }
-  const textStr = String(text);
+  if (text === null || text === undefined) text = "";
+  if (pattern === null || pattern === undefined) pattern = "";
 
-  if (!pattern || typeof pattern !== "string" || pattern.trim() === "") {
-    return {
-      match: true,
-      score: (usageCount || 0) * 10,
-      matches: [],
-    };
+  const trimmedPattern = pattern.trim();
+  if (trimmedPattern === "") {
+    return { match: true, matches: [], score: usageCount * 10 };
   }
 
-  const cleanPattern = pattern.trim();
-  const patternLower = cleanPattern.toLowerCase();
-  const textLower = textStr.toLowerCase();
+  const pLower = trimmedPattern.toLowerCase();
+  const tLower = text.toLowerCase();
 
-  let matchedIndices = [];
+  let pIdx = 0;
+  const matches = [];
 
-  // 1. Check if text includes cleanPattern as a contiguous substring
-  const subIdx = textLower.indexOf(patternLower);
-  if (subIdx !== -1) {
-    for (let i = 0; i < patternLower.length; i++) {
-      matchedIndices.push(subIdx + i);
-    }
-  } else {
-    // 2. Perform sequential subsequence fuzzy match
-    let patternIdx = 0;
-    for (let i = 0; i < textLower.length && patternIdx < patternLower.length; i++) {
-      if (textLower[i] === patternLower[patternIdx]) {
-        matchedIndices.push(i);
-        patternIdx++;
-      }
-    }
-    if (patternIdx < patternLower.length) {
-      return { match: false, score: 0, matches: [] };
+  for (let i = 0; i < tLower.length; i++) {
+    if (tLower[i] === pLower[pIdx]) {
+      matches.push(i);
+      pIdx++;
+      if (pIdx === pLower.length) break;
     }
   }
 
-  // Calculate relevance score
+  if (pIdx < pLower.length) {
+    return { match: false, matches: [], score: 0 };
+  }
+
   let score = 100;
-
-  if (textLower === patternLower) {
-    score += 1000;
-  } else if (textLower.startsWith(patternLower)) {
-    score += 500;
-  } else if (subIdx !== -1) {
-    score += 300;
+  if (text.length === trimmedPattern.length) {
+    score += 50;
+  } else {
+    score += Math.max(0, 30 - (text.length - trimmedPattern.length));
   }
 
-  // Word boundary bonus
-  for (const idx of matchedIndices) {
-    if (idx === 0) {
-      score += 50;
-    } else {
-      const prevChar = textStr[idx - 1];
-      if (/[\s\-_.\/:;=,]/.test(prevChar)) {
-        score += 50;
-      } else if (
-        /[a-z]/.test(textStr[idx - 1]) &&
-        /[A-Z]/.test(textStr[idx])
-      ) {
-        score += 50;
-      }
+  for (let i = 1; i < matches.length; i++) {
+    if (matches[i] === matches[i - 1] + 1) {
+      score += 15;
     }
   }
 
-  // Consecutive bonus
-  for (let i = 1; i < matchedIndices.length; i++) {
-    if (matchedIndices[i] === matchedIndices[i - 1] + 1) {
-      score += 20;
-    }
-  }
+  score += usageCount * 10;
 
-  // Compactness bonus
-  const span =
-    matchedIndices[matchedIndices.length - 1] - matchedIndices[0] + 1;
-  score += Math.max(0, 100 - (span - patternLower.length) * 10);
-
-  // Early match bonus
-  score += Math.max(0, 50 - matchedIndices[0] * 5);
-
-  // Usage frequency bonus
-  score += (usageCount || 0) * 10;
-
-  return {
-    match: true,
-    score,
-    matches: matchedIndices,
-  };
+  return { match: true, matches, score };
 }
 
 /**
- * Highlights matched character indices in text using HTML/Pango markup tags.
+ * Highlights character matches in text using <b> tags and escaped markup.
  * @param {string} text
- * @param {number[]} matchedIndices
- * @param {string} [openTag="<b>"]
- * @param {string} [closeTag="</b>"]
+ * @param {number[]} matches
  * @returns {string}
  */
-export function highlightMatches(
-  text,
-  matchedIndices,
-  openTag = "<b>",
-  closeTag = "</b>"
-) {
-  if (text === null || text === undefined) {
-    return "";
-  }
-  const str = String(text);
-  if (!matchedIndices || !Array.isArray(matchedIndices) || matchedIndices.length === 0) {
-    return escapeMarkup(str);
-  }
+export function highlightMatches(text, matches) {
+  if (!text) return "";
+  if (!matches || matches.length === 0) return escapeMarkup(text);
 
-  const indexSet = new Set(matchedIndices);
-  let result = "";
-  let inHighlight = false;
+  const sortedMatches = [...matches].sort((a, b) => a - b);
 
-  for (let i = 0; i < str.length; i++) {
-    const isMatched = indexSet.has(i);
-    if (isMatched && !inHighlight) {
-      result += openTag;
-      inHighlight = true;
-    } else if (!isMatched && inHighlight) {
-      result += closeTag;
-      inHighlight = false;
+  const ranges = [];
+  let currentRange = null;
+
+  for (const idx of sortedMatches) {
+    if (!currentRange) {
+      currentRange = [idx, idx];
+    } else if (idx === currentRange[1] + 1) {
+      currentRange[1] = idx;
+    } else {
+      ranges.push(currentRange);
+      currentRange = [idx, idx];
     }
-    result += escapeMarkup(str[i]);
+  }
+  if (currentRange) {
+    ranges.push(currentRange);
   }
 
-  if (inHighlight) {
-    result += closeTag;
+  let result = "";
+  let lastIdx = 0;
+
+  for (const [start, end] of ranges) {
+    if (start > lastIdx) {
+      result += escapeMarkup(text.substring(lastIdx, start));
+    }
+    result += "<b>" + escapeMarkup(text.substring(start, end + 1)) + "</b>";
+    lastIdx = end + 1;
+  }
+
+  if (lastIdx < text.length) {
+    result += escapeMarkup(text.substring(lastIdx));
   }
 
   return result;
 }
 
 /**
- * Ranks and filters commands based on search pattern and usage frequency.
- * @param {Array<object>} commands List of command objects ({ name, command, ... })
- * @param {string} pattern Search query
+ * Ranks commands based on fuzzy match score and usage frequency.
+ * @param {Array<Object>} commands
+ * @param {string} query
  * @param {Object.<string, number>} [usageMap={}]
- * @returns {Array<{ command: object, score: number, matchName: object, matchCmd: object }>}
+ * @returns {Array<Object>}
  */
-export function rankCommands(commands, pattern, usageMap = {}) {
-  if (!commands || !Array.isArray(commands)) {
-    return [];
-  }
+export function rankCommands(commands, query, usageMap = {}) {
+  if (!Array.isArray(commands)) return [];
 
-  const cleanPattern = (pattern || "").trim();
   const results = [];
-
   for (const cmd of commands) {
-    const cmdName = cmd.name || "";
-    const cmdCommand =
-      typeof cmd.command === "string"
-        ? cmd.command
-        : Array.isArray(cmd.command)
-        ? cmd.command.join(" ")
-        : String(cmd.command || "");
-    const cmdKey = cmdCommand || cmdName;
-    const usageCount = usageMap[cmdKey] || 0;
+    const commandStr = Array.isArray(cmd.command)
+      ? cmd.command.join(" ")
+      : String(cmd.command || "");
+    const nameStr = cmd.name || "";
+    const usage = (usageMap && (usageMap[commandStr] || usageMap[nameStr])) || 0;
 
-    const matchName = fuzzyMatch(cleanPattern, cmdName, usageCount);
-    const matchCmd = fuzzyMatch(cleanPattern, cmdCommand, usageCount);
+    const cmdMatch = fuzzyMatch(query, commandStr, usage);
+    const nameMatch = fuzzyMatch(query, nameStr, usage);
 
-    if (matchName.match || matchCmd.match) {
-      const score = Math.max(
-        matchName.match ? matchName.score : 0,
-        matchCmd.match ? matchCmd.score : 0
-      );
+    const bestMatch = (cmdMatch.match && nameMatch.match)
+      ? (cmdMatch.score >= nameMatch.score ? cmdMatch : nameMatch)
+      : (cmdMatch.match ? cmdMatch : (nameMatch.match ? nameMatch : null));
+
+    if (bestMatch) {
       results.push({
         command: cmd,
-        score,
-        matchName,
-        matchCmd,
+        matchResult: bestMatch,
+        matches: bestMatch.matches,
+        score: bestMatch.score,
+        highlightedName: highlightMatches(nameStr, nameMatch.matches),
+        highlightedCommand: highlightMatches(commandStr, cmdMatch.matches),
       });
     }
   }
@@ -696,159 +649,102 @@ export {
   formatOutput,
 } from "./outputFormatter.js";
 
-const isNode =
-  typeof process !== "undefined" && process.versions && process.versions.node;
-
-let nodeFs = null;
-let nodeCp = null;
-let nodePath = null;
-
-if (isNode) {
-  try {
-    nodeFs = (await import("fs")).default || (await import("fs"));
-    nodeCp = (await import("child_process")).default || (await import("child_process"));
-    nodePath = (await import("path")).default || (await import("path"));
-  } catch (e) {}
-}
-
 /**
- * Detects if a directory is a Git repository by checking for .git file/directory or git status.
- * @param {string} [dirPath]
- * @returns {boolean}
+ * Maximum history limit.
  */
-export function detectGitRepo(dirPath) {
-  const targetDir = dirPath || (isNode ? process.cwd() : ".");
-
-  if (isNode) {
-    if (nodeFs) {
-      try {
-        const gitPath = nodePath ? nodePath.join(targetDir, ".git") : `${targetDir}/.git`;
-        if (nodeFs.existsSync(gitPath)) {
-          return true;
-        }
-      } catch (e) {}
-    }
-
-    if (nodeCp && nodeCp.execSync) {
-      try {
-        const out = nodeCp.execSync("git rev-parse --is-inside-work-tree", {
-          cwd: targetDir,
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "ignore"],
-        });
-        return out.trim() === "true";
-      } catch (e) {}
-    }
-    return false;
-  } else {
-    try {
-      if (typeof GLib !== "undefined" && GLib.build_filenamev) {
-        const gitPath = GLib.build_filenamev([targetDir, ".git"]);
-        if (GLib.file_test(gitPath, GLib.FileTest.EXISTS)) {
-          return true;
-        }
-      }
-    } catch (e) {}
-    return false;
-  }
-}
+export const MAX_HISTORY_ITEMS = 50;
 
 /**
- * Synchronously fetches current Git state (branch, status, last commit).
- * @param {string} [dirPath]
- * @returns {{ isGitRepo: boolean, branch: string, status: string, lastCommit: string, repoPath: string }}
- */
-export function getGitStateSync(dirPath) {
-  const targetDir = dirPath || (isNode ? process.cwd() : ".");
-  const isRepo = detectGitRepo(targetDir);
-
-  if (!isRepo) {
-    return {
-      isGitRepo: false,
-      branch: "",
-      status: "N/A",
-      lastCommit: "",
-      repoPath: targetDir,
-    };
-  }
-
-  let branch = "main";
-  let status = "clean";
-  let lastCommit = "";
-
-  if (isNode && nodeCp && nodeCp.execSync) {
-    try {
-      branch =
-        nodeCp.execSync("git branch --show-current", { cwd: targetDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() ||
-        nodeCp.execSync("git rev-parse --abbrev-ref HEAD", { cwd: targetDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    } catch (e) {}
-
-    try {
-      const st = nodeCp.execSync("git status --short", { cwd: targetDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-      status = st ? `dirty (${st.split("\n").length} modified)` : "clean";
-    } catch (e) {}
-
-    try {
-      lastCommit = nodeCp.execSync('git log -1 --format="%h %s"', { cwd: targetDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    } catch (e) {}
-  }
-
-  return {
-    isGitRepo: true,
-    branch: branch || "main",
-    status: status || "clean",
-    lastCommit: lastCommit || "",
-    repoPath: targetDir,
-  };
-}
-
-/**
- * Asynchronously fetches current Git state (branch, status, last commit).
- * @param {string} [dirPath]
- * @returns {Promise<{ isGitRepo: boolean, branch: string, status: string, lastCommit: string, repoPath: string }>}
- */
-export async function getGitStateAsync(dirPath) {
-  const targetDir = dirPath || (isNode ? process.cwd() : ".");
-  return getGitStateSync(targetDir);
-}
-
-/**
- * Substitutes Git placeholders {git-branch}, {git-status}, {git-last-commit} in a command template.
- * @param {string} commandTemplate
- * @param {object} gitState
+ * Sanitizes sensitive information (passwords, tokens, API keys) from string or parameters.
+ * @param {string} text
  * @returns {string}
  */
-export function substituteGitPlaceholders(commandTemplate, gitState) {
-  if (!commandTemplate || typeof commandTemplate !== "string") {
-    return "";
-  }
-  if (!gitState || typeof gitState !== "object") {
-    return commandTemplate;
-  }
+export function sanitizeSensitiveData(text) {
+  if (text === null || text === undefined) return "";
+  let str = String(text);
 
-  const branch = gitState.branch || "";
-  const status = gitState.status || "";
-  const lastCommit = gitState.lastCommit || "";
+  // Redact password/token/secret flags like --password secret123, --token=xyz, -p secret123
+  str = str.replace(
+    /(--?(?:password|token|secret|api[_-]?key|auth[_-]?token|pass|pwd))(?:=|\s+)(\S+)/gi,
+    "=[REDACTED]"
+  );
 
-  return commandTemplate
-    .replace(/\{\{git-branch\}\}|<git-branch>|\{git-branch\}/gi, branch)
-    .replace(/\{\{git-status\}\}|<git-status>|\{git-status\}/gi, status)
-    .replace(/\{\{git-last-commit\}\}|<git-last-commit>|\{git-last-commit\}/gi, lastCommit);
+  // Redact key=value or key: value pairs where key contains password/secret/token/apikey
+  str = str.replace(
+    /((?:password|secret|token|api[_-]?key|access[_-]?key|auth[_-]?token|bearer)\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s&|;]+)/gi,
+    "[REDACTED]"
+  );
+
+  // Redact Bearer tokens
+  str = str.replace(/(Bearer\s+)([A-Za-z0-9._~+/-]+=*)/gi, "[REDACTED]");
+
+  return str;
 }
 
 /**
- * Checks if a command template contains placeholders other than Git placeholders.
- * @param {string} commandTemplate
- * @returns {boolean}
+ * Sanitizes a history item before persisting or logging.
+ * @param {object} item
+ * @returns {object}
  */
-export function hasNonGitPlaceholders(commandTemplate) {
-  if (!commandTemplate || typeof commandTemplate !== "string") {
-    return false;
-  }
-  const stripped = commandTemplate
-    .replace(/\{\{git-branch\}\}|<git-branch>|\{git-branch\}/gi, "")
-    .replace(/\{\{git-status\}\}|<git-status>|\{git-status\}/gi, "")
-    .replace(/\{\{git-last-commit\}\}|<git-last-commit>|\{git-last-commit\}/gi, "");
+export function sanitizeHistoryItem(item) {
+  if (!item || typeof item !== "object") return item;
 
-  return hasPlaceholder(stripped);
+  const sanitized = { ...item };
+
+  if (sanitized.resolvedCommand) {
+    sanitized.resolvedCommand = sanitizeSensitiveData(sanitized.resolvedCommand);
+  }
+  if (sanitized.command && typeof sanitized.command === "string") {
+    sanitized.command = sanitizeSensitiveData(sanitized.command);
+  }
+  if (sanitized.name) {
+    sanitized.name = sanitizeSensitiveData(sanitized.name);
+  }
+
+  if (sanitized.parameters && typeof sanitized.parameters === "object") {
+    const sanitizedParams = {};
+    for (const [key, val] of Object.entries(sanitized.parameters)) {
+      const lowerKey = key.toLowerCase();
+      const isSensitiveKey =
+        lowerKey.includes("password") ||
+        lowerKey.includes("secret") ||
+        lowerKey.includes("token") ||
+        lowerKey.includes("key") ||
+        lowerKey.includes("auth") ||
+        lowerKey.includes("credential");
+
+      if (isSensitiveKey) {
+        sanitizedParams[key] = "[REDACTED]";
+      } else {
+        sanitizedParams[key] = sanitizeSensitiveData(val);
+      }
+    }
+    sanitized.parameters = sanitizedParams;
+  }
+
+  return sanitized;
+}
+
+/**
+ * Adds or updates a command history item, maintaining a maximum of 50 items.
+ * @param {Array<object>} history
+ * @param {object} newItem
+ * @returns {Array<object>}
+ */
+export function addHistoryItem(history, newItem) {
+  if (!Array.isArray(history)) history = [];
+  const sanitized = sanitizeHistoryItem(newItem);
+  sanitized.timestamp = sanitized.timestamp || Date.now();
+
+  // Deduplicate if identical resolvedCommand or command name/parameters exist, move to top
+  const filtered = history.filter(item => {
+    if (!item) return false;
+    const sameResolved = Boolean(item.resolvedCommand && sanitized.resolvedCommand && item.resolvedCommand === sanitized.resolvedCommand);
+    const sameCmdAndParams = Boolean(item.command && sanitized.command && item.command === sanitized.command && JSON.stringify(item.parameters || {}) === JSON.stringify(sanitized.parameters || {}));
+    const sameNameAndResolved = Boolean(item.name && sanitized.name && item.name === sanitized.name && sameResolved);
+    return !(sameResolved || sameCmdAndParams || sameNameAndResolved);
+  });
+
+  const updated = [sanitized, ...filtered];
+  return updated.slice(0, MAX_HISTORY_ITEMS);
 }

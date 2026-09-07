@@ -66,24 +66,38 @@
     background-color: rgba(255, 255, 255, 0.1);
 }
 
-/* Git Repository Integration Styles */
-.cmdbar-git-header {
-    padding: 6px 10px;
-    background-color: rgba(53, 132, 228, 0.12);
-    border: 1px solid rgba(53, 132, 228, 0.3);
-    border-radius: 6px;
-    margin: 4px 8px;
+/* Chain Progress Dialog Styles */
+.cmdbar-chain-dialog {
+    spacing: 12px;
+    padding: 16px;
 }
 
-.cmdbar-git-branch-label {
-    font-weight: bold;
+.cmdbar-step-item {
+    padding: 6px 8px;
+    border-radius: 4px;
+}
+
+.cmdbar-step-success {
+    color: #2ec27e;
+}
+
+.cmdbar-step-failed {
+    color: #e01b24;
+}
+
+.cmdbar-step-running {
     color: #3584e4;
-    font-size: 0.95em;
 }
 
-.cmdbar-git-status-label {
-    color: #888888;
-    font-size: 0.85em;
-    margin-left: 6px;
+.cmdbar-step-paused {
+    color: #f5c211;
+}
+
+.cmdbar-step-skipped {
+    color: #777777;
+}
+
+.cmdbar-step-rollback {
+    color: #ff7800;
 }
 

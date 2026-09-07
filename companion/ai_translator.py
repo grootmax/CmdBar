@@ -17,7 +17,7 @@ def parse_command_from_ai_response(response_text: str) -> str:
     """
     if not response_text or not isinstance(response_text, str):
         return ""
-    
+
     text = response_text.strip()
 
     # 1. Markdown code block ```bash ... ``` or ``` ... ```
@@ -35,9 +35,13 @@ def parse_command_from_ai_response(response_text: str) -> str:
     clean_lines = []
     for line in lines:
         lower = line.lower()
-        if not (lower.startswith("here is") or lower.startswith("you can") or 
-                lower.startswith("note:") or lower.startswith("explanation:") or
-                lower.startswith("command:")):
+        if not (
+            lower.startswith("here is")
+            or lower.startswith("you can")
+            or lower.startswith("note:")
+            or lower.startswith("explanation:")
+            or lower.startswith("command:")
+        ):
             clean_lines.append(line)
 
     return " ".join(clean_lines).strip() or text
@@ -92,13 +96,15 @@ def build_ai_request(provider: str, raw_prompt: str, options: dict = None) -> tu
     prompt = clean_ai_prompt(raw_prompt)
     system_prompt = options.get(
         "system_prompt",
-        "You are an expert Linux shell command assistant. Translate the natural language prompt into a concise, correct executable shell command. Output ONLY the raw executable command inside a ```bash ... ``` code block. Do not include explanation or Markdown outside the code block."
+        "You are an expert Linux shell command assistant. Translate the natural language prompt into a concise, correct executable shell command. Output ONLY the raw executable command inside a ```bash ... ``` code block. Do not include explanation or Markdown outside the code block.",
     )
     temp = options.get("temperature", 0.2)
     api_key = get_ai_api_key(prov, options)
 
     if prov == "openai":
-        endpoint = options.get("endpoint") or "https://api.openai.com/v1/chat/completions"
+        endpoint = (
+            options.get("endpoint") or "https://api.openai.com/v1/chat/completions"
+        )
         model = options.get("model") or "gpt-4o"
         headers = {"Content-Type": "application/json"}
         if api_key:
@@ -108,8 +114,8 @@ def build_ai_request(provider: str, raw_prompt: str, options: dict = None) -> tu
             "temperature": temp,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ]
+                {"role": "user", "content": prompt},
+            ],
         }
         return endpoint, headers, json.dumps(body).encode("utf-8"), "openai"
 
@@ -118,7 +124,7 @@ def build_ai_request(provider: str, raw_prompt: str, options: dict = None) -> tu
         model = options.get("model") or "claude-3-5-sonnet-20241022"
         headers = {
             "Content-Type": "application/json",
-            "anthropic-version": "2023-06-01"
+            "anthropic-version": "2023-06-01",
         }
         if api_key:
             headers["x-api-key"] = api_key
@@ -128,7 +134,7 @@ def build_ai_request(provider: str, raw_prompt: str, options: dict = None) -> tu
             "temperature": temp,
             "messages": [
                 {"role": "user", "content": f"{system_prompt}\n\nUser Prompt: {prompt}"}
-            ]
+            ],
         }
         return endpoint, headers, json.dumps(body).encode("utf-8"), "anthropic"
 
@@ -145,15 +151,15 @@ def build_ai_request(provider: str, raw_prompt: str, options: dict = None) -> tu
                 "temperature": temp,
                 "messages": [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ]
+                    {"role": "user", "content": prompt},
+                ],
             }
         else:
             body = {
                 "model": model,
                 "prompt": f"{system_prompt}\n\nUser Prompt: {prompt}",
                 "stream": False,
-                "options": {"temperature": temp}
+                "options": {"temperature": temp},
             }
         return endpoint, headers, json.dumps(body).encode("utf-8"), "ollama"
 
@@ -186,14 +192,12 @@ def extract_ai_response_text(provider: str, response_data: dict) -> str:
         if choices and isinstance(choices, list):
             return choices[0].get("message", {}).get("content", "")
 
-    return (
-        response_data.get("response") or
-        response_data.get("text") or
-        ""
-    )
+    return response_data.get("response") or response_data.get("text") or ""
 
 
-def http_post_json(url: str, headers: dict, data_bytes: bytes, timeout: int = 15) -> dict:
+def http_post_json(
+    url: str, headers: dict, data_bytes: bytes, timeout: int = 15
+) -> dict:
     """
     Executes HTTP POST using urllib.request.
     """
@@ -239,8 +243,12 @@ def translate_natural_language_to_command(raw_prompt: str, config: dict = None) 
         # Try Fallback Provider (e.g. Ollama)
         try:
             fallback_opts = dict(ai_cfg)
-            fallback_opts["model"] = ai_cfg.get("fallback_model") or ("llama3" if fallback_provider == "ollama" else ai_cfg.get("model"))
-            url, headers, body, prov = build_ai_request(fallback_provider, prompt, fallback_opts)
+            fallback_opts["model"] = ai_cfg.get("fallback_model") or (
+                "llama3" if fallback_provider == "ollama" else ai_cfg.get("model")
+            )
+            url, headers, body, prov = build_ai_request(
+                fallback_provider, prompt, fallback_opts
+            )
             res = http_post_json(url, headers, body)
             text = extract_ai_response_text(prov, res)
             cmd = parse_command_from_ai_response(text)
