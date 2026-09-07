@@ -1619,8 +1619,13 @@ const CmdBarIndicator = GObject.registerClass(
      */
     updateShortcutTooltip(accelStr) {
       let hint = formatShortcutHint(accelStr);
-      let branding = this._cachedConfig ? getBrandingConfig(this._cachedConfig) : { enabled: false, organization_name: "CmdBar" };
-      let appName = branding.enabled ? branding.organization_name : ((this._effectiveBranding && this._effectiveBranding.enabled && this._effectiveBranding.app_name) || "CmdBar");
+      let appName = (this._effectiveBranding && this._effectiveBranding.enabled && (this._effectiveBranding.app_name || this._effectiveBranding.organization_name)) || "CmdBar";
+      if (appName === "CmdBar" && this._cachedConfig) {
+        let branding = getBrandingConfig(this._cachedConfig);
+        if (branding.enabled) {
+          appName = branding.organization_name || branding.app_name || "CmdBar";
+        }
+      }
       let tooltipText = `${appName} (${hint})`;
       if (typeof this.set_tooltip_text === "function") {
         this.set_tooltip_text(tooltipText);
@@ -1688,22 +1693,22 @@ const CmdBarIndicator = GObject.registerClass(
         let config = await loadConfig(configPath, extensionPath);
         this._cachedConfig = config;
 
-        let branding = getBrandingConfig(config);
-        if (branding.enabled) {
+        let brandingConfig = getBrandingConfig(config);
+        if (brandingConfig.enabled) {
           let customLabel = this._extension && this._extension._settings
             ? this._extension._settings.get_string("button-label")
             : "";
           if (!customLabel || !customLabel.trim()) {
-            this.setButtonLabel(branding.organization_name);
+            this.setButtonLabel(brandingConfig.organization_name);
           }
         }
 
-        let branding = getEffectiveBranding(config);
-        this._applyBranding(branding);
+        let effectiveBranding = getEffectiveBranding(config);
+        this._applyBranding(effectiveBranding);
 
         if (config && config._isInvalid) {
           this._showNotification(
-            `${branding && branding.enabled ? branding.app_name : "CmdBar"} Configuration Error`,
+            `${effectiveBranding.enabled ? effectiveBranding.app_name : "CmdBar"} Configuration Error`,
             "Invalid configuration file detected. Using in-memory default settings without overwriting your file.",
           );
         }
@@ -1848,8 +1853,8 @@ const CmdBarIndicator = GObject.registerClass(
         }
 
         // Add enterprise identity footer if configured
-        if (branding.enabled && branding.enterprise_identity) {
-          const ent = branding.enterprise_identity;
+        if (effectiveBranding.enabled && effectiveBranding.enterprise_identity) {
+          const ent = effectiveBranding.enterprise_identity;
           if (ent.organization_name || ent.footer_text) {
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
             const footerText = ent.footer_text || `Managed by ${ent.organization_name}`;

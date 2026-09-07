@@ -338,6 +338,7 @@ DEFAULT_CONFIG = {
     "triggers": [],
 }
 
+
 def get_branding_config(config):
     """
     Returns resolved branding settings from configuration layout.
@@ -639,6 +640,7 @@ def resolve_command_preview(
         # We can also append the list format to be 100% explicit
         array_preview += f"\nArgs List: {json.dumps(resolved_parts)}"
         return array_preview, errors
+
 
 def validate_branding_config(branding):
     """
