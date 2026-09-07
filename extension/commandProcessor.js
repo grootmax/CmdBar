@@ -260,6 +260,9 @@ export const DEFAULT_ALLOWED_BINARIES = [
   "env",
   "sh",
   "bash",
+  "bwrap",
+  "flatpak-spawn",
+  "firejail",
 ];
 
 /**

@@ -17,6 +17,7 @@ import {
   parseAccel,
   formatOutput,
 } from "./commandProcessor.js";
+import { wrapCommandInSandbox, isSandboxEnabled } from "./sandboxWrapper.js";
 import { loadConfig } from "./configSync.js";
 import {
   translateNaturalLanguageToCommand,
@@ -295,21 +296,25 @@ function runCommandAsync(commandName, commandString, cmdObj, placeholderMap, con
     return;
   }
 
+  let execArgv = isSandboxEnabled(cmdObj)
+    ? wrapCommandInSandbox(argv, cmdObj)
+    : argv;
+
   let previewArgv = getPreviewTokens(
-    argv,
+    execArgv,
     placeholderMap,
     cmdObj ? cmdObj.parameters : [],
   );
 
   requestCommandConfirmation(
     commandName,
-    argv,
+    execArgv,
     previewArgv,
     cmdObj,
     () => {
       try {
         let proc = Gio.Subprocess.new(
-          argv,
+          execArgv,
           Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
         );
 
@@ -384,19 +389,23 @@ function _executeCommandAsync(commandLineString, cmdObj) {
       return;
     }
 
+    let execArgv = isSandboxEnabled(cmdObj)
+      ? wrapCommandInSandbox(argv, cmdObj)
+      : argv;
+
     let previewArgv = getPreviewTokens(
-      argv,
+      execArgv,
       {},
       cmdObj ? cmdObj.parameters : [],
     );
 
     requestCommandConfirmation(
       "Command",
-      argv,
+      execArgv,
       previewArgv,
       cmdObj,
       () => {
-        let proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDERR_PIPE);
+        let proc = Gio.Subprocess.new(execArgv, Gio.SubprocessFlags.STDERR_PIPE);
         proc.communicate_utf8_async(null, null, (subprocess, result) => {
           try {
             let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
@@ -564,21 +573,25 @@ const CommandInputMenuItem = GObject.registerClass(
                   return;
                 }
 
+                let execArgv = isSandboxEnabled(this._cmdObj)
+                  ? wrapCommandInSandbox(argv, this._cmdObj)
+                  : argv;
+
                 let previewArgv = getPreviewTokens(
-                  argv,
+                  execArgv,
                   placeholderMap,
                   this._cmdObj.parameters,
                 );
 
                 requestCommandConfirmation(
                   commandName,
-                  argv,
+                  execArgv,
                   previewArgv,
                   this._cmdObj,
                   () => {
                     try {
                       let cmdProc = Gio.Subprocess.new(
-                        argv,
+                        execArgv,
                         Gio.SubprocessFlags.NONE,
                       );
                       if (
@@ -702,7 +715,7 @@ export function copyToClipboard(text) {
 
 /**
  * Helper function supporting pasting clipboard text via wtype (Wayland) or xdotool (X11).
- * @param {string} text
+ * @param {string} [text]
  * @returns {boolean}
  */
 export function pasteClipboardText(text) {
@@ -1125,24 +1138,28 @@ const CmdBarIndicator = GObject.registerClass(
         return;
       }
 
+      let execArgv = isSandboxEnabled(cmdObj)
+        ? wrapCommandInSandbox(argv, cmdObj)
+        : argv;
+
       let previewArgv = getPreviewTokens(
-        argv,
+        execArgv,
         placeholderMap,
         cmdObj ? cmdObj.parameters : [],
       );
 
       requestCommandConfirmation(
         commandName,
-        argv,
+        execArgv,
         previewArgv,
         cmdObj,
         () => {
           let jobId = String(this._nextJobId++);
-          let jobName = `${commandName} (${argv.join(" ")})`;
+          let jobName = `${commandName} (${execArgv.join(" ")})`;
 
           try {
             let proc = Gio.Subprocess.new(
-              argv,
+              execArgv,
               Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
             );
 
