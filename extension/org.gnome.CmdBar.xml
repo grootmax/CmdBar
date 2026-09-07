@@ -121,7 +121,6 @@
       <annotation name="org.freedesktop.DBus.Description" value="Get active Stream Deck profile button grid as JSON string"/>
       <arg name="json_grid" type="s" direction="out"/>
     </method>
-    </method>
     
     <signal name="CommandExecuted">
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a command finishes execution"/>
