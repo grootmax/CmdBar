@@ -20,7 +20,12 @@ from companion.server import (
     uninstall_systemd_service,
     status_systemd_service,
 )
-from companion.companion_app import get_config_path, init_config, save_config, load_config
+from companion.companion_app import (
+    get_config_path,
+    init_config,
+    save_config,
+    load_config,
+)
 
 
 @pytest.fixture
@@ -125,17 +130,15 @@ def test_config_rest_api(running_server):
                     {
                         "name": "Server Echo",
                         "template": "echo {msg}",
-                        "parameters": {
-                            "msg": {
-                                "placeholder": "Message"
-                            }
-                        }
+                        "parameters": {"msg": {"placeholder": "Message"}},
                     }
-                ]
+                ],
             }
         ]
     }
-    status, resp = make_request(host, port, "/api/v1/config", method="PUT", body=new_config)
+    status, resp = make_request(
+        host, port, "/api/v1/config", method="PUT", body=new_config
+    )
     assert status == 200
     assert resp.get("success") is True
 
@@ -153,13 +156,11 @@ def test_shortcuts_crud_rest_api(running_server):
         "category": "Deployment",
         "name": "Deploy Staging",
         "command": "echo Deploying to {env}",
-        "parameters": {
-            "env": {
-                "regex": "^[a-zA-Z0-9_-]+$"
-            }
-        }
+        "parameters": {"env": {"regex": "^[a-zA-Z0-9_-]+$"}},
     }
-    status, resp = make_request(host, port, "/api/v1/shortcuts", method="POST", body=new_shortcut)
+    status, resp = make_request(
+        host, port, "/api/v1/shortcuts", method="POST", body=new_shortcut
+    )
     assert status == 201
     assert resp.get("success") is True
     assert resp.get("shortcut", {}).get("name") == "Deploy Staging"
@@ -175,15 +176,17 @@ def test_shortcuts_crud_rest_api(running_server):
     assert shortcut.get("name") == "Deploy Staging"
 
     # UPDATE Shortcut
-    update_data = {
-        "template": "echo Updated deployment to {env}"
-    }
-    status, resp = make_request(host, port, "/api/v1/shortcuts/Deploy%20Staging", method="PUT", body=update_data)
+    update_data = {"template": "echo Updated deployment to {env}"}
+    status, resp = make_request(
+        host, port, "/api/v1/shortcuts/Deploy%20Staging", method="PUT", body=update_data
+    )
     assert status == 200
     assert resp.get("success") is True
 
     # DELETE Shortcut
-    status, resp = make_request(host, port, "/api/v1/shortcuts/Deploy%20Staging", method="DELETE")
+    status, resp = make_request(
+        host, port, "/api/v1/shortcuts/Deploy%20Staging", method="DELETE"
+    )
     assert status == 200
     assert resp.get("success") is True
 
@@ -203,28 +206,33 @@ def test_execute_rest_api(running_server):
         "parameters": {
             "target": {
                 "regex": "^[a-zA-Z0-9_-]+$",
-                "error_message": "Invalid target name"
+                "error_message": "Invalid target name",
             }
-        }
+        },
     }
-    status, _ = make_request(host, port, "/api/v1/shortcuts", method="POST", body=new_shortcut)
+    status, _ = make_request(
+        host, port, "/api/v1/shortcuts", method="POST", body=new_shortcut
+    )
     assert status == 201
 
     # Execute with valid parameter
-    exec_payload = {
-        "name": "Echo Param",
-        "parameters": {
-            "target": "World"
-        }
-    }
-    status, exec_res = make_request(host, port, "/api/v1/execute", method="POST", body=exec_payload)
+    exec_payload = {"name": "Echo Param", "parameters": {"target": "World"}}
+    status, exec_res = make_request(
+        host, port, "/api/v1/execute", method="POST", body=exec_payload
+    )
     assert status == 200
     assert exec_res.get("success") is True
     assert exec_res.get("exit_code") == 0
     assert "Hello World" in exec_res.get("stdout")
 
     # Execute shortcut endpoint
-    status, exec_res = make_request(host, port, "/api/v1/shortcuts/Echo%20Param/execute", method="POST", body={"parameters": {"target": "CmdBar"}})
+    status, exec_res = make_request(
+        host,
+        port,
+        "/api/v1/shortcuts/Echo%20Param/execute",
+        method="POST",
+        body={"parameters": {"target": "CmdBar"}},
+    )
     assert status == 200
     assert exec_res.get("success") is True
     assert "Hello CmdBar" in exec_res.get("stdout")
@@ -232,11 +240,11 @@ def test_execute_rest_api(running_server):
     # Execute with invalid parameter pattern -> 400
     invalid_payload = {
         "name": "Echo Param",
-        "parameters": {
-            "target": "World; rm -rf /"
-        }
+        "parameters": {"target": "World; rm -rf /"},
     }
-    status, err_res = make_request(host, port, "/api/v1/execute", method="POST", body=invalid_payload)
+    status, err_res = make_request(
+        host, port, "/api/v1/execute", method="POST", body=invalid_payload
+    )
     assert status == 400
     assert "Invalid target name" in err_res.get("error")
 
@@ -245,10 +253,15 @@ def test_ai_translate_rest_api(running_server, monkeypatch):
     host, port, _ = running_server
 
     # Test success with mocked AI translator
-    monkeypatch.setattr("companion.server.translate_natural_language_to_command", lambda prompt: "ls -la")
+    monkeypatch.setattr(
+        "companion.server.translate_natural_language_to_command",
+        lambda prompt: "ls -la",
+    )
 
     payload = {"prompt": "list all files in directory"}
-    status, res = make_request(host, port, "/api/v1/ai/translate", method="POST", body=payload)
+    status, res = make_request(
+        host, port, "/api/v1/ai/translate", method="POST", body=payload
+    )
     assert status == 200
     assert res.get("prompt") == "list all files in directory"
     assert res.get("command") == "ls -la"
@@ -257,8 +270,12 @@ def test_ai_translate_rest_api(running_server, monkeypatch):
     def raise_err(prompt):
         raise RuntimeError("API key invalid")
 
-    monkeypatch.setattr("companion.server.translate_natural_language_to_command", raise_err)
-    status, err_res = make_request(host, port, "/api/v1/ai/translate", method="POST", body=payload)
+    monkeypatch.setattr(
+        "companion.server.translate_natural_language_to_command", raise_err
+    )
+    status, err_res = make_request(
+        host, port, "/api/v1/ai/translate", method="POST", body=payload
+    )
     assert status == 500
     assert "API key invalid" in err_res.get("error")
 
@@ -270,7 +287,7 @@ def test_websocket_interface(running_server):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((host, port))
 
-    ws_key = base64.b64encode(os.urandom(16)).decode('utf-8')
+    ws_key = base64.b64encode(os.urandom(16)).decode("utf-8")
     handshake_req = (
         f"GET /ws HTTP/1.1\r\n"
         f"Host: {host}:{port}\r\n"
@@ -279,16 +296,16 @@ def test_websocket_interface(running_server):
         f"Sec-WebSocket-Key: {ws_key}\r\n"
         f"Sec-WebSocket-Version: 13\r\n\r\n"
     )
-    s.sendall(handshake_req.encode('utf-8'))
+    s.sendall(handshake_req.encode("utf-8"))
 
     # Read handshake response
-    rfile = s.makefile('rb')
-    handshake_resp = rfile.readline().decode('utf-8')
+    rfile = s.makefile("rb")
+    handshake_resp = rfile.readline().decode("utf-8")
     assert "101 Switching Protocols" in handshake_resp
 
     # Consume remaining headers
     while True:
-        line = rfile.readline().decode('utf-8')
+        line = rfile.readline().decode("utf-8")
         if line == "\r\n" or not line:
             break
 
@@ -296,7 +313,7 @@ def test_websocket_interface(running_server):
     ping_payload = json.dumps({"action": "ping"})
     # Masked text frame from client
     mask = b"\x01\x02\x03\x04"
-    p_bytes = ping_payload.encode('utf-8')
+    p_bytes = ping_payload.encode("utf-8")
     masked_payload = bytearray([b ^ mask[i % 4] for i, b in enumerate(p_bytes)])
 
     frame = bytearray()
@@ -310,16 +327,18 @@ def test_websocket_interface(running_server):
     # Read server response frame
     ws_frame = WebSocketFrame.decode_from_rfile(rfile)
     assert ws_frame is not None
-    msg_data = json.loads(ws_frame.payload.decode('utf-8'))
+    msg_data = json.loads(ws_frame.payload.decode("utf-8"))
     assert msg_data.get("event") == "pong"
 
     # 2. Send Execute via WebSocket
-    exec_msg = json.dumps({
-        "action": "execute",
-        "command": "echo WS Exec {var}",
-        "parameters": {"var": "Testing"}
-    })
-    p_bytes = exec_msg.encode('utf-8')
+    exec_msg = json.dumps(
+        {
+            "action": "execute",
+            "command": "echo WS Exec {var}",
+            "parameters": {"var": "Testing"},
+        }
+    )
+    p_bytes = exec_msg.encode("utf-8")
     masked_payload = bytearray([b ^ mask[i % 4] for i, b in enumerate(p_bytes)])
 
     frame = bytearray()
@@ -333,43 +352,45 @@ def test_websocket_interface(running_server):
     # Read started event
     start_frame = WebSocketFrame.decode_from_rfile(rfile)
     assert start_frame is not None
-    start_evt = json.loads(start_frame.payload.decode('utf-8'))
+    start_evt = json.loads(start_frame.payload.decode("utf-8"))
     assert start_evt.get("event") == "started"
 
     # Read completed event
     comp_frame = WebSocketFrame.decode_from_rfile(rfile)
     assert comp_frame is not None
-    comp_evt = json.loads(comp_frame.payload.decode('utf-8'))
+    comp_evt = json.loads(comp_frame.payload.decode("utf-8"))
     assert comp_evt.get("event") == "completed"
     assert comp_evt.get("success") is True
     assert "WS Exec Testing" in comp_evt.get("stdout")
 
     # 3. Send get_config over WS
     gc_msg = json.dumps({"action": "get_config"})
-    p_bytes = gc_msg.encode('utf-8')
+    p_bytes = gc_msg.encode("utf-8")
     masked_payload = bytearray([b ^ mask[i % 4] for i, b in enumerate(p_bytes)])
     frame = bytearray([0x81, 0x80 | len(p_bytes)]) + mask + masked_payload
     s.sendall(bytes(frame))
 
     gc_frame = WebSocketFrame.decode_from_rfile(rfile)
     assert gc_frame is not None
-    gc_evt = json.loads(gc_frame.payload.decode('utf-8'))
+    gc_evt = json.loads(gc_frame.payload.decode("utf-8"))
     assert gc_evt.get("event") == "config"
 
     # 4. Send subscribe over WS
     sub_msg = json.dumps({"action": "subscribe"})
-    p_bytes = sub_msg.encode('utf-8')
+    p_bytes = sub_msg.encode("utf-8")
     masked_payload = bytearray([b ^ mask[i % 4] for i, b in enumerate(p_bytes)])
     frame = bytearray([0x81, 0x80 | len(p_bytes)]) + mask + masked_payload
     s.sendall(bytes(frame))
 
     sub_frame = WebSocketFrame.decode_from_rfile(rfile)
     assert sub_frame is not None
-    sub_evt = json.loads(sub_frame.payload.decode('utf-8'))
+    sub_evt = json.loads(sub_frame.payload.decode("utf-8"))
     assert sub_evt.get("event") == "subscribed"
 
     # 5. Send raw Ping opcode (0x9) frame
-    ping_frame = bytearray([0x89, 0x80, 0x01, 0x02, 0x03, 0x04]) # empty masked ping frame
+    ping_frame = bytearray(
+        [0x89, 0x80, 0x01, 0x02, 0x03, 0x04]
+    )  # empty masked ping frame
     s.sendall(bytes(ping_frame))
 
     pong_frame = WebSocketFrame.decode_from_rfile(rfile)
@@ -391,7 +412,9 @@ def test_server_options_and_error_cases(running_server):
     assert status == 404
 
     # POST invalid JSON payload -> 400
-    status, err = make_request(host, port, "/api/v1/config", method="POST", body="invalid json{")
+    status, err = make_request(
+        host, port, "/api/v1/config", method="POST", body="invalid json{"
+    )
     assert status == 400
 
     # POST execute missing name and command -> 400
@@ -399,11 +422,19 @@ def test_server_options_and_error_cases(running_server):
     assert status == 400
 
     # PUT unknown shortcut -> 404
-    status, err = make_request(host, port, "/api/v1/shortcuts/NonExistent", method="PUT", body={"template": "echo 1"})
+    status, err = make_request(
+        host,
+        port,
+        "/api/v1/shortcuts/NonExistent",
+        method="PUT",
+        body={"template": "echo 1"},
+    )
     assert status == 404
 
     # DELETE unknown shortcut -> 404
-    status, err = make_request(host, port, "/api/v1/shortcuts/NonExistent", method="DELETE")
+    status, err = make_request(
+        host, port, "/api/v1/shortcuts/NonExistent", method="DELETE"
+    )
     assert status == 404
 
 
@@ -420,7 +451,9 @@ def test_cli_main_entrypoint(monkeypatch, temp_config_env):
     main()
 
     # Test --install-service
-    monkeypatch.setattr("sys.argv", ["server.py", "--install-service", "--config", temp_config_env])
+    monkeypatch.setattr(
+        "sys.argv", ["server.py", "--install-service", "--config", temp_config_env]
+    )
     main()
 
     # Test --uninstall-service
@@ -429,7 +462,9 @@ def test_cli_main_entrypoint(monkeypatch, temp_config_env):
 
 
 def test_systemd_service_helpers(temp_config_env):
-    unit_content = get_systemd_unit_content(host="127.0.0.1", port=9090, config_path=temp_config_env)
+    unit_content = get_systemd_unit_content(
+        host="127.0.0.1", port=9090, config_path=temp_config_env
+    )
     assert "[Unit]" in unit_content
     assert "[Service]" in unit_content
     assert "ExecStart=" in unit_content
@@ -437,7 +472,9 @@ def test_systemd_service_helpers(temp_config_env):
     assert "9090" in unit_content
 
     # Install service
-    success = install_systemd_service(host="127.0.0.1", port=9090, config_path=temp_config_env)
+    success = install_systemd_service(
+        host="127.0.0.1", port=9090, config_path=temp_config_env
+    )
     assert success is True
 
     # Status service

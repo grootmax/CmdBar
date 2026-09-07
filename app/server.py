@@ -14,7 +14,7 @@ from companion.server import (
     uninstall_systemd_service,
     status_systemd_service,
     get_systemd_unit_content,
-    main
+    main,
 )
 
 if __name__ == "__main__":
