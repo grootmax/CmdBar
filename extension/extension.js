@@ -1879,7 +1879,6 @@ const CmdBarIndicator = GObject.registerClass(
             this.menu.addMenuItem(footerItem);
           }
         }
-        }
       } catch (e) {
         console.error(`CmdBar: error reloading menu: ${e.message}`);
       }
