@@ -953,8 +953,19 @@ export function spawnSubprocess(argv, flags, config, profileName) {
   return Gio.Subprocess.new(argv, flags);
 }
 
+export {
+  isModhex,
+  validateYubicoOTP,
+  verifyFIDO2Assertion,
+  requestTouchConfirmation,
+  generateEmergencyCodes,
+  verifyAndConsumeEmergencyCode,
+  isSensitiveCommand,
+  authenticateCommand,
+  benchmarkYubikeyAuth,
+} from "./yubikeyAuth.js";
+
 /**
- * Checks if search text triggers calculator mode (> prefix, = prefix, or calc prefix).
  * @param {string} text
  * @returns {boolean}
  */
@@ -1338,12 +1349,13 @@ export function evaluateMathExpression(expr) {
 }
 
 const isNode =
-  typeof process !== "undefined" && process.versions && process.versions.node;
+  typeof process !== "undefined" &&
+  process.versions &&
+  process.versions.node;
 
 let nodeFs = null;
 let nodeCp = null;
 let nodePath = null;
-
 if (isNode) {
   try {
     nodeFs = (await import("fs")).default || (await import("fs"));

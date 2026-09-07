@@ -5,13 +5,21 @@ import shlex
 import os
 import sys
 
+
 class CmdBarDBusClient:
     """
     Python client bindings for CmdBar D-Bus API.
     Enables external applications to dynamically manage and execute commands in CmdBar
     and listen to execution and output signals.
     """
-    def __init__(self, bus_name="org.gnome.CmdBar", object_path="/org/gnome/CmdBar", interface_name="org.gnome.CmdBar", service=None):
+
+    def __init__(
+        self,
+        bus_name="org.gnome.CmdBar",
+        object_path="/org/gnome/CmdBar",
+        interface_name="org.gnome.CmdBar",
+        service=None,
+    ):
         self.bus_name = bus_name
         self.object_path = object_path
         self.interface_name = interface_name
@@ -22,18 +30,23 @@ class CmdBarDBusClient:
     def _call_method(self, method_name, *args):
         if self.service:
             import re
-            snake_name = re.sub(r'(?<!^)(?=[A-Z])', '_', method_name).lower()
+
+            snake_name = re.sub(r"(?<!^)(?=[A-Z])", "_", method_name).lower()
             if hasattr(self.service, snake_name):
                 return getattr(self.service, snake_name)(*args)
             elif hasattr(self.service, method_name):
                 return getattr(self.service, method_name)(*args)
 
         cmd = [
-            "gdbus", "call",
+            "gdbus",
+            "call",
             "--session",
-            "--dest", self.bus_name,
-            "--object-path", self.object_path,
-            "--method", f"{self.interface_name}.{method_name}"
+            "--dest",
+            self.bus_name,
+            "--object-path",
+            self.object_path,
+            "--method",
+            f"{self.interface_name}.{method_name}",
         ]
         for arg in args:
             if isinstance(arg, bool):
@@ -44,7 +57,9 @@ class CmdBarDBusClient:
                 cmd.append(shlex.quote(str(arg)))
 
         try:
-            res = subprocess.run(" ".join(cmd), shell=True, capture_output=True, text=True, timeout=5)
+            res = subprocess.run(
+                " ".join(cmd), shell=True, capture_output=True, text=True, timeout=5
+            )
             if res.returncode != 0:
                 return False
             output = res.stdout.strip()
@@ -56,7 +71,9 @@ class CmdBarDBusClient:
                     return True
                 elif inner == "false":
                     return False
-                elif (inner.startswith("'") and inner.endswith("'")) or (inner.startswith('"') and inner.endswith('"')):
+                elif (inner.startswith("'") and inner.endswith("'")) or (
+                    inner.startswith('"') and inner.endswith('"')
+                ):
                     return inner[1:-1]
                 return inner
             return output
@@ -93,42 +110,39 @@ class CmdBarDBusClient:
                 return []
         return []
 
-    def get_stream_deck_profiles(self) -> dict:
-        """Retrieve Stream Deck active and available profiles."""
-        res = self._call_method("GetStreamDeckProfiles")
-        if isinstance(res, dict):
+    def is_yubikey_required(self, name: str) -> bool:
+        """Checks if a command requires YubiKey authentication."""
+        res = self._call_method("IsYubiKeyRequired", name)
+        return bool(res)
+
+    def authenticate_yubikey(
+        self, name: str, mode: str = "touch", credential: str = ""
+    ) -> tuple:
+        """Authenticates sensitive command using YubiKey or emergency access."""
+        res = self._call_method("AuthenticateYubiKey", name, mode, credential)
+        if isinstance(res, tuple):
+            return res
+        return bool(res), "Authentication completed."
+
+    def generate_emergency_codes(self, count: int = 5) -> list:
+        """Generates single-use emergency recovery codes."""
+        res = self._call_method("GenerateEmergencyCodes", count)
+        if isinstance(res, list):
             return res
         if isinstance(res, str):
             try:
-                clean_str = res.strip("'\"")
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
                 return json.loads(clean_str)
             except Exception:
-                return {"active_profile": "Default", "profiles": ["Default"]}
-        return {"active_profile": "Default", "profiles": ["Default"]}
+                return []
+        return []
 
-    def set_stream_deck_profile(self, profile_name: str) -> bool:
-        """Switch active Stream Deck profile by name."""
-        res = self._call_method("SetStreamDeckProfile", profile_name)
+    def verify_emergency_code(self, code: str) -> bool:
+        """Verifies and consumes a single-use emergency recovery code."""
+        res = self._call_method("VerifyEmergencyCode", code)
         return bool(res)
-
-    def get_stream_deck_status(self) -> dict:
-        """Retrieve diagnostic status summary for Stream Deck integration."""
-        res = self._call_method("GetStreamDeckStatus")
-        if isinstance(res, dict):
-            return res
-        if isinstance(res, str):
-            try:
-                clean_str = res.strip("'\"")
-                return json.loads(clean_str)
-            except Exception:
-                return {}
-        return {}
-
-    def trigger_stream_deck_button(self, key_index: int) -> bool:
-        """Trigger simulated button press on Stream Deck key index."""
-        res = self._call_method("TriggerStreamDeckButton", key_index)
-        return bool(res)
-
 
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
