@@ -954,7 +954,6 @@ export function spawnSubprocess(argv, flags, config, profileName) {
 }
 
 /**
- * Checks if search text triggers calculator mode (> prefix, = prefix, or calc prefix).
  * @param {string} text
  * @returns {boolean}
  */
