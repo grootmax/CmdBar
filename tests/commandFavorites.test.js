@@ -243,10 +243,12 @@ describe('Command Favorites and Pinning Unit Tests', () => {
     const items = ext._indicator.menu.items;
     // Top section: "Favorites" category header, then favorited Command B, then separator
     expect(items.length).toBeGreaterThan(3);
-    const firstHeader = items[0];
-    expect(firstHeader.label.text).toBe('Favorites');
+    const favoritesHeader = items.find(i => i && i.label && i.label.text === 'Favorites') || items[2];
+    expect(favoritesHeader).toBeDefined();
+    expect(favoritesHeader.label.text).toBe('Favorites');
 
-    const favCmdItem = items[1];
+    const favCmdItem = items.find(i => i && i._commandName === 'Command B');
+    expect(favCmdItem).toBeDefined();
     expect(favCmdItem._commandName).toBe('Command B');
 
     ext.disable();

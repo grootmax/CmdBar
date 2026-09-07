@@ -19,5 +19,6 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
 - **Command Audit Logging**: Log command executions to `~/.local/share/cmdbar/audit.log` with ISO timestamp, user, exit code, and execution duration. Includes Privacy Mode to automatically exclude sensitive commands and parameters, daily log rotation, and an in-app Audit Log Viewer.
+- **Lazy Loading & Virtual Scrolling**: Commands load on-demand when category items expand with progressive loading indicators and category-level caching. Large lists (100+ commands) render with chunked virtual list scrolling.
 - **Local Live Reload**: Configuration changes sync instantly.
 - **Enterprise White Label & Custom Branding**: Rebrand the top panel indicator with custom enterprise logo, application name, primary brand colors, domain alias endpoints, and custom SSL certificate bundles.
