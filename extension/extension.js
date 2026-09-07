@@ -1477,7 +1477,7 @@ const CmdBarIndicator = GObject.registerClass(
      * @param {object} branding
      */
     _applyBranding(branding) {
-      if (!branding) return;
+      if (!branding || !this._icon) return;
       this._effectiveBranding = branding;
 
       // Custom icon / logo
