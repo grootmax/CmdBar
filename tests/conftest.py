@@ -56,3 +56,20 @@ sys.modules["gi.repository.Gtk"] = Gtk_mock
 sys.modules["gi.repository.Adw"] = Adw_mock
 sys.modules["gi.repository.Gio"] = Gio_mock
 sys.modules["gi.repository.GLib"] = GLib_mock
+
+import os
+import tempfile
+import pytest
+
+
+@pytest.fixture
+def temp_config_file():
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+        tmp_path = tmp.name
+    os.environ["CMDBAR_CONFIG_PATH"] = tmp_path
+    yield tmp_path
+    if os.path.exists(tmp_path):
+        os.remove(tmp_path)
+    if os.path.exists(tmp_path + ".tmp"):
+        os.remove(tmp_path + ".tmp")
+    os.environ.pop("CMDBAR_CONFIG_PATH", None)
