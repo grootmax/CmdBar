@@ -18,19 +18,16 @@ from app.template_manager import (
     export_templates_to_file,
 )
 
-
 def canonical_json(obj):
     if isinstance(obj, dict):
         clean = {k: v for k, v in obj.items() if k != "signature"}
-        return json.dumps(clean, sort_keys=True, separators=(",", ":"))
+        return json.dumps(clean, sort_keys=True, separators=(',', ':'))
     elif isinstance(obj, list):
-        return "[" + ",".join(canonical_json(x) for x in obj) + "]"
-    return json.dumps(obj, separators=(",", ":"))
-
+        return '[' + ','.join(canonical_json(x) for x in obj) + ']'
+    return json.dumps(obj, separators=(',', ':'))
 
 def get_key_path(config_path):
     return os.path.join(os.path.dirname(config_path), ".key")
-
 
 def get_or_create_signing_key(key_path):
     dir_path = os.path.dirname(key_path)
@@ -52,23 +49,17 @@ def get_or_create_signing_key(key_path):
         pass
     return key
 
-
 def compute_signature(config_data, key):
     str_val = canonical_json(config_data)
-    return hmac.new(
-        key.encode("utf-8"), str_val.encode("utf-8"), hashlib.sha256
-    ).hexdigest()
-
+    return hmac.new(key.encode("utf-8"), str_val.encode("utf-8"), hashlib.sha256).hexdigest()
 
 # Check for GTK/Adwaita availability
 GUI_AVAILABLE = False
 try:
     import gi
-
-    gi.require_version("Gtk", "4.0")
-    gi.require_version("Adw", "1")
+    gi.require_version('Gtk', '4.0')
+    gi.require_version('Adw', '1')
     from gi.repository import Gtk, Adw, GLib, Gio
-
     GUI_AVAILABLE = True
 except (ImportError, ValueError):
     GUI_AVAILABLE = False
@@ -104,9 +95,9 @@ def get_config_path():
     """
     Returns the path to the configuration file, supporting environment variable override.
     """
-    if os.environ.get("CMDBAR_CONFIG_PATH"):
-        return os.environ["CMDBAR_CONFIG_PATH"]
-    return os.path.expanduser("~/.config/cmdbar/config.json")
+    if os.environ.get('CMDBAR_CONFIG_PATH'):
+        return os.environ['CMDBAR_CONFIG_PATH']
+    return os.path.expanduser('~/.config/cmdbar/config.json')
 
 
 def init_config():
@@ -127,18 +118,20 @@ def init_config():
                             "parameters": {
                                 "branch": {
                                     "regex": r"^[a-zA-Z0-9_\-/\\.]+$",
-                                    "placeholder": "Enter branch name",
+                                    "placeholder": "Enter branch name"
                                 }
-                            },
+                            }
                         },
                         {
                             "name": "Docker Logs",
                             "template": "docker logs {container_id}",
                             "parameters": {
-                                "container_id": {"placeholder": "Enter container ID"}
-                            },
-                        },
-                    ],
+                                "container_id": {
+                                    "placeholder": "Enter container ID"
+                                }
+                            }
+                        }
+                    ]
                 }
             ]
         }
@@ -146,24 +139,20 @@ def init_config():
     return config_path
 
 
-def load_config():
+def load_config(path=None):
     """
     Loads and parses the configuration file, verifying its signature.
     """
-    config_path = init_config()
+    config_path = path if path else init_config()
     key_path = get_key_path(config_path)
     key = get_or_create_signing_key(key_path)
     try:
         with open(config_path, "r") as f:
             config_data = json.load(f)
-
+        
         # Verify cryptographic signature
         sig = config_data.get("signature") if isinstance(config_data, dict) else None
-        expected_sig = (
-            compute_signature(config_data, key)
-            if isinstance(config_data, dict)
-            else None
-        )
+        expected_sig = compute_signature(config_data, key) if isinstance(config_data, dict) else None
 
         if not sig or sig != expected_sig:
             backup_path = config_path + ".bak"
@@ -183,9 +172,9 @@ def load_config():
                                 "parameters": {
                                     "branch": {
                                         "regex": r"^[a-zA-Z0-9_\-/\\.]+$",
-                                        "placeholder": "Enter branch name",
+                                        "placeholder": "Enter branch name"
                                     }
-                                },
+                                }
                             },
                             {
                                 "name": "Docker Logs",
@@ -194,9 +183,9 @@ def load_config():
                                     "container_id": {
                                         "placeholder": "Enter container ID"
                                     }
-                                },
-                            },
-                        ],
+                                }
+                            }
+                        ]
                     }
                 ]
             }
@@ -243,11 +232,11 @@ def load_config():
     return config_data
 
 
-def save_config(config_data):
+def save_config(config_data, path=None):
     """
     Saves the configuration to the file safely with a cryptographic signature.
     """
-    config_path = get_config_path()
+    config_path = path if path else get_config_path()
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
     if isinstance(config_data, dict):
         key_path = get_key_path(config_path)
@@ -356,9 +345,7 @@ def get_preview_tokens(tokens, params=None, schema=None):
         if params:
             for k, v in params.items():
                 val_str = str(v) if v is not None else ""
-                is_secure = (k in secure_keys) or any(
-                    s in k.lower() for s in ["password", "secret", "token"]
-                )
+                is_secure = (k in secure_keys) or any(s in k.lower() for s in ["password", "secret", "token"])
                 replace_val = "[REDACTED]" if is_secure else val_str
                 sub = sub.replace(f"{{{k}}}", replace_val)
                 sub = sub.replace(f"<{k}>", replace_val)
@@ -384,12 +371,11 @@ def run_command_in_shell(command_str):
 # CLI / INTERACTIVE COMPANION APP MODE
 # =====================================================================
 
-
 def run_cli_mode():
     print("===============================================")
     print("   CmdBar Companion Management App (CLI Mode)   ")
     print("===============================================")
-
+    
     while True:
         config_data = load_config()
         print("\nMain Menu:")
@@ -401,9 +387,10 @@ def run_cli_mode():
         print("6. Test-Run Command Template")
         print("7. Import from Template Library")
         print("8. Export Custom Commands as Template")
-        print("9. Exit")
-
-        choice = input("\nEnter choice [1-9]: ").strip()
+        print("9. Custom Branding & White Label")
+        print("10. Exit")
+        
+        choice = input("\nEnter choice [1-10]: ").strip()
         if choice == "1":
             list_categories_and_commands(config_data)
         elif choice == "2":
@@ -421,6 +408,8 @@ def run_cli_mode():
         elif choice == "8":
             export_templates_cli_flow(config_data)
         elif choice == "9":
+            manage_branding(config_data)
+        elif choice == "10":
             print("Goodbye!")
             break
         else:
@@ -510,13 +499,64 @@ def export_templates_cli_flow(config_data):
     print(f"Successfully exported template '{tmpl['name']}' to {out_path}!")
 
 
+def manage_branding(config_data):
+    from app.config_schema import get_effective_branding
+    branding = get_effective_branding(config_data)
+    print("\n--- Custom Branding & White Label Options ---")
+    print(f"Enabled: {branding['enabled']}")
+    print(f"Brand Application Name: {branding['app_name']}")
+    print(f"Logo Path: {branding['logo_path']}")
+    print(f"Primary Color: {branding['brand_colors']['primary']}")
+    print(f"Domain Alias: {branding['domain_alias']}")
+    print(f"Organization Name: {branding['enterprise_identity']['organization_name']}")
+    
+    print("\n1. Toggle White Labeling (Enable/Disable)")
+    print("2. Set Application Name")
+    print("3. Set Logo Path")
+    print("4. Set Brand Primary Color")
+    print("5. Set Domain Alias")
+    print("6. Back to Main Menu")
+    
+    choice = input("\nEnter choice [1-6]: ").strip()
+    if choice == "1":
+        branding["enabled"] = not branding["enabled"]
+        config_data["branding"] = branding
+        save_config(config_data)
+        print(f"White labeling status set to: {branding['enabled']}")
+    elif choice == "2":
+        name = input("Enter custom app name: ").strip()
+        if name:
+            branding["app_name"] = name
+            config_data["branding"] = branding
+            save_config(config_data)
+            print(f"App name set to: {name}")
+    elif choice == "3":
+        logo = input("Enter logo path or icon name: ").strip()
+        branding["logo_path"] = logo
+        config_data["branding"] = branding
+        save_config(config_data)
+        print(f"Logo set to: {logo}")
+    elif choice == "4":
+        color = input("Enter primary color (e.g. #1e3a8a): ").strip()
+        if color:
+            branding["brand_colors"]["primary"] = color
+            config_data["branding"] = branding
+            save_config(config_data)
+            print(f"Primary color set to: {color}")
+    elif choice == "5":
+        domain = input("Enter domain alias (e.g. cmd.acme.corp): ").strip()
+        branding["domain_alias"] = domain
+        config_data["branding"] = branding
+        save_config(config_data)
+        print(f"Domain alias set to: {domain}")
+
 
 def list_categories_and_commands(config_data):
     categories = config_data.get("categories", [])
     if not categories:
         print("\nNo categories defined.")
         return
-
+    
     for i, cat in enumerate(categories, 1):
         print(f"\n[{i}] Category: {cat.get('name')}")
         commands = cat.get("commands", [])
@@ -529,9 +569,7 @@ def list_categories_and_commands(config_data):
             if params:
                 print(f"        Parameters:")
                 for ph, cfg in params.items():
-                    print(
-                        f"          - {{{ph}}}: regex={cfg.get('regex', 'default')}, placeholder={cfg.get('placeholder', '')}"
-                    )
+                    print(f"          - {{{ph}}}: regex={cfg.get('regex', 'default')}, placeholder={cfg.get('placeholder', '')}")
 
 
 def add_category(config_data):
@@ -539,8 +577,11 @@ def add_category(config_data):
     if not name:
         print("Category name cannot be empty.")
         return
-
-    config_data.setdefault("categories", []).append({"name": name, "commands": []})
+    
+    config_data.setdefault("categories", []).append({
+        "name": name,
+        "commands": []
+    })
     if save_config(config_data):
         print(f"Category '{name}' added successfully!")
 
@@ -550,11 +591,11 @@ def add_command(config_data):
     if not categories:
         print("Please add a category first.")
         return
-
+    
     print("\nSelect Category:")
     for idx, cat in enumerate(categories, 1):
         print(f"{idx}. {cat['name']}")
-
+    
     try:
         cat_idx = int(input("Select category number: ")) - 1
         if cat_idx < 0 or cat_idx >= len(categories):
@@ -563,41 +604,41 @@ def add_command(config_data):
     except ValueError:
         print("Invalid selection.")
         return
-
+    
     category = categories[cat_idx]
-
+    
     name = input("Enter command name (e.g. Git Checkout): ").strip()
     if not name:
         print("Command name cannot be empty.")
         return
-
+        
     template = input("Enter command template (e.g. git checkout {branch}): ").strip()
     if not template:
         print("Template cannot be empty.")
         return
-
+        
     placeholders = find_placeholders(template)
     parameters = {}
-
+    
     for ph in placeholders:
         print(f"\nConfiguring parameter: {{{ph}}}")
-        placeholder_text = input(
-            f"Enter helper placeholder text for {{{ph}}}: "
-        ).strip()
-        regex_pattern = input(
-            f"Enter custom validation regex (press enter for default alphanumeric): "
-        ).strip()
-
+        placeholder_text = input(f"Enter helper placeholder text for {{{ph}}}: ").strip()
+        regex_pattern = input(f"Enter custom validation regex (press enter for default alphanumeric): ").strip()
+        
         param_cfg = {}
         if placeholder_text:
             param_cfg["placeholder"] = placeholder_text
         if regex_pattern:
             param_cfg["regex"] = regex_pattern
-
+        
         parameters[ph] = param_cfg
-
-    new_cmd = {"name": name, "template": template, "parameters": parameters}
-
+        
+    new_cmd = {
+        "name": name,
+        "template": template,
+        "parameters": parameters
+    }
+    
     category.setdefault("commands", []).append(new_cmd)
     if save_config(config_data):
         print(f"Command '{name}' added to category '{category['name']}'!")
@@ -606,7 +647,7 @@ def add_command(config_data):
 def edit_command(config_data):
     categories = config_data.get("categories", [])
     all_cmds = []
-
+    
     print("\nSelect Command to Edit:")
     counter = 1
     for cat in categories:
@@ -614,11 +655,11 @@ def edit_command(config_data):
             print(f"{counter}. [{cat['name']}] {cmd['name']}")
             all_cmds.append(cmd)
             counter += 1
-
+            
     if not all_cmds:
         print("No commands available to edit.")
         return
-
+        
     try:
         selection = int(input("Enter command number: ")) - 1
         if selection < 0 or selection >= len(all_cmds):
@@ -627,17 +668,17 @@ def edit_command(config_data):
     except ValueError:
         print("Invalid selection.")
         return
-
+        
     cmd = all_cmds[selection]
     print(f"\nEditing '{cmd['name']}'")
-
+    
     new_name = input(f"Enter new name [{cmd['name']}]: ").strip()
     if new_name:
-        cmd["name"] = new_name
-
+        cmd['name'] = new_name
+        
     new_template = input(f"Enter new template [{cmd['template']}]: ").strip()
     if new_template:
-        cmd["template"] = new_template
+        cmd['template'] = new_template
         # Rebuild parameters
         placeholders = find_placeholders(new_template)
         old_params = cmd.get("parameters", {})
@@ -645,30 +686,22 @@ def edit_command(config_data):
         for ph in placeholders:
             old_cfg = old_params.get(ph, {})
             print(f"\nConfiguring parameter: {{{ph}}}")
-            placeholder_text = input(
-                f"Enter placeholder helper [{old_cfg.get('placeholder', '')}]: "
-            ).strip()
-            regex_pattern = input(
-                f"Enter validation regex [{old_cfg.get('regex', 'default')}]: "
-            ).strip()
-
+            placeholder_text = input(f"Enter placeholder helper [{old_cfg.get('placeholder', '')}]: ").strip()
+            regex_pattern = input(f"Enter validation regex [{old_cfg.get('regex', 'default')}]: ").strip()
+            
             param_cfg = {}
-            param_cfg["placeholder"] = (
-                placeholder_text if placeholder_text else old_cfg.get("placeholder", "")
-            )
-            param_cfg["regex"] = (
-                regex_pattern if regex_pattern else old_cfg.get("regex", "")
-            )
-
+            param_cfg["placeholder"] = placeholder_text if placeholder_text else old_cfg.get('placeholder', '')
+            param_cfg["regex"] = regex_pattern if regex_pattern else old_cfg.get('regex', '')
+            
             # Clean up empty strings
             if not param_cfg["placeholder"]:
                 param_cfg.pop("placeholder", None)
             if not param_cfg["regex"]:
                 param_cfg.pop("regex", None)
-
+                
             new_params[ph] = param_cfg
-        cmd["parameters"] = new_params
-
+        cmd['parameters'] = new_params
+        
     if save_config(config_data):
         print("Command edited successfully!")
 
@@ -678,7 +711,7 @@ def delete_item(config_data):
     print("\nSelect what to delete:")
     print("1. Delete a Command")
     print("2. Delete a Category (and all its commands)")
-
+    
     choice = input("Enter choice [1-2]: ").strip()
     if choice == "1":
         all_cmds = []
@@ -702,7 +735,7 @@ def delete_item(config_data):
                 print("Invalid selection.")
         except ValueError:
             print("Invalid input.")
-
+            
     elif choice == "2":
         for idx, cat in enumerate(categories, 1):
             print(f"{idx}. {cat['name']}")
@@ -711,9 +744,7 @@ def delete_item(config_data):
             if 0 <= selection < len(categories):
                 deleted_cat = categories.pop(selection)
                 if save_config(config_data):
-                    print(
-                        f"Deleted category '{deleted_cat['name']}' and all its commands."
-                    )
+                    print(f"Deleted category '{deleted_cat['name']}' and all its commands.")
             else:
                 print("Invalid selection.")
         except ValueError:
@@ -723,21 +754,19 @@ def delete_item(config_data):
 def test_run_command_flow(config_data):
     categories = config_data.get("categories", [])
     all_cmds = []
-
+    
     print("\nSelect Command to Test-Run:")
     counter = 1
     for cat in categories:
         for cmd in cat.get("commands", []):
-            print(
-                f"{counter}. [{cat['name']}] {cmd['name']}  (Template: {cmd['template']})"
-            )
+            print(f"{counter}. [{cat['name']}] {cmd['name']}  (Template: {cmd['template']})")
             all_cmds.append(cmd)
             counter += 1
-
+            
     if not all_cmds:
         print("No commands available to test.")
         return
-
+        
     try:
         selection = int(input("Enter command number: ")) - 1
         if selection < 0 or selection >= len(all_cmds):
@@ -746,20 +775,20 @@ def test_run_command_flow(config_data):
     except ValueError:
         print("Invalid selection.")
         return
-
+        
     cmd = all_cmds[selection]
-    template = cmd["template"]
+    template = cmd['template']
     placeholders = find_placeholders(template)
-
+    
     params_data = {}
     print(f"\n--- Testing Command: {cmd['name']} ---")
     print(f"Template: {template}")
-
+    
     for ph in placeholders:
         param_cfg = cmd.get("parameters", {}).get(ph, {})
         regex_pattern = param_cfg.get("regex")
         placeholder_text = param_cfg.get("placeholder", f"Enter value for {ph}")
-
+        
         while True:
             val = input(f"{ph} ({placeholder_text}): ")
             if validate_input(val, regex_pattern):
@@ -767,9 +796,7 @@ def test_run_command_flow(config_data):
                 break
             else:
                 p = regex_pattern if regex_pattern else r"^[a-zA-Z0-9_\-]+$"
-                print(
-                    f"Error: Input '{val}' violates validation regex '{p}'. Execution blocked."
-                )
+                print(f"Error: Input '{val}' violates validation regex '{p}'. Execution blocked.")
                 retry = input("Do you want to retry? [Y/n]: ").strip().lower()
                 if retry == "n":
                     print("Test execution cancelled.")
@@ -779,10 +806,8 @@ def test_run_command_flow(config_data):
     final_command = substitute_and_quote_command(template, params_data)
     print(f"\nFinal Constructed Shell Command:")
     print(f"  {final_command}")
-
-    run_now = (
-        input("\nDo you want to execute this command now? [Y/n]: ").strip().lower()
-    )
+    
+    run_now = input("\nDo you want to execute this command now? [Y/n]: ").strip().lower()
     if run_now != "n":
         print("\nExecuting in shell...")
         code, stdout, stderr = run_command_in_shell(final_command)
@@ -798,86 +823,83 @@ def test_run_command_flow(config_data):
 # =====================================================================
 
 if GUI_AVAILABLE:
-
     class TestCommandDialog(Gtk.Window):
         def __init__(self, parent, command, callback):
-            super().__init__(
-                transient_for=parent, modal=True, title=f"Test Run: {command['name']}"
-            )
+            super().__init__(transient_for=parent, modal=True, title=f"Test Run: {command['name']}")
             self.command = command
             self.callback = callback
-            self.placeholders = find_placeholders(command["template"])
+            self.placeholders = find_placeholders(command['template'])
             self.entries = {}
             self.warning_labels = {}
             self.proc = None
             self.cancellable = None
-
+            
             self.set_default_size(450, 300)
-
+            
             # Layout
             main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
             set_uniform_margin(main_box, 15)
             self.set_child(main_box)
-
+            
             # Title
             title_lbl = Gtk.Label(label=f"Template: {command['template']}")
             title_lbl.add_css_class("title-4")
             main_box.append(title_lbl)
-
+            
             # Inputs box
             inputs_grid = Gtk.Grid(column_spacing=10, row_spacing=10)
             main_box.append(inputs_grid)
-
+            
             for i, ph in enumerate(self.placeholders):
                 param_cfg = command.get("parameters", {}).get(ph, {})
                 placeholder_text = param_cfg.get("placeholder", f"Enter {ph}")
-
+                
                 lbl = Gtk.Label(label=f"{ph}:", xalign=0)
                 inputs_grid.attach(lbl, 0, i, 1, 1)
-
+                
                 entry = Gtk.Entry(placeholder_text=placeholder_text)
                 inputs_grid.attach(entry, 1, i, 1, 1)
                 self.entries[ph] = entry
-
+                
                 warn_lbl = Gtk.Label(label="", xalign=0)
                 warn_lbl.add_css_class("error")
                 # Inline css styles via Gtk context are a bit complex, we can use css provider or class names
                 # For safety, we can just use class name and manage text
                 inputs_grid.attach(warn_lbl, 1, i + len(self.placeholders), 1, 1)
                 self.warning_labels[ph] = warn_lbl
-
+                
                 entry.connect("changed", self.validate_all)
-
+                
             # Action Buttons
             btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             btn_box.set_halign(Gtk.Align.END)
             main_box.append(btn_box)
-
+            
             self.run_btn = Gtk.Button(label="Execute Test")
             self.run_btn.add_css_class("suggested-action")
             self.run_btn.connect("clicked", self.on_run_clicked)
             btn_box.append(self.run_btn)
-
+            
             self.cancel_test_btn = Gtk.Button(label="Cancel")
             self.cancel_test_btn.add_css_class("destructive-action")
             self.cancel_test_btn.connect("clicked", self.on_cancel_test_clicked)
             self.cancel_test_btn.set_visible(False)
             btn_box.append(self.cancel_test_btn)
-
+            
             close_btn = Gtk.Button(label="Close")
             close_btn.connect("clicked", lambda b: self.destroy())
             btn_box.append(close_btn)
-
+            
             # Terminal output log
             self.output_view = Gtk.TextView(editable=False, cursor_visible=False)
             self.output_view.set_size_request(-1, 150)
             scroll = Gtk.ScrolledWindow()
             scroll.set_child(self.output_view)
             main_box.append(scroll)
-
+            
             self.connect("destroy", self.on_destroy)
             self.validate_all()
-
+            
         def validate_all(self, *args):
             all_valid = True
             for ph in self.placeholders:
@@ -885,70 +907,55 @@ if GUI_AVAILABLE:
                 val = entry.get_text()
                 param_cfg = self.command.get("parameters", {}).get(ph, {})
                 pattern = param_cfg.get("regex")
-
+                
                 is_valid = validate_input(val, pattern)
                 warn_lbl = self.warning_labels[ph]
-
+                
                 if not is_valid:
                     all_valid = False
                     p = pattern if pattern else r"^[a-zA-Z0-9_\-]+$"
                     warn_lbl.set_text(f"Invalid! Must match: {p}")
                 else:
                     warn_lbl.set_text("")
-
+                    
             self.run_btn.set_sensitive(all_valid and self.proc is None)
             return all_valid
-
+            
         def on_run_clicked(self, btn):
             if not self.validate_all():
                 return
-
+            
             params_data = {ph: self.entries[ph].get_text() for ph in self.placeholders}
-            final_cmd = substitute_and_quote_command(
-                self.command.get("template", ""), params_data
-            )
+            final_cmd = substitute_and_quote_command(self.command.get('template', ''), params_data)
 
-            if is_ai_command(final_cmd) or is_ai_command(
-                self.command.get("template", "")
-            ):
+            if is_ai_command(final_cmd) or is_ai_command(self.command.get('template', '')):
                 try:
-                    cfg_data = (
-                        self.parent.config_data
-                        if hasattr(self, "parent")
-                        and hasattr(self.parent, "config_data")
-                        else None
-                    )
-                    translated_cmd = translate_natural_language_to_command(
-                        final_cmd, cfg_data
-                    )
+                    cfg_data = self.parent.config_data if hasattr(self, "parent") and hasattr(self.parent, "config_data") else None
+                    translated_cmd = translate_natural_language_to_command(final_cmd, cfg_data)
                     buffer = self.output_view.get_buffer()
-                    buffer.set_text(
-                        f"AI Translated Prompt: {final_cmd}\nGenerated Command: {translated_cmd}\n"
-                    )
+                    buffer.set_text(f"AI Translated Prompt: {final_cmd}\nGenerated Command: {translated_cmd}\n")
                     final_cmd = translated_cmd
                 except Exception as e:
                     buffer = self.output_view.get_buffer()
                     buffer.set_text(f"AI Translation Error: {str(e)}\n")
                     return
 
-            if self.command.get("verified") is False:
+            if self.command.get('verified') is False:
                 if GUI_AVAILABLE:
                     dlg = Adw.MessageDialog(
                         heading=f"Confirm Execution: {self.command.get('name', 'Command')}",
-                        body=f"This command is unverified:\n\n{final_cmd}\n\nDo you want to execute it?",
+                        body=f"This command is unverified:\n\n{final_cmd}\n\nDo you want to execute it?"
                     )
                     dlg.add_response("cancel", "Cancel")
                     dlg.add_response("execute", "Execute")
-
+                    
                     def on_response(dialog, response_id):
                         if response_id == "execute":
                             self._start_execution(final_cmd)
                         else:
                             buffer = self.output_view.get_buffer()
-                            buffer.set_text(
-                                "Execution cancelled by user confirmation dialog.\n"
-                            )
-
+                            buffer.set_text("Execution cancelled by user confirmation dialog.\n")
+                    
                     dlg.connect("response", on_response)
                     dlg.present()
                     return
@@ -958,45 +965,37 @@ if GUI_AVAILABLE:
         def _start_execution(self, final_cmd):
             # Print construction & execution log
             buffer = self.output_view.get_buffer()
-            buffer.set_text(
-                f"Constructed Command:\n{final_cmd}\n\nRunning in shell...\n"
-            )
-
+            buffer.set_text(f"Constructed Command:\n{final_cmd}\n\nRunning in shell...\n")
+            
             try:
                 self.cancellable = Gio.Cancellable()
                 try:
                     self.proc = Gio.Subprocess.new(
-                        ["setsid", "sh", "-c", final_cmd],
-                        Gio.SubprocessFlags.STDOUT_PIPE
-                        | Gio.SubprocessFlags.STDERR_PIPE,
+                        ['setsid', 'sh', '-c', final_cmd],
+                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
                     )
                 except Exception:
                     self.proc = Gio.Subprocess.new(
-                        ["sh", "-c", final_cmd],
-                        Gio.SubprocessFlags.STDOUT_PIPE
-                        | Gio.SubprocessFlags.STDERR_PIPE,
+                        ['sh', '-c', final_cmd],
+                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
                     )
-
+                
                 self.run_btn.set_visible(False)
                 self.cancel_test_btn.set_visible(True)
                 self.cancel_test_btn.set_sensitive(True)
-
-                self.proc.communicate_utf8_async(
-                    None, self.cancellable, self.on_communicate_complete
-                )
+                
+                self.proc.communicate_utf8_async(None, self.cancellable, self.on_communicate_complete)
             except Exception as e:
-                buffer.insert(
-                    buffer.get_end_iter(), f"\nFailed to start execution: {str(e)}\n"
-                )
+                buffer.insert(buffer.get_end_iter(), f"\nFailed to start execution: {str(e)}\n")
                 self.proc = None
                 self.cancellable = None
                 self.run_btn.set_visible(True)
                 self.cancel_test_btn.set_visible(False)
                 self.validate_all()
-
+                
         def on_cancel_test_clicked(self, btn):
             self.stop_running_process()
-
+            
         def on_communicate_complete(self, proc, result):
             try:
                 success, stdout, stderr = proc.communicate_utf8_finish(result)
@@ -1013,11 +1012,11 @@ if GUI_AVAILABLE:
                     log_text = f"\nError: {e.message}\n"
             except Exception as e:
                 log_text = f"\nException occurred during execution: {str(e)}\n"
-
+                
             try:
                 buffer = self.output_view.get_buffer()
                 buffer.insert(buffer.get_end_iter(), log_text)
-
+                
                 # Reset UI state
                 self.proc = None
                 self.cancellable = None
@@ -1026,7 +1025,7 @@ if GUI_AVAILABLE:
                 self.validate_all()
             except Exception:
                 pass
-
+                
         def stop_running_process(self):
             if self.cancellable and not self.cancellable.is_cancelled():
                 try:
@@ -1037,7 +1036,6 @@ if GUI_AVAILABLE:
                 try:
                     pid = int(self.proc.get_identifier())
                     import os, signal
-
                     os.killpg(pid, signal.SIGTERM)
                 except Exception:
                     pass
@@ -1047,24 +1045,25 @@ if GUI_AVAILABLE:
                     pass
             self.proc = None
             self.cancellable = None
-
+            
         def on_destroy(self, *args):
             self.stop_running_process()
+
 
     class CmdBarAppWindow(Adw.ApplicationWindow):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.set_title("CmdBar Management Utility")
             self.set_default_size(800, 600)
-
+            
             # Main Layout
             main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             self.set_content(main_box)
-
+            
             # Header Bar
             header = Adw.HeaderBar()
             main_box.append(header)
-
+            
             # Add New Command Button on Header
             add_btn = Gtk.Button(label="Add Command")
             add_btn.connect("clicked", self.on_add_command_clicked)
@@ -1079,69 +1078,68 @@ if GUI_AVAILABLE:
             export_btn = Gtk.Button(label="Export Template")
             export_btn.connect("clicked", self.on_export_template_clicked)
             header.pack_start(export_btn)
+            
             # Content Pane
             paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
             paned.set_position(300)
             main_box.append(paned)
-
+            
             # Left Pane: Command List
             left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
             set_uniform_margin(left_box, 10)
             paned.set_start_child(left_box)
-
+            
             scroll = Gtk.ScrolledWindow()
             left_box.append(scroll)
-
+            
             self.command_list = Gtk.ListBox()
             self.command_list.connect("row-selected", self.on_row_selected)
             scroll.set_child(self.command_list)
-
+            
             # Right Pane: Command Editor Form
             self.right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
             set_uniform_margin(self.right_box, 15)
             self.right_box.set_sensitive(False)
             paned.set_end_child(self.right_box)
-
+            
             # Form Fields
             self.name_entry = Gtk.Entry(placeholder_text="e.g. Git Checkout")
             self.right_box.append(Gtk.Label(label="Command Name:", xalign=0))
             self.right_box.append(self.name_entry)
-
-            self.template_entry = Gtk.Entry(
-                placeholder_text="e.g. git checkout {branch}"
-            )
+            
+            self.template_entry = Gtk.Entry(placeholder_text="e.g. git checkout {branch}")
             self.right_box.append(Gtk.Label(label="Command Template:", xalign=0))
             self.right_box.append(self.template_entry)
-
+            
             # Parameters Configuration Help
             self.params_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
             self.right_box.append(Gtk.Label(label="Parameters Details:", xalign=0))
             self.right_box.append(self.params_box)
-
+            
             # Form Buttons
             btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             self.right_box.append(btn_box)
-
+            
             save_btn = Gtk.Button(label="Save Command")
             save_btn.add_css_class("suggested-action")
             save_btn.connect("clicked", self.on_save_clicked)
             btn_box.append(save_btn)
-
+            
             self.test_btn = Gtk.Button(label="Test Command...")
             self.test_btn.connect("clicked", self.on_test_clicked)
             btn_box.append(self.test_btn)
-
+            
             delete_btn = Gtk.Button(label="Delete Command")
             delete_btn.add_css_class("destructive-action")
             delete_btn.connect("clicked", self.on_delete_clicked)
             btn_box.append(delete_btn)
-
+            
             # Load Data
             self.config_data = load_config()
             self.selected_cmd = None
             self.selected_category = None
             self.refresh_list()
-
+            
         def refresh_list(self):
             # Clear list box
             while True:
@@ -1149,7 +1147,7 @@ if GUI_AVAILABLE:
                 if not row:
                     break
                 self.command_list.remove(row)
-
+                
             categories = self.config_data.get("categories", [])
             for cat in categories:
                 for cmd in cat.get("commands", []):
@@ -1157,36 +1155,36 @@ if GUI_AVAILABLE:
                     box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
                     set_uniform_margin(box, 5)
                     row.set_child(box)
-
+                    
                     lbl = Gtk.Label(label=f"[{cat['name']}] {cmd['name']}", xalign=0)
                     box.append(lbl)
-
+                    
                     # Store objects on the row for reference
                     row._cmd = cmd
                     row._category = cat
                     self.command_list.append(row)
-
+                    
         def on_row_selected(self, listbox, row):
             if not row:
                 self.right_box.set_sensitive(False)
                 self.selected_cmd = None
                 self.selected_category = None
                 return
-
+                
             self.selected_cmd = row._cmd
             self.selected_category = row._category
             self.right_box.set_sensitive(True)
-
+            
             self.name_entry.set_text(self.selected_cmd.get("name", ""))
             self.template_entry.set_text(self.selected_cmd.get("template", ""))
-
+            
             # Clear params box
             while True:
                 child = self.params_box.get_first_child()
                 if not child:
                     break
                 self.params_box.remove(child)
-
+                
             # Build params configuration helper display
             placeholders = find_placeholders(self.selected_cmd.get("template", ""))
             params = self.selected_cmd.setdefault("parameters", {})
@@ -1194,17 +1192,15 @@ if GUI_AVAILABLE:
                 p_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
                 lbl = Gtk.Label(label=f"{{{ph}}} Regex:")
                 p_box.append(lbl)
-
+                
                 regex_val = params.get(ph, {}).get("regex", "")
-                reg_entry = Gtk.Entry(
-                    text=regex_val, placeholder_text="default Alphanumeric"
-                )
+                reg_entry = Gtk.Entry(text=regex_val, placeholder_text="default Alphanumeric")
                 reg_entry._ph = ph
                 reg_entry.connect("changed", self.on_param_regex_changed)
                 p_box.append(reg_entry)
-
+                
                 self.params_box.append(p_box)
-
+                
         def on_param_regex_changed(self, entry):
             ph = entry._ph
             val = entry.get_text().strip()
@@ -1215,23 +1211,23 @@ if GUI_AVAILABLE:
                 params[ph]["regex"] = val
             else:
                 params[ph].pop("regex", None)
-
+                
         def on_save_clicked(self, btn):
             if not self.selected_cmd:
                 return
-
+                
             self.selected_cmd["name"] = self.name_entry.get_text()
             self.selected_cmd["template"] = self.template_entry.get_text()
-
+            
             save_config(self.config_data)
             self.refresh_list()
-
+            
         def on_test_clicked(self, btn):
             if not self.selected_cmd:
                 return
             dialog = TestCommandDialog(self, self.selected_cmd, None)
             dialog.present()
-
+            
         def on_delete_clicked(self, btn):
             if not self.selected_cmd or not self.selected_category:
                 return
@@ -1239,18 +1235,22 @@ if GUI_AVAILABLE:
             save_config(self.config_data)
             self.right_box.set_sensitive(False)
             self.refresh_list()
-
+            
         def on_add_command_clicked(self, btn):
             categories = self.config_data.get("categories", [])
             if not categories:
                 # Create a default category
                 self.config_data["categories"] = [{"name": "Default", "commands": []}]
                 categories = self.config_data["categories"]
-
+                
             new_cmd = {
                 "name": "New Shortcut",
                 "template": "echo {param}",
-                "parameters": {"param": {"placeholder": "Enter value"}},
+                "parameters": {
+                    "param": {
+                        "placeholder": "Enter value"
+                    }
+                }
             }
             categories[0]["commands"].append(new_cmd)
             save_config(self.config_data)
@@ -1285,14 +1285,15 @@ if GUI_AVAILABLE:
                 existing = [existing]
             existing.append(tmpl)
             export_templates_to_file(existing, export_path)
+
+
+
     class CmdBarApp(Adw.Application):
         def __init__(self, **kwargs):
-            super().__init__(
-                application_id="com.yourdomain.CmdBar",
-                flags=Gio.ApplicationFlags.FLAGS_NONE,
-                **kwargs,
-            )
-
+            super().__init__(application_id='com.yourdomain.CmdBar',
+                             flags=Gio.ApplicationFlags.FLAGS_NONE,
+                             **kwargs)
+                             
         def do_activate(self):
             win = CmdBarAppWindow(application=self)
             win.present()
@@ -1302,29 +1303,49 @@ if GUI_AVAILABLE:
 # MAIN ENTRY POINT
 # =====================================================================
 
-
 def main():
     parser = argparse.ArgumentParser(description="CmdBar Companion App")
-    parser.add_argument(
-        "--cli",
-        action="store_true",
-        help="Force running in Command Line Interface mode",
-    )
+    parser.add_argument("--cli", action="store_true", help="Force running in Command Line Interface mode")
+    parser.add_argument("--branding", action="store_true", help="Print current branding configuration")
+    parser.add_argument("--enable-white-label", action="store_true", help="Enable enterprise white labeling")
+    parser.add_argument("--disable-white-label", action="store_true", help="Disable enterprise white labeling")
+    parser.add_argument("--set-app-name", type=str, help="Set white label application name")
     args = parser.parse_args()
-
+    
     # Initialize config directory/file
     init_config()
+    
+    if args.branding or args.enable_white_label or args.disable_white_label or args.set_app_name:
+        from app.config_schema import get_effective_branding
+        config = load_config()
+        branding = get_effective_branding(config)
+        if args.enable_white_label:
+            branding["enabled"] = True
+            config["branding"] = branding
+            save_config(config)
+            print("Enterprise white labeling enabled.")
+        elif args.disable_white_label:
+            branding["enabled"] = False
+            config["branding"] = branding
+            save_config(config)
+            print("Enterprise white labeling disabled.")
+        if args.set_app_name:
+            branding["app_name"] = args.set_app_name
+            config["branding"] = branding
+            save_config(config)
+            print(f"White label application name set to '{args.set_app_name}'.")
+        if args.branding:
+            print(json.dumps(branding, indent=2))
+        return
 
     if args.cli or not GUI_AVAILABLE:
         if not GUI_AVAILABLE and not args.cli:
-            print(
-                "GUI libraries (GTK4 / Libadwaita) are not available. Falling back to CLI mode.\n"
-            )
+            print("GUI libraries (GTK4 / Libadwaita) are not available. Falling back to CLI mode.\n")
         run_cli_mode()
     else:
         app = CmdBarApp()
         sys.exit(app.run(None))
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

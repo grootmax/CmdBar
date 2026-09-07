@@ -7,19 +7,16 @@ import hmac
 import hashlib
 import secrets
 
-
 def canonical_json(obj):
     if isinstance(obj, dict):
         clean = {k: v for k, v in obj.items() if k != "signature"}
-        return json.dumps(clean, sort_keys=True, separators=(",", ":"))
+        return json.dumps(clean, sort_keys=True, separators=(',', ':'))
     elif isinstance(obj, list):
-        return "[" + ",".join(canonical_json(x) for x in obj) + "]"
-    return json.dumps(obj, separators=(",", ":"))
-
+        return '[' + ','.join(canonical_json(x) for x in obj) + ']'
+    return json.dumps(obj, separators=(',', ':'))
 
 def get_key_path(config_path):
     return os.path.join(os.path.dirname(config_path), ".key")
-
 
 def get_or_create_signing_key(key_path):
     dir_path = os.path.dirname(key_path)
@@ -41,109 +38,144 @@ def get_or_create_signing_key(key_path):
         pass
     return key
 
-
 def compute_signature(config_data, key):
     str_val = canonical_json(config_data)
-    return hmac.new(
-        key.encode("utf-8"), str_val.encode("utf-8"), hashlib.sha256
-    ).hexdigest()
-
+    return hmac.new(key.encode("utf-8"), str_val.encode("utf-8"), hashlib.sha256).hexdigest()
 
 DEFAULT_CONFIG = {
-    "ai": {
-        "provider": "openai",
-        "model": "gpt-4o",
-        "temperature": 0.2,
-        "require_confirmation": True,
-        "fallback_provider": "ollama",
-        "fallback_model": "llama3",
+  "sso": {
+    "enabled": False,
+    "default_provider": "azure",
+    "auto_provision": True,
+    "allowed_domains": ["example.com"],
+    "default_role": "user",
+    "group_claim": "groups",
+    "providers": {
+      "azure": {
+        "name": "Azure Active Directory",
+        "type": "azure",
+        "protocol": "oidc",
+        "tenant_id": "common",
+        "client_id": "",
+        "client_secret": "",
+        "redirect_uri": "http://localhost:8080/callback/sso",
+        "saml_sso_url": "https://login.microsoftonline.com/common/saml2",
+        "saml_entity_id": "https://sts.windows.net/common/"
+      },
+      "okta": {
+        "name": "Okta Workforce Identity",
+        "type": "okta",
+        "protocol": "oidc",
+        "domain": "company.okta.com",
+        "client_id": "",
+        "client_secret": "",
+        "redirect_uri": "http://localhost:8080/callback/sso",
+        "saml_sso_url": "https://company.okta.com/app/sso/saml",
+        "saml_entity_id": "http://www.okta.com/default"
+      },
+      "google": {
+        "name": "Google Workspace SSO",
+        "type": "google",
+        "protocol": "oidc",
+        "client_id": "",
+        "client_secret": "",
+        "redirect_uri": "http://localhost:8080/callback/sso",
+        "saml_sso_url": "https://accounts.google.com/o/saml2/idp",
+        "saml_entity_id": "https://accounts.google.com/o/saml2?idpid=default"
+      }
     },
-    "categories": [
-        {
-            "name": "System Utilities",
-            "commands": [
-                {
-                    "name": "Ping Host",
-                    "command": "ping -c 3 <host>",
-                    "mode": "shell-quoted",
-                    "parameters": {
-                        "host": {
-                            "regex": "^[a-zA-Z0-9.-]+$",
-                            "error_message": "Invalid host format! Must contain only alphanumeric, dots, and dashes.",
-                        }
-                    },
-                },
-                {
-                    "name": "Direct Exec",
-                    "command": '/usr/bin/echo "Hello" <arg>',
-                    "mode": "direct-array",
-                    "parameters": {
-                        "arg": {
-                            "regex": "^[a-zA-Z0-9_]+$",
-                            "error_message": "Invalid argument format! Must be alphanumeric or underscore.",
-                        }
-                    },
-                },
-                {
-                    "name": "Pull → Build → Deploy → Notify",
-                    "type": "chain",
-                    "description": "Multi-step deployment chain pipeline",
-                    "steps": [
-                        {
-                            "id": "pull",
-                            "name": "Pull latest code",
-                            "command": "git pull origin main",
-                            "on_success": "build",
-                            "on_failure": "abort",
-                            "rollback_command": "git reset --hard HEAD@{1}",
-                        },
-                        {
-                            "id": "build",
-                            "name": "Build project",
-                            "command": "make build",
-                            "depends_on": ["pull"],
-                            "success_criteria": {"exit_code": 0},
-                            "on_success": "pause_before_deploy",
-                            "on_failure": "abort",
-                        },
-                        {
-                            "id": "pause_before_deploy",
-                            "name": "Pause before deploy",
-                            "type": "pause",
-                            "prompt": "Ready to deploy to production environment?",
-                            "on_success": "deploy",
-                        },
-                        {
-                            "id": "deploy",
-                            "name": "Deploy service",
-                            "command": "echo Deploying service...",
-                            "depends_on": ["build"],
-                            "rollback_command": "echo Reverting deploy...",
-                            "on_success": "notify",
-                        },
-                        {
-                            "id": "notify",
-                            "name": "Notify Slack/Desktop",
-                            "command": "notify-send 'Deployment pipeline completed successfully!'",
-                            "depends_on": ["deploy"],
-                        },
-                    ],
-                },
-            ],
-        }
+    "group_mappings": [
+      {
+        "id": "rule-admin",
+        "group_pattern": "Admins",
+        "match_type": "contains",
+        "role": "admin",
+        "categories": ["System Utilities", "Infrastructure", "AI Assistant", "Projects"]
+      },
+      {
+        "id": "rule-dev",
+        "group_pattern": "Developers",
+        "match_type": "contains",
+        "role": "developer",
+        "categories": ["Projects", "AI Assistant"]
+      }
     ],
+    "session": {
+      "max_ttl_seconds": 28800,
+      "refresh_threshold_seconds": 300
+    }
+  },
+  "ai": {
+    "provider": "openai",
+    "model": "gpt-4o",
+    "temperature": 0.2,
+    "require_confirmation": True,
+    "fallback_provider": "ollama",
+    "fallback_model": "llama3"
+  },
+  "branding": {
+    "enabled": False,
+    "app_name": "CmdBar",
+    "logo_path": "",
+    "brand_colors": {
+      "primary": "#3584e4",
+      "accent": "#1c71d8",
+      "background": "#2d2d2d",
+      "text": "#ffffff"
+    },
+    "domain_alias": "",
+    "custom_ssl": {
+      "cert_path": "",
+      "key_path": "",
+      "ca_path": "",
+      "verify_ssl": True
+    },
+    "enterprise_identity": {
+      "organization_name": "",
+      "support_url": "",
+      "support_email": "",
+      "footer_text": ""
+    }
+  },
+  "categories": [
+    {
+      "name": "System Utilities",
+      "commands": [
+        {
+          "name": "Ping Host",
+          "command": "ping -c 3 <host>",
+          "mode": "shell-quoted",
+          "parameters": {
+            "host": {
+              "regex": "^[a-zA-Z0-9.-]+$",
+              "error_message": "Invalid host format! Must contain only alphanumeric, dots, and dashes."
+            }
+          }
+        },
+        {
+          "name": "Direct Exec",
+          "command": "/usr/bin/echo \"Hello\" <arg>",
+          "mode": "direct-array",
+          "parameters": {
+            "arg": {
+              "regex": "^[a-zA-Z0-9_]+$",
+              "error_message": "Invalid argument format! Must be alphanumeric or underscore."
+            }
+          }
+        }
+      ]
+    }
+  ]
 }
-
 
 def get_config_path():
     config_dir = os.path.expanduser("~/.config/cmdbar")
     return os.path.join(config_dir, "config.json")
 
-
 def load_config(path=None):
     if path is None:
         path = get_config_path()
-
+    
     key_path = get_key_path(path)
     key = get_or_create_signing_key(key_path)
 
@@ -171,24 +203,20 @@ def load_config(path=None):
                 return legacy_config
             except Exception:
                 pass
-
+        
         # Otherwise, save & return DEFAULT_CONFIG
         default_copy = json.loads(json.dumps(DEFAULT_CONFIG))
         save_config(default_copy, path)
         default_copy.pop("signature", None)
         return default_copy
-
+    
     try:
         with open(path, "r") as f:
             config_data = json.load(f)
-
+        
         # Verify cryptographic signature
         sig = config_data.get("signature") if isinstance(config_data, dict) else None
-        expected_sig = (
-            compute_signature(config_data, key)
-            if isinstance(config_data, dict)
-            else None
-        )
+        expected_sig = compute_signature(config_data, key) if isinstance(config_data, dict) else None
 
         if not sig or sig != expected_sig:
             backup_path = path + ".bak"
@@ -198,13 +226,7 @@ def load_config(path=None):
             except Exception:
                 pass
             try:
-                subprocess.Popen(
-                    [
-                        "notify-send",
-                        "Security Alert: Config Verification Failed",
-                        "Untrusted or tampered configuration file detected. Archived to .bak and restored safe defaults.",
-                    ]
-                )
+                subprocess.Popen(["notify-send", "Security Alert: Config Verification Failed", "Untrusted or tampered configuration file detected. Archived to .bak and restored safe defaults."])
             except Exception:
                 pass
             default_copy = json.loads(json.dumps(DEFAULT_CONFIG))
@@ -214,6 +236,12 @@ def load_config(path=None):
 
         # Normalize and migrate loaded configuration
         migrated = False
+        if "branding" in config_data and not validate_branding_config(config_data["branding"]):
+            config_data["branding"] = json.loads(json.dumps(DEFAULT_CONFIG["branding"]))
+            migrated = True
+        if "white_label" in config_data and not validate_branding_config(config_data["white_label"]):
+            config_data["white_label"] = json.loads(json.dumps(DEFAULT_CONFIG["branding"]))
+            migrated = True
         for cat in config_data.get("categories", []):
             # Migrate shortcuts to commands
             if "shortcuts" in cat:
@@ -221,7 +249,7 @@ def load_config(path=None):
                     cat["commands"] = cat["shortcuts"]
                 del cat["shortcuts"]
                 migrated = True
-
+                
             if "commands" in cat:
                 for cmd in cat["commands"]:
                     # Support CLI Companion file loading without data structure mismatches
@@ -238,10 +266,10 @@ def load_config(path=None):
                                     params_dict[p_name] = p_cfg
                         cmd["parameters"] = params_dict
                         migrated = True
-
+                        
         if migrated:
             save_config(config_data, path)
-
+            
         config_data.pop("signature", None)
         return config_data
     except Exception:
@@ -250,7 +278,6 @@ def load_config(path=None):
         default_copy.pop("signature", None)
         default_copy["_is_invalid"] = True
         return default_copy
-
 
 def save_config(config_data, path=None):
     if path is None:
@@ -261,9 +288,7 @@ def save_config(config_data, path=None):
         key = get_or_create_signing_key(key_path)
         config_data["signature"] = compute_signature(config_data, key)
     from app.atomic_write import atomic_write_json
-
     atomic_write_json(path, config_data)
-
 
 def validate_parameter_value(value, parameter_schema):
     """
@@ -273,14 +298,14 @@ def validate_parameter_value(value, parameter_schema):
     """
     value = str(value).strip() if value is not None else ""
     # 1. Check for forbidden characters
-    forbidden = [";", "&&", "||", "|", "&", "`", "$", "(", ")", ">", "<"]
+    forbidden = [';', '&&', '||', '|', '&', '`', '$', '(', ')', '>', '<']
     for f in forbidden:
         if f in value:
             err = f"Input contains forbidden characters like '{f}'!"
             if parameter_schema.get("secure", False) and value:
                 err = err.replace(value, "[REDACTED]")
             return False, err
-
+            
     # 2. Check regex validation if any
     regex_pattern = parameter_schema.get("regex")
     if regex_pattern:
@@ -295,7 +320,7 @@ def validate_parameter_value(value, parameter_schema):
             if parameter_schema.get("secure", False) and value:
                 err = err.replace(value, "[REDACTED]")
             return False, err
-
+            
     return True, None
 
 from app.sandbox_wrapper import (
@@ -303,17 +328,14 @@ from app.sandbox_wrapper import (
     wrap_command_in_sandbox,
 )
 
-
-def resolve_command_preview(
-    command_template, mode, parameter_values, parameters_schema, sandbox_config=None
-):
+def resolve_command_preview(command_template, mode, parameter_values, parameters_schema, sandbox_config=None):
     """
     Resolves a command template for dry-run preview.
     Returns (resolved_string, errors_dict)
     :visibility: public
     """
     errors = {}
-
+    
     schema_items = []
     if isinstance(parameters_schema, dict):
         for p_name, p_cfg in parameters_schema.items():
@@ -330,7 +352,7 @@ def resolve_command_preview(
         is_valid, err_msg = validate_parameter_value(val, param)
         if not is_valid:
             errors[name] = err_msg
-
+            
     # We should mask secure parameter values *only* for the preview substitution.
     # The actual validation must have already run on the plain-text value.
     preview_values = {}
@@ -367,11 +389,10 @@ def resolve_command_preview(
         try:
             parts = shlex.split(command_template)
         except Exception:
-            parts = command_template.split()  # fallback
-
+            parts = command_template.split() # fallback
+            
         resolved_parts = []
         for part in parts:
-
             def replacer_part(match):
                 ph = match.group(1) or match.group(2) or match.group(3)
                 if ph in preview_values:
@@ -383,31 +404,141 @@ def resolve_command_preview(
 
         if sandbox_config and is_sandbox_enabled(sandbox_config):
             resolved_parts = wrap_command_in_sandbox(resolved_parts, sandbox_config)
+
         # Preview representation for direct-array is the list of individual args
-        array_preview = "Direct Array: " + " ".join(
-            shlex.quote(p) for p in resolved_parts
-        )
+        array_preview = "Direct Array: " + " ".join(shlex.quote(p) for p in resolved_parts)
         # We can also append the list format to be 100% explicit
         array_preview += f"\nArgs List: {json.dumps(resolved_parts)}"
         return array_preview, errors
 
 
-def validate_chain_command(command_obj):
+def validate_branding_config(branding):
     """
-    Validates a multi-step chain command structure.
-    Returns (is_valid, error_message).
+    Validates white label branding configuration structure.
     :visibility: public
     """
-    if not isinstance(command_obj, dict):
-        return False, "Chain command definition must be a JSON object."
-    if not command_obj.get("name"):
-        return False, "Chain command must have a name."
-    steps = command_obj.get("steps")
-    if not isinstance(steps, list) or len(steps) == 0:
-        return False, "Chain command must define a non-empty 'steps' array."
-    for idx, step in enumerate(steps):
-        if not isinstance(step, dict):
-            return False, f"Step at index {idx} must be a JSON object."
-        if not step.get("id") and not step.get("name"):
-            return False, f"Step at index {idx} must specify an 'id' or 'name'."
-    return True, None
+    if branding is None:
+        return True
+    if not isinstance(branding, dict):
+        return False
+    
+    if "enabled" in branding and not isinstance(branding["enabled"], bool):
+        return False
+    if "app_name" in branding and not isinstance(branding["app_name"], str):
+        return False
+    if "logo_path" in branding and not isinstance(branding["logo_path"], str):
+        return False
+    
+    if "brand_colors" in branding and branding["brand_colors"] is not None:
+        if not isinstance(branding["brand_colors"], dict):
+            return False
+        hex_regex = r"^#(?:[0-9a-fA-F]{3,4}){1,2}$"
+        for key in ["primary", "accent", "background", "text"]:
+            val = branding["brand_colors"].get(key)
+            if val is not None and val != "":
+                if not isinstance(val, str):
+                    return False
+                if not re.match(hex_regex, val) and not re.match(r"^(rgb|hsl)a?\(", val) and not val.isalpha():
+                    return False
+
+    if "domain_alias" in branding and not isinstance(branding["domain_alias"], str):
+        return False
+    if branding.get("domain_alias") and isinstance(branding["domain_alias"], str) and branding["domain_alias"].strip():
+        domain_str = branding["domain_alias"].strip()
+        domain_regex = r"^(https?://)?([a-zA-Z0-9.-]+|\[[a-fA-F0-9:]+\])(:[0-9]+)?(/.*)?$"
+        if not re.match(domain_regex, domain_str):
+            return False
+
+    if "custom_ssl" in branding and branding["custom_ssl"] is not None:
+        if not isinstance(branding["custom_ssl"], dict):
+            return False
+        ssl_cfg = branding["custom_ssl"]
+        if "cert_path" in ssl_cfg and not isinstance(ssl_cfg["cert_path"], str):
+            return False
+        if "key_path" in ssl_cfg and not isinstance(ssl_cfg["key_path"], str):
+            return False
+        if "ca_path" in ssl_cfg and not isinstance(ssl_cfg["ca_path"], str):
+            return False
+        if "verify_ssl" in ssl_cfg and not isinstance(ssl_cfg["verify_ssl"], bool):
+            return False
+
+    if "enterprise_identity" in branding and branding["enterprise_identity"] is not None:
+        if not isinstance(branding["enterprise_identity"], dict):
+            return False
+        ent = branding["enterprise_identity"]
+        for k in ["organization_name", "support_url", "support_email", "footer_text"]:
+            if k in ent and not isinstance(ent[k], str):
+                return False
+
+    return True
+
+
+def get_effective_branding(config):
+    """
+    Returns merged effective branding configuration dictionary with defaults.
+    :visibility: public
+    """
+    default_branding = DEFAULT_CONFIG["branding"]
+    raw_branding = (config or {}).get("branding") or (config or {}).get("white_label") or {}
+    return {
+        "enabled": bool(raw_branding.get("enabled", default_branding["enabled"])),
+        "app_name": (raw_branding.get("app_name") or "").strip() or default_branding["app_name"],
+        "logo_path": raw_branding.get("logo_path", default_branding["logo_path"]),
+        "brand_colors": {
+            "primary": (raw_branding.get("brand_colors") or {}).get("primary") or default_branding["brand_colors"]["primary"],
+            "accent": (raw_branding.get("brand_colors") or {}).get("accent") or default_branding["brand_colors"]["accent"],
+            "background": (raw_branding.get("brand_colors") or {}).get("background") or default_branding["brand_colors"]["background"],
+            "text": (raw_branding.get("brand_colors") or {}).get("text") or default_branding["brand_colors"]["text"],
+        },
+        "domain_alias": raw_branding.get("domain_alias", default_branding["domain_alias"]),
+        "custom_ssl": {
+            "cert_path": (raw_branding.get("custom_ssl") or {}).get("cert_path") or default_branding["custom_ssl"]["cert_path"],
+            "key_path": (raw_branding.get("custom_ssl") or {}).get("key_path") or default_branding["custom_ssl"]["key_path"],
+            "ca_path": (raw_branding.get("custom_ssl") or {}).get("ca_path") or default_branding["custom_ssl"]["ca_path"],
+            "verify_ssl": (raw_branding.get("custom_ssl") or {}).get("verify_ssl", default_branding["custom_ssl"]["verify_ssl"]),
+        },
+        "enterprise_identity": {
+            "organization_name": (raw_branding.get("enterprise_identity") or {}).get("organization_name") or default_branding["enterprise_identity"]["organization_name"],
+            "support_url": (raw_branding.get("enterprise_identity") or {}).get("support_url") or default_branding["enterprise_identity"]["support_url"],
+            "support_email": (raw_branding.get("enterprise_identity") or {}).get("support_email") or default_branding["enterprise_identity"]["support_email"],
+            "footer_text": (raw_branding.get("enterprise_identity") or {}).get("footer_text") or default_branding["enterprise_identity"]["footer_text"],
+        }
+    }
+
+
+def get_effective_domain_url(branding_config, endpoint_path=""):
+    """
+    Resolves domain alias URL for enterprise server endpoints.
+    :visibility: public
+    """
+    domain = ((branding_config or {}).get("domain_alias") or "").strip()
+    if not domain:
+        return endpoint_path
+    if not domain.startswith("http://") and not domain.startswith("https://"):
+        domain = "https://" + domain
+    domain = domain.rstrip("/")
+    path = endpoint_path if endpoint_path.startswith("/") else "/" + endpoint_path
+    return domain + path
+
+
+def get_ssl_context(branding_config):
+    """
+    Creates an SSLContext configured with custom enterprise SSL certificates/CAs.
+    :visibility: public
+    """
+    import ssl
+    ssl_cfg = (branding_config or {}).get("custom_ssl") or {}
+    verify_ssl = ssl_cfg.get("verify_ssl", True)
+    ca_path = ssl_cfg.get("ca_path")
+    cert_path = ssl_cfg.get("cert_path")
+    key_path = ssl_cfg.get("key_path")
+
+    if not verify_ssl:
+        ctx = ssl._create_unverified_context()
+        return ctx
+
+    ctx = ssl.create_default_context(cafile=ca_path if ca_path and os.path.exists(ca_path) else None)
+    if cert_path and os.path.exists(cert_path):
+        ctx.load_cert_chain(certfile=cert_path, keyfile=key_path if key_path and os.path.exists(key_path) else None)
+    return ctx
+

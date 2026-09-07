@@ -1,9 +1,5 @@
 import pytest
-from app.config_schema import (
-    validate_parameter_value,
-    resolve_command_preview,
-    validate_chain_command,
-)
+from app.config_schema import validate_parameter_value, resolve_command_preview
 
 
 def test_validate_parameter_value_success():
@@ -243,19 +239,3 @@ def test_python_config_signing_and_tamper_rejection(tmp_path):
     with open(bak_file, "r") as f:
         bak_data = json.load(f)
     assert bak_data["categories"][0]["commands"][0]["command"] == "/tmp/malicious"
-
-
-def test_validate_chain_command():
-    valid_chain = {
-        "name": "Pipeline",
-        "type": "chain",
-        "steps": [{"id": "step1", "name": "Build", "command": "make build"}],
-    }
-    is_valid, err = validate_chain_command(valid_chain)
-    assert is_valid
-    assert err is None
-
-    invalid_chain = {"type": "chain"}
-    is_valid, err = validate_chain_command(invalid_chain)
-    assert not is_valid
-    assert "name" in err

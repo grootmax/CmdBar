@@ -206,5 +206,55 @@ export default class CmdBarPreferences extends ExtensionPreferences {
       settings.set_strv("shortcut", parsed);
       syncUIFromSettings();
     });
+
+    // Enterprise Branding Page
+    const brandingPage = new Adw.PreferencesPage({
+      title: _("Enterprise Branding"),
+      iconName: "emblem-favorite-symbolic",
+    });
+    window.add(brandingPage);
+
+    const brandingGroup = new Adw.PreferencesGroup({
+      title: _("Custom White Label Options"),
+      description: _("Configure enterprise identity, custom logo, brand colors, and domain alias"),
+    });
+    brandingPage.add(brandingGroup);
+
+    const wlRow = new Adw.SwitchRow({
+      title: _("Enable White Labeling"),
+      subtitle: _("Apply enterprise brand name, custom logo, and styling"),
+    });
+    brandingGroup.add(wlRow);
+    settings.bind("white-label-enabled", wlRow, "active", Gio.SettingsBindFlags.DEFAULT);
+
+    const appNameRow = new Adw.EntryRow({
+      title: _("Enterprise Application Name"),
+      show_apply_button: false,
+    });
+    brandingGroup.add(appNameRow);
+    settings.bind("custom-app-name", appNameRow, "text", Gio.SettingsBindFlags.DEFAULT);
+
+    const logoRow = new Adw.EntryRow({
+      title: _("Custom Logo Path or Icon"),
+      show_apply_button: false,
+    });
+    brandingGroup.add(logoRow);
+    settings.bind("custom-logo-path", logoRow, "text", Gio.SettingsBindFlags.DEFAULT);
+
+    const colorRow = new Adw.EntryRow({
+      title: _("Brand Primary Color"),
+      subtitle: _("e.g. #3584e4 or #1e3a8a"),
+      show_apply_button: false,
+    });
+    brandingGroup.add(colorRow);
+    settings.bind("brand-primary-color", colorRow, "text", Gio.SettingsBindFlags.DEFAULT);
+
+    const domainRow = new Adw.EntryRow({
+      title: _("Domain Alias Endpoint"),
+      subtitle: _("e.g. cmd.acme.corp"),
+      show_apply_button: false,
+    });
+    brandingGroup.add(domainRow);
+    settings.bind("domain-alias", domainRow, "text", Gio.SettingsBindFlags.DEFAULT);
   }
 }

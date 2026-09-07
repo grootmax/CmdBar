@@ -4,17 +4,23 @@ import os
 import sys
 import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
+from app.config_schema import validate_branding_config, get_effective_branding
+from companion.sso_manager import SSOManager, SSOProviderConfig
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
-    and manages signals for CommandExecuted and CommandOutput.
+    SSO authentication methods, and manages signals.
+    :visibility: public
     """
     def __init__(self, config_path=None):
         self.config_path = config_path
         self._executed_listeners = []
         self._output_listeners = []
+        self._sso_session_listeners = []
+        config = load_config()
+        self._sso_manager = SSOManager(config)
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
@@ -131,3 +137,87 @@ class CmdBarDBusService:
 
     def get_commands_json(self) -> str:
         return json.dumps(self.get_commands())
+
+    def get_branding(self) -> dict:
+        config = load_config(self.config_path) if self.config_path else load_config()
+        return get_effective_branding(config)
+
+    def get_branding_json(self) -> str:
+        return json.dumps(self.get_branding())
+
+    def set_branding(self, json_branding: str) -> bool:
+        if not json_branding or not str(json_branding).strip():
+            return False
+        try:
+            parsed = json.loads(json_branding) if isinstance(json_branding, str) else json_branding
+            if not validate_branding_config(parsed):
+                return False
+            config = load_config(self.config_path) if self.config_path else load_config()
+            config["branding"] = parsed
+            return save_config(config, self.config_path) if self.config_path else save_config(config)
+        except Exception:
+            return False
+
+    def get_effective_app_name(self) -> str:
+        branding = self.get_branding()
+        if branding.get("enabled"):
+            return branding.get("app_name") or "CmdBar"
+        return "CmdBar"
+
+    def sso_login(self, provider: str, protocol: str, credentials_json: str) -> str:
+        """
+        Executes SSO login for provider and protocol via DBus.
+        """
+        try:
+            creds = json.loads(credentials_json) if credentials_json else {}
+        except Exception:
+            creds = {}
+
+        if protocol == "saml":
+            res = self._sso_manager.login_saml(provider, creds.get("saml_response", ""))
+        else:
+            claims = creds.get("claims", creds)
+            tokens = creds.get("tokens", {})
+            res = self._sso_manager.login_oidc_claims(provider, claims, tokens)
+
+        if res.get("success") and res.get("session"):
+            sess_id = res["session"]["session_id"]
+            for listener in self._sso_session_listeners:
+                try:
+                    listener(sess_id, "active")
+                except Exception:
+                    pass
+
+        return json.dumps(res)
+
+    def sso_logout(self, session_id: str) -> bool:
+        """
+        Logs out active SSO session via DBus.
+        """
+        ok = self._sso_manager.session_manager.revoke_session(session_id)
+        if ok:
+            for listener in self._sso_session_listeners:
+                try:
+                    listener(session_id, "revoked")
+                except Exception:
+                    pass
+        return ok
+
+    def get_sso_session(self, session_id: str) -> str:
+        """
+        Returns active SSO session details as JSON.
+        """
+        sess = self._sso_manager.session_manager.get_session(session_id)
+        return json.dumps(sess)
+
+    def get_sso_providers(self) -> str:
+        """
+        Returns supported SSO provider presets as JSON.
+        """
+        return json.dumps(SSOProviderConfig.PRESETS)
+
+    def validate_sso_access(self, session_id: str, category_name: str) -> bool:
+        """
+        Validates category access for active SSO session.
+        """
+        return self._sso_manager.validate_category_access(session_id, category_name)
