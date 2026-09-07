@@ -654,7 +654,17 @@ def validate_branding_config(branding):
     
     if "enabled" in branding and not isinstance(branding["enabled"], bool):
         return False
+    if "white_label" in branding and not isinstance(branding["white_label"], bool):
+        return False
+    if "organization_name" in branding and not isinstance(branding["organization_name"], str):
+        return False
+    if "brand_color" in branding and not isinstance(branding["brand_color"], str):
+        return False
+    if "accent_color" in branding and not isinstance(branding["accent_color"], str):
+        return False
     if "app_name" in branding and not isinstance(branding["app_name"], str):
+        return False
+    if "logo_url" in branding and not isinstance(branding["logo_url"], str):
         return False
     if "logo_path" in branding and not isinstance(branding["logo_path"], str):
         return False
