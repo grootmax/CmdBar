@@ -15,10 +15,7 @@ import {
   createApprovalToken,
   validateApprovalToken,
   grantApprovalOverride,
-<<<<<<< HEAD
   evaluateCommandPolicy as evaluateCommandPolicyProc,
-=======
->>>>>>> d2a4a05 (feat(security): implement command whitelist/blacklist policy engine with pattern matching, user/group rules, and approval overrides)
 } from '../extension/commandProcessor.js';
 import { loadConfig, saveConfig } from '../extension/configSync.js';
 
@@ -492,4 +489,5 @@ describe('Command Security Policy Engine (Whitelist & Blacklist) Unit & Integrat
       expect(evalSenior.allowed).toBe(true);
     });
   });
+});
 });
