@@ -640,3 +640,103 @@ export {
   formatCodeBlock,
   formatOutput,
 } from "./outputFormatter.js";
+
+/**
+ * Maximum history limit.
+ */
+export const MAX_HISTORY_ITEMS = 50;
+
+/**
+ * Sanitizes sensitive information (passwords, tokens, API keys) from string or parameters.
+ * @param {string} text
+ * @returns {string}
+ */
+export function sanitizeSensitiveData(text) {
+  if (text === null || text === undefined) return "";
+  let str = String(text);
+
+  // Redact password/token/secret flags like --password secret123, --token=xyz, -p secret123
+  str = str.replace(
+    /(--?(?:password|token|secret|api[_-]?key|auth[_-]?token|pass|pwd))(?:=|\s+)(\S+)/gi,
+    "=[REDACTED]"
+  );
+
+  // Redact key=value or key: value pairs where key contains password/secret/token/apikey
+  str = str.replace(
+    /((?:password|secret|token|api[_-]?key|access[_-]?key|auth[_-]?token|bearer)\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s&|;]+)/gi,
+    "[REDACTED]"
+  );
+
+  // Redact Bearer tokens
+  str = str.replace(/(Bearer\s+)([A-Za-z0-9._~+/-]+=*)/gi, "[REDACTED]");
+
+  return str;
+}
+
+/**
+ * Sanitizes a history item before persisting or logging.
+ * @param {object} item
+ * @returns {object}
+ */
+export function sanitizeHistoryItem(item) {
+  if (!item || typeof item !== "object") return item;
+
+  const sanitized = { ...item };
+
+  if (sanitized.resolvedCommand) {
+    sanitized.resolvedCommand = sanitizeSensitiveData(sanitized.resolvedCommand);
+  }
+  if (sanitized.command && typeof sanitized.command === "string") {
+    sanitized.command = sanitizeSensitiveData(sanitized.command);
+  }
+  if (sanitized.name) {
+    sanitized.name = sanitizeSensitiveData(sanitized.name);
+  }
+
+  if (sanitized.parameters && typeof sanitized.parameters === "object") {
+    const sanitizedParams = {};
+    for (const [key, val] of Object.entries(sanitized.parameters)) {
+      const lowerKey = key.toLowerCase();
+      const isSensitiveKey =
+        lowerKey.includes("password") ||
+        lowerKey.includes("secret") ||
+        lowerKey.includes("token") ||
+        lowerKey.includes("key") ||
+        lowerKey.includes("auth") ||
+        lowerKey.includes("credential");
+
+      if (isSensitiveKey) {
+        sanitizedParams[key] = "[REDACTED]";
+      } else {
+        sanitizedParams[key] = sanitizeSensitiveData(val);
+      }
+    }
+    sanitized.parameters = sanitizedParams;
+  }
+
+  return sanitized;
+}
+
+/**
+ * Adds or updates a command history item, maintaining a maximum of 50 items.
+ * @param {Array<object>} history
+ * @param {object} newItem
+ * @returns {Array<object>}
+ */
+export function addHistoryItem(history, newItem) {
+  if (!Array.isArray(history)) history = [];
+  const sanitized = sanitizeHistoryItem(newItem);
+  sanitized.timestamp = sanitized.timestamp || Date.now();
+
+  // Deduplicate if identical resolvedCommand or command name/parameters exist, move to top
+  const filtered = history.filter(item => {
+    if (!item) return false;
+    const sameResolved = Boolean(item.resolvedCommand && sanitized.resolvedCommand && item.resolvedCommand === sanitized.resolvedCommand);
+    const sameCmdAndParams = Boolean(item.command && sanitized.command && item.command === sanitized.command && JSON.stringify(item.parameters || {}) === JSON.stringify(sanitized.parameters || {}));
+    const sameNameAndResolved = Boolean(item.name && sanitized.name && item.name === sanitized.name && sameResolved);
+    return !(sameResolved || sameCmdAndParams || sameNameAndResolved);
+  });
+
+  const updated = [sanitized, ...filtered];
+  return updated.slice(0, MAX_HISTORY_ITEMS);
+}
