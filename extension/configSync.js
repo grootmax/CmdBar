@@ -3,7 +3,71 @@
  * Runs in both GJS (GNOME Shell) and Node.js (Testing/Companion app) environments.
  */
 
+import { sanitizeHistoryItem, MAX_HISTORY_ITEMS } from "./commandProcessor.js";
+
 export const DEFAULT_CONFIG = {
+  sso: {
+    enabled: false,
+    default_provider: "azure",
+    auto_provision: true,
+    allowed_domains: ["example.com"],
+    default_role: "user",
+    group_claim: "groups",
+    providers: {
+      azure: {
+        name: "Azure Active Directory",
+        type: "azure",
+        protocol: "oidc",
+        tenant_id: "common",
+        client_id: "",
+        client_secret: "",
+        redirect_uri: "http://localhost:8080/callback/sso",
+        saml_sso_url: "https://login.microsoftonline.com/common/saml2",
+        saml_entity_id: "https://sts.windows.net/common/",
+      },
+      okta: {
+        name: "Okta Workforce Identity",
+        type: "okta",
+        protocol: "oidc",
+        domain: "company.okta.com",
+        client_id: "",
+        client_secret: "",
+        redirect_uri: "http://localhost:8080/callback/sso",
+        saml_sso_url: "https://company.okta.com/app/sso/saml",
+        saml_entity_id: "http://www.okta.com/default",
+      },
+      google: {
+        name: "Google Workspace SSO",
+        type: "google",
+        protocol: "oidc",
+        client_id: "",
+        client_secret: "",
+        redirect_uri: "http://localhost:8080/callback/sso",
+        saml_sso_url: "https://accounts.google.com/o/saml2/idp",
+        saml_entity_id: "https://accounts.google.com/o/saml2?idpid=default",
+      },
+    },
+    group_mappings: [
+      {
+        id: "rule-admin",
+        group_pattern: "Admins",
+        match_type: "contains",
+        role: "admin",
+        categories: ["System Utilities", "Infrastructure", "AI Assistant", "Projects"],
+      },
+      {
+        id: "rule-dev",
+        group_pattern: "Developers",
+        match_type: "contains",
+        role: "developer",
+        categories: ["Projects", "AI Assistant"],
+      },
+    ],
+    session: {
+      max_ttl_seconds: 28800,
+      refresh_threshold_seconds: 300,
+    },
+  },
   ai: {
     provider: "openai",
     model: "gpt-4o",
@@ -87,7 +151,10 @@ let Gio, GLib;
 if (!isNode) {
   try {
     const giModule = await import("gi");
-    Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
+    Gio =
+      giModule.Gio ||
+      (giModule.default && giModule.default.Gio) ||
+      giModule.default;
     GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
   } catch (e) {
     console.error(
@@ -1010,7 +1077,10 @@ export async function loadClipboardHistory(clipboardPath) {
     let parsed = JSON.parse(content);
     if (!Array.isArray(parsed)) return [];
     return parsed
-      .filter((item) => item && (typeof item === "string" || typeof item.text === "string"))
+      .filter(
+        (item) =>
+          item && (typeof item === "string" || typeof item.text === "string"),
+      )
       .map((item) => {
         if (typeof item === "string") {
           return { text: item, pinned: false, timestamp: Date.now() };
@@ -1018,7 +1088,8 @@ export async function loadClipboardHistory(clipboardPath) {
         return {
           text: item.text,
           pinned: Boolean(item.pinned),
-          timestamp: typeof item.timestamp === "number" ? item.timestamp : Date.now(),
+          timestamp:
+            typeof item.timestamp === "number" ? item.timestamp : Date.now(),
         };
       });
   } catch (e) {
@@ -1042,6 +1113,77 @@ export async function saveClipboardHistory(history, clipboardPath) {
       await node_writeFileAtomic(clipboardPath, content);
     } else {
       await gjs_writeFileAtomic(clipboardPath, content);
+    }
+  } finally {
+    await releaseLock(lockPath);
+  }
+}
+
+export async function getDefaultHistoryPath() {
+  if (isNode) {
+    const pathModule = await import("path");
+    return pathModule.join(getNodeUserConfigDir(), "cmdbar", "history.json");
+  } else {
+    return GLib.build_filenamev([
+      GLib.get_user_config_dir(),
+      "cmdbar",
+      "history.json",
+    ]);
+  }
+}
+
+export async function loadCommandHistory(historyPath) {
+  if (!historyPath) {
+    historyPath = await getDefaultHistoryPath();
+  }
+  await ensureConfigDir(historyPath);
+  const exists = await fileExists(historyPath);
+  if (!exists) {
+    return [];
+  }
+  let content;
+  try {
+    if (isNode) {
+      content = await node_readFile(historyPath);
+    } else {
+      content = await gjs_readFile(historyPath);
+    }
+  } catch (e) {
+    return [];
+  }
+  try {
+    let parsed = JSON.parse(content);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item) => item && typeof item === "object")
+      .map((item) => sanitizeHistoryItem(item))
+      .slice(0, MAX_HISTORY_ITEMS);
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function saveCommandHistory(history, historyPath) {
+  if (!Array.isArray(history)) {
+    throw new Error("Invalid command history schema");
+  }
+  if (!historyPath) {
+    historyPath = await getDefaultHistoryPath();
+  }
+  await ensureConfigDir(historyPath);
+
+  const sanitizedHistory = history
+    .map((item) => sanitizeHistoryItem(item))
+    .slice(0, MAX_HISTORY_ITEMS);
+
+  const lockPath = historyPath + ".lock";
+  await acquireLock(lockPath, 180);
+  try {
+    const content = JSON.stringify(sanitizedHistory, null, 2);
+    if (isNode) {
+      await node_writeFileAtomic(historyPath, content);
+    } else {
+      await gjs_writeFileAtomic(historyPath, content);
     }
   } finally {
     await releaseLock(lockPath);

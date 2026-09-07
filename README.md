@@ -11,12 +11,14 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 ## Features
 
+- **Quick Calculator & Eval** – Type `> 2+2`, `= (100 - 25) / 5`, or `calc sin(45)` directly in the search box to evaluate math expressions inline and press Enter to copy the evaluated result to your clipboard
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Command Favorites & Pinning** – Star frequently used commands with inline star buttons or keyboard shortcuts (`f` / `*`) to pin them into a dedicated "Favorites" category at the top of the menu and sort them first within categories.
 - **Sandboxed Execution Mode** – Option to execute commands in a sandbox container using `bwrap` (Bubblewrap), `flatpak-spawn`, or `firejail` with configurable security profiles (`strict`, `permissive`, `custom`), filesystem isolation, and network isolation toggles
 - **Pre-built Snippet & Template Library** – Includes pre-built, ready-to-use command templates for Git workflows, Docker operations, Kubernetes (`kubectl`), AWS CLI, `npm`/`pnpm`, and System utilities.
 - **Import Wizard & Community Template Sharing** – Easily import templates from the built-in library, local JSON files, or remote URLs, and export custom commands into template schema JSON files.
 - **Output Formatters** – Automatically parse and nicely format command outputs: JSON pretty-printing with Pango markup & ANSI syntax highlighting, ASCII table rendering for CSV/TSV data, and monospaced boxed code blocks
+- **Multi-Step Command Chains** – Define sequential workflows with conditional logic ("Pull → Build → Deploy → Notify"), step dependencies, custom success criteria, pause prompts, real-time progress visualization, and automatic error handling with rollback commands.
 - **Top-bar indicator** – Clean icon in the system status area (next to accessibility / network icons)
 - **Global Keyboard Shortcut** – Open the CmdBar menu from anywhere using `Super+Space` (default), `Alt+Space`, `Super+Shift+Space`, or custom keybindings configured in Extension Preferences.
 - **Dynamic menu** – Fully driven by a simple JSON file
@@ -24,7 +26,9 @@ Perfect for developers who live in the terminal and want one-click access to pro
 - **Categories** – Group commands (Projects, Infrastructure, ECS, Tickets, etc.)
 - **Copy to clipboard** – Each command menu item includes a copy button (`wl-copy` on Wayland / `xclip` on X11) to copy command strings without executing
 - **Argument support** – Commands that need input (e.g. `prod <task-id>`, `feature TFG-877`) open a clean dialog
+- **Command History & Recents Tracking** – Maintains `~/.config/cmdbar/history.json` tracking up to 50 executed commands with parameters, timestamp, and automatic sanitization of sensitive credentials (passwords, tokens, API keys). Features a "Recent" section at the top of the menu with one-click re-run, "Clear History" action, and global keyboard shortcut (`Super+Shift+H` by default).
 - **Management App** – Beautiful Libadwaita app to add, edit, reorder and test shortcuts
+- **Plugin Architecture & Extension System** – Extend CmdBar capabilities with third-party plugins stored in `~/.config/cmdbar/plugins/` featuring sandboxed execution, permission checks, custom commands, events, and marketplace catalog search
 - **Live reload** – Changes in the JSON are reflected after a quick reload
 - **Ubuntu & GNOME ready** – Designed for GNOME 46+
 
@@ -212,6 +216,47 @@ Used directly by the GNOME Shell extension to load top-bar menus dynamically.
           "name": "Start Task",
           "command": "echo Starting task <task-id>",
           "placeholder": "task-id"
+        },
+        {
+          "name": "Pull → Build → Deploy → Notify",
+          "type": "chain",
+          "description": "Multi-step deployment pipeline",
+          "steps": [
+            {
+              "id": "pull",
+              "name": "Pull latest code",
+              "command": "git pull origin main",
+              "on_success": "build",
+              "rollback_command": "git reset --hard HEAD@{1}"
+            },
+            {
+              "id": "build",
+              "name": "Build project",
+              "command": "make build",
+              "depends_on": ["pull"],
+              "success_criteria": { "exit_code": 0 },
+              "on_success": "pause_before_deploy"
+            },
+            {
+              "id": "pause_before_deploy",
+              "name": "Pause before deploy",
+              "type": "pause",
+              "prompt": "Ready to deploy to production?"
+            },
+            {
+              "id": "deploy",
+              "name": "Deploy service",
+              "command": "echo Deploying...",
+              "depends_on": ["build"],
+              "rollback_command": "echo Reverting deploy..."
+            },
+            {
+              "id": "notify",
+              "name": "Notify completion",
+              "command": "notify-send 'Deployment succeeded!'",
+              "depends_on": ["deploy"]
+            }
+          ]
         }
       ]
     }

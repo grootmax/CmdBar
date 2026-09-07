@@ -6,6 +6,8 @@ const mockGetenv = jest.fn();
 const mockSetText = jest.fn();
 
 jest.unstable_mockModule('gi', () => ({
+  Meta: {},
+  Shell: {},
   St: {
     Clipboard: {
       get_default: () => ({
