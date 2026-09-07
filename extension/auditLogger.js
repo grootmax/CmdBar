@@ -7,7 +7,15 @@ const isNode =
   typeof process !== "undefined" && process.versions && process.versions.node;
 
 let Gio, GLib;
-if (!isNode) {
+let nodeFs = null;
+let nodePath = null;
+
+if (isNode) {
+  try {
+    nodeFs = (await import("fs")).default || (await import("fs"));
+    nodePath = (await import("path")).default || (await import("path"));
+  } catch (e) {}
+} else {
   try {
     const giModule = await import("gi");
     Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
@@ -38,19 +46,20 @@ export function getAuditLogPath() {
     return process.env.CMDBAR_AUDIT_LOG_PATH;
   }
   if (!isNode && typeof GLib !== "undefined" && GLib.getenv) {
-    const envPath = GLib.getenv("CMDBAR_AUDIT_LOG_PATH");
-    if (envPath) return envPath;
+    const override = GLib.getenv("CMDBAR_AUDIT_LOG_PATH");
+    if (override) return override;
+    const xdgDataHome = GLib.getenv("XDG_DATA_HOME");
+    if (xdgDataHome) {
+      return `${xdgDataHome}/cmdbar/audit.log`;
+    }
+    const home = GLib.getenv("HOME") || "/tmp";
+    return `${home}/.local/share/cmdbar/audit.log`;
   }
-
   if (isNode) {
-    const dataHome =
-      process.env.XDG_DATA_HOME ||
-      (process.env.HOME ? `${process.env.HOME}/.local/share` : "/tmp");
-    return `${dataHome}/cmdbar/audit.log`;
-  } else {
-    const dataDir = GLib.get_user_data_dir();
-    return `${dataDir}/cmdbar/audit.log`;
+    const home = process.env.HOME || "/tmp";
+    return `${home}/.local/share/cmdbar/audit.log`;
   }
+  return "/tmp/cmdbar-audit.log";
 }
 
 export function getCurrentUser() {
@@ -61,8 +70,9 @@ export function getCurrentUser() {
       process.env.USERNAME ||
       "unknown"
     );
-  } else if (typeof GLib !== "undefined" && GLib.get_user_name) {
-    return GLib.get_user_name();
+  }
+  if (typeof GLib !== "undefined" && GLib.get_user_name) {
+    return GLib.get_user_name() || "unknown";
   }
   return "unknown";
 }
@@ -71,41 +81,42 @@ export function isSensitiveCommand(
   commandStr,
   cmdObj = {},
   placeholderMap = {},
-  config = {}
+  config = {},
 ) {
-  if (cmdObj && (cmdObj.secure || cmdObj.privacy || cmdObj.sensitive)) {
-    return true;
-  }
+  if (!commandStr && !cmdObj) return false;
 
-  if (cmdObj && cmdObj.parameters) {
-    const params = cmdObj.parameters;
-    const items = Array.isArray(params) ? params : Object.values(params);
-    for (const item of items) {
-      if (item && item.secure) {
-        return true;
-      }
-    }
-  }
+  const raw = String(commandStr || "").toLowerCase();
 
-  const keywords =
-    (config &&
-      config.audit &&
-      Array.isArray(config.audit.sensitive_keywords) &&
-      config.audit.sensitive_keywords) ||
-    DEFAULT_SENSITIVE_KEYWORDS;
-
-  const lowerCmd = (commandStr || "").toLowerCase();
-  for (const kw of keywords) {
-    if (lowerCmd.includes(kw.toLowerCase())) {
+  for (const kw of DEFAULT_SENSITIVE_KEYWORDS) {
+    if (raw.includes(kw)) {
       return true;
     }
   }
 
+  if (cmdObj) {
+    if (cmdObj.secure === true || cmdObj.sensitive === true) {
+      return true;
+    }
+    if (Array.isArray(cmdObj.parameters)) {
+      for (const p of cmdObj.parameters) {
+        if (p && (p.secure === true || p.type === "password" || p.type === "secret")) {
+          return true;
+        }
+      }
+    } else if (cmdObj.parameters && typeof cmdObj.parameters === "object") {
+      for (const p of Object.values(cmdObj.parameters)) {
+        if (p && (p.secure === true || p.type === "password" || p.type === "secret")) {
+          return true;
+        }
+      }
+    }
+  }
+
   if (placeholderMap && typeof placeholderMap === "object") {
-    for (const [key, val] of Object.entries(placeholderMap)) {
-      const lowerKey = key.toLowerCase();
-      for (const kw of keywords) {
-        if (lowerKey.includes(kw.toLowerCase())) {
+    for (const [k, v] of Object.entries(placeholderMap)) {
+      const lowerKey = String(k).toLowerCase();
+      for (const kw of DEFAULT_SENSITIVE_KEYWORDS) {
+        if (lowerKey.includes(kw)) {
           return true;
         }
       }
@@ -120,7 +131,7 @@ export async function rotateLogIfNeeded(logPath) {
   const todayStr = new Date().toISOString().split("T")[0];
 
   if (isNode) {
-    const fs = await import("fs");
+    const fs = nodeFs || (await import("fs")).default || (await import("fs"));
     if (!fs.existsSync(targetPath)) return;
 
     try {
@@ -194,8 +205,8 @@ export async function logCommand({
   const line = JSON.stringify(entry) + "\n";
 
   if (isNode) {
-    const fs = await import("fs");
-    const pathModule = await import("path");
+    const fs = nodeFs || (await import("fs")).default || (await import("fs"));
+    const pathModule = nodePath || (await import("path")).default || (await import("path"));
     const dir = pathModule.dirname(logPath);
     await fs.promises.mkdir(dir, { recursive: true });
     await fs.promises.appendFile(logPath, line, "utf8");
@@ -233,7 +244,7 @@ export async function readAuditLogs(customPath) {
   const entries = [];
 
   if (isNode) {
-    const fs = await import("fs");
+    const fs = nodeFs || (await import("fs")).default || (await import("fs"));
     if (!fs.existsSync(logPath)) return [];
     const content = await fs.promises.readFile(logPath, "utf8");
     const lines = content.split("\n").filter((l) => l.trim().length > 0);
@@ -272,7 +283,7 @@ export async function readAuditLogs(customPath) {
 export async function clearAuditLog(customPath) {
   const logPath = customPath || getAuditLogPath();
   if (isNode) {
-    const fs = await import("fs");
+    const fs = nodeFs || (await import("fs")).default || (await import("fs"));
     if (fs.existsSync(logPath)) {
       await fs.promises.unlink(logPath);
     }

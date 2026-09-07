@@ -60,6 +60,10 @@
       <default>''</default>
       <summary>Enterprise Domain Alias</summary>
       <description>Custom domain alias endpoint for enterprise server communications.</description>
+    <key name="active-profile" type="s">
+      <default>'Development'</default>
+      <summary>Active Environment Profile</summary>
+      <description>Name of the active environment variable profile.</description>
     </key>
     <key name="audit-logging-enabled" type="b">
       <default>true</default>
@@ -70,6 +74,16 @@
       <default>false</default>
       <summary>Audit Privacy Mode</summary>
       <description>Exclude sensitive commands containing passwords or marked secure from audit log.</description>
+    </key>
+    <key name="enable-command-caching" type="b">
+      <default>true</default>
+      <summary>Enable Command Caching</summary>
+      <description>Cache output of read-only commands with TTL.</description>
+    </key>
+    <key name="default-cache-ttl" type="i">
+      <default>60</default>
+      <summary>Default Cache TTL</summary>
+      <description>Default time-to-live in seconds for cacheable commands.</description>
     </key>
   </schema>
 </schemalist>

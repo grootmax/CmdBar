@@ -16,9 +16,14 @@ Command execution audit logging is implemented in `extension/auditLogger.js` (fo
 - **Daily Rotation**: Checks file modification date upon append; if the file belongs to a prior calendar day (`YYYY-MM-DD`), rotates the file to `audit.log.YYYY-MM-DD`.
 - **Privacy Mode**: When `privacy_mode` is active in GSettings or configuration settings, commands containing sensitive keywords (e.g. `password`, `secret`, `token`, `sudo`) or parameter schemas marked with `secure: true` are excluded from the log.
 
-### GNOME Shell 46+ Native API Modernization
+### Environment Variable Profiles & Subprocess Spawning
 
-CmdBar targets GNOME Shell 46 and 47 directly without legacy runtime fallback branches:
+Environment variable profiles allow defining named sets of environment variables (`Production`, `Staging`, `Development`) overlaid onto subprocess execution environments:
+- **Profile Resolution & Env Merging**: `getProfiles`, `getProfileEnv`, and `getMergedEnvironment` resolve profile configurations and overlay variables onto base process environments prior to subprocess launching.
+- **Subprocess Spawning**: In GJS, subprocesses are launched via `Gio.SubprocessLauncher` with profile variables injected via `launcher.setenv(key, val, true)`. In Python, `Gio.SubprocessLauncher` or `subprocess.Popen(..., env=env)` overlays active profile environment variables.
+- **Profile-Specific Command Visibility**: `isCommandVisibleInProfile(cmd, activeProfile)` filters command visibility in top-bar menus based on `cmd.profiles` or `cmd.profile` rules.
+
+### GNOME Shell 46+ Native API Modernization
 - **Widget Layout & Alignment**: All UI widgets (`St.BoxLayout`, `St.Label`, menu items) use standard GNOME Shell 46 layout properties (`style_class`, `vertical: true/false`, `y_align: Clutter.ActorAlign.CENTER`, `x_expand: true`).
 - **Symbolic System Icons**: All indicators, category headers, command menu items, and confirmation dialogs instantiate symbolic icons using standard `St.Icon` with `icon_name` property.
 - **Path Resolution & Filesystem Operations**: Installation root path resolution uses native `Gio.File` handle methods (`Extension.dir.get_path()`). Directory creation uses `make_directory_with_parents(null)` sync API, file moves use `move_finish(res)` without array destructuring, and `Gio` imports handle `giModule.default` for GNOME Shell 46+ compatibility.
@@ -54,3 +59,11 @@ CmdBar provides a full enterprise white labeling option allowing organizations t
 - **Domain Alias & Network Routing**: Resolves custom server endpoints (`domain_alias`) for enterprise sync, command feeds, and remote management endpoints (`getEffectiveDomainUrl`).
 - **Custom SSL Security**: Supports custom enterprise SSL certificates (`cert_path`), private keys (`key_path`), and CA certificate bundles (`ca_path`) with configurable SSL verification options (`get_ssl_context`).
 - **D-Bus Management API**: Exposes `GetBranding`, `SetBranding`, and `GetEffectiveAppName` over D-Bus (`org.gnome.CmdBar`) for automated corporate software deployment tools.
+
+### Command Result Caching Architecture
+
+CmdBar supports caching read-only command outputs with TTL logic to eliminate redundant process execution:
+- **Command Tagging**: Commands are tagged via `cacheable: true`, `type: "cacheable"`, or explicit `ttl` / `cache_ttl` values in `config.json` or `commands.json`. Untagged commands default to realtime (`cacheable: false`).
+- **TTL Logic & Persistence**: Cached outputs (stdout, stderr, exit status, timestamp, TTL) are stored in `CommandCacheStore` and persisted atomically to `~/.config/cmdbar/cache.json`.
+- **Manual Cache Refresh**: Menu items for cacheable commands feature a dedicated refresh button (`view-refresh-symbolic`) to force re-executing the process and updating the cache store.
+- **Cache Invalidation**: Cache entries can be invalidated individually using `invalidateCommandCache(key)` or purged completely via `clearCommandCache()`. Expired entries are automatically pruned.
