@@ -49,6 +49,11 @@ class CmdBarDBusService:
         self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
         self.active_terminal_sessions = {}
         self._screenshot_service = ScreenshotService(config_path=config_path)
+        try:
+            from companion.stream_deck import get_stream_deck_manager
+            self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
+        except Exception:
+            self.stream_deck_manager = None
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:
@@ -568,3 +573,32 @@ class CmdBarDBusService:
         sample_bytes = image_base64.encode('utf-8') if isinstance(image_base64, str) else b''
         res = generate_share_url(sample_bytes, service_url=service_url)
         return json.dumps(res)
+
+    def get_stream_deck_profiles(self) -> str:
+        """Returns JSON string containing available Stream Deck profiles and active profile."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            summary = self.stream_deck_manager.get_status_summary()
+            return json.dumps({
+                "active_profile": summary["active_profile"],
+                "profiles": summary["available_profiles"]
+            })
+        return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Switches the active Stream Deck profile."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            return self.stream_deck_manager.switch_profile(profile_name)
+        return False
+
+    def get_stream_deck_status(self) -> str:
+        """Returns diagnostic status JSON summary for Stream Deck integration."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            return json.dumps(self.stream_deck_manager.get_status_summary())
+        return json.dumps({})
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Simulates key press on active Stream Deck grid."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
+            return res.get("status") in ("executed", "profile_switched")
+        return False
