@@ -32,7 +32,10 @@ def test_clean_ai_prompt():
 def test_parse_command_from_ai_response():
     # 1. Code block with bash
     res1 = "Here is the command:\n```bash\ncd /project && make build && scp build.tar.gz staging:/var/www/\n```"
-    assert parse_command_from_ai_response(res1) == "cd /project && make build && scp build.tar.gz staging:/var/www/"
+    assert (
+        parse_command_from_ai_response(res1)
+        == "cd /project && make build && scp build.tar.gz staging:/var/www/"
+    )
 
     # 2. Plain code block
     res2 = "```\ngit checkout -b feature/ai\n```"
@@ -57,14 +60,18 @@ def test_get_ai_api_key():
 
 def test_build_ai_request():
     # OpenAI
-    url, headers, body_bytes, prov = build_ai_request("openai", "/ai build project", {"api_key": "key1"})
+    url, headers, body_bytes, prov = build_ai_request(
+        "openai", "/ai build project", {"api_key": "key1"}
+    )
     assert "api.openai.com" in url
     assert headers["Authorization"] == "Bearer key1"
     body = json.loads(body_bytes.decode("utf-8"))
     assert body["model"] == "gpt-4o"
 
     # Anthropic
-    url, headers, body_bytes, prov = build_ai_request("anthropic", "/ai test project", {"api_key": "key2"})
+    url, headers, body_bytes, prov = build_ai_request(
+        "anthropic", "/ai test project", {"api_key": "key2"}
+    )
     assert "api.anthropic.com" in url
     assert headers["x-api-key"] == "key2"
     body = json.loads(body_bytes.decode("utf-8"))
@@ -84,7 +91,9 @@ def test_extract_ai_response_text():
 
     # Anthropic
     res_claude = {"content": [{"text": "```bash\ngit status\n```"}]}
-    assert extract_ai_response_text("anthropic", res_claude) == "```bash\ngit status\n```"
+    assert (
+        extract_ai_response_text("anthropic", res_claude) == "```bash\ngit status\n```"
+    )
 
     # Ollama
     res_ollama = {"response": "```bash\ndocker ps\n```"}
@@ -98,7 +107,9 @@ def test_translate_natural_language_to_command_fallback(mock_http_post):
         if "openai.com" in url:
             raise RuntimeError("API key invalid")
         if "localhost:11434" in url:
-            return {"response": "```bash\ncd /project && make build && scp build.tar.gz staging:/var/www/\n```"}
+            return {
+                "response": "```bash\ncd /project && make build && scp build.tar.gz staging:/var/www/\n```"
+            }
         raise RuntimeError("Unknown endpoint")
 
     mock_http_post.side_effect = mock_post
@@ -107,10 +118,12 @@ def test_translate_natural_language_to_command_fallback(mock_http_post):
         "ai": {
             "provider": "openai",
             "fallback_provider": "ollama",
-            "fallback_model": "llama3"
+            "fallback_model": "llama3",
         }
     }
 
-    cmd = translate_natural_language_to_command("/ai deploy latest build to staging", config)
+    cmd = translate_natural_language_to_command(
+        "/ai deploy latest build to staging", config
+    )
     assert cmd == "cd /project && make build && scp build.tar.gz staging:/var/www/"
     assert mock_http_post.call_count == 2

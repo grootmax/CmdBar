@@ -26,6 +26,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 - **Argument support** – Commands that need input (e.g. `prod <task-id>`, `feature TFG-877`) open a clean dialog
 - **Command History & Recents Tracking** – Maintains `~/.config/cmdbar/history.json` tracking up to 50 executed commands with parameters, timestamp, and automatic sanitization of sensitive credentials (passwords, tokens, API keys). Features a "Recent" section at the top of the menu with one-click re-run, "Clear History" action, and global keyboard shortcut (`Super+Shift+H` by default).
 - **Management App** – Beautiful Libadwaita app to add, edit, reorder and test shortcuts
+- **Plugin Architecture & Extension System** – Extend CmdBar capabilities with third-party plugins stored in `~/.config/cmdbar/plugins/` featuring sandboxed execution, permission checks, custom commands, events, and marketplace catalog search
 - **Live reload** – Changes in the JSON are reflected after a quick reload
 - **Ubuntu & GNOME ready** – Designed for GNOME 46+
 

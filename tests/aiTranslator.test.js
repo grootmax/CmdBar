@@ -19,20 +19,29 @@ describe("AI Command Translator (JS)", () => {
   });
 
   test("cleanAIPrompt strips trigger prefix", () => {
-    expect(cleanAIPrompt("/ai deploy build to staging")).toBe("deploy build to staging");
-    expect(cleanAIPrompt("/AI list running processes")).toBe("list running processes");
+    expect(cleanAIPrompt("/ai deploy build to staging")).toBe(
+      "deploy build to staging",
+    );
+    expect(cleanAIPrompt("/AI list running processes")).toBe(
+      "list running processes",
+    );
     expect(cleanAIPrompt("  /ai  make test ")).toBe("make test");
     expect(cleanAIPrompt("git status")).toBe("git status");
   });
 
   test("parseCommandFromAIResponse extracts commands from various LLM response formats", () => {
     // 1. Triple backticks bash code block
-    const res1 = "Here is the command:\n```bash\ncd /project && make build && scp build.tar.gz staging:/var/www/\n```";
-    expect(parseCommandFromAIResponse(res1)).toBe("cd /project && make build && scp build.tar.gz staging:/var/www/");
+    const res1 =
+      "Here is the command:\n```bash\ncd /project && make build && scp build.tar.gz staging:/var/www/\n```";
+    expect(parseCommandFromAIResponse(res1)).toBe(
+      "cd /project && make build && scp build.tar.gz staging:/var/www/",
+    );
 
     // 2. Generic code block
     const res2 = "```\ngit checkout -b feature/ai-shell\n```";
-    expect(parseCommandFromAIResponse(res2)).toBe("git checkout -b feature/ai-shell");
+    expect(parseCommandFromAIResponse(res2)).toBe(
+      "git checkout -b feature/ai-shell",
+    );
 
     // 3. Inline backticks
     const res3 = "You can run `docker ps -a` to view containers.";
@@ -64,7 +73,9 @@ describe("AI Command Translator (JS)", () => {
       apiKey: "test-key",
       temperature: 0.1,
     });
-    expect(openAiReq.endpoint).toBe("https://api.openai.com/v1/chat/completions");
+    expect(openAiReq.endpoint).toBe(
+      "https://api.openai.com/v1/chat/completions",
+    );
     expect(openAiReq.headers["Authorization"]).toBe("Bearer test-key");
     expect(openAiReq.body.model).toBe("gpt-4o");
 
@@ -91,19 +102,25 @@ describe("AI Command Translator (JS)", () => {
     const openAiJson = {
       choices: [{ message: { content: "```bash\nmake build\n```" } }],
     };
-    expect(extractAIResponseText("openai", openAiJson)).toBe("```bash\nmake build\n```");
+    expect(extractAIResponseText("openai", openAiJson)).toBe(
+      "```bash\nmake build\n```",
+    );
 
     // Anthropic
     const anthropicJson = {
       content: [{ text: "```bash\nsystemctl status nginx\n```" }],
     };
-    expect(extractAIResponseText("anthropic", anthropicJson)).toBe("```bash\nsystemctl status nginx\n```");
+    expect(extractAIResponseText("anthropic", anthropicJson)).toBe(
+      "```bash\nsystemctl status nginx\n```",
+    );
 
     // Ollama
     const ollamaJson = {
       response: "```bash\nkubectl get pods\n```",
     };
-    expect(extractAIResponseText("ollama", ollamaJson)).toBe("```bash\nkubectl get pods\n```");
+    expect(extractAIResponseText("ollama", ollamaJson)).toBe(
+      "```bash\nkubectl get pods\n```",
+    );
   });
 
   test("translateNaturalLanguageToCommand handles successful translation and local fallback", async () => {
@@ -127,7 +144,8 @@ describe("AI Command Translator (JS)", () => {
             ok: true,
             json: () =>
               Promise.resolve({
-                response: "```bash\ncd /project && make build && scp build.tar.gz staging:/var/www/\n```",
+                response:
+                  "```bash\ncd /project && make build && scp build.tar.gz staging:/var/www/\n```",
               }),
           });
         }
@@ -144,10 +162,12 @@ describe("AI Command Translator (JS)", () => {
 
       const command = await translateNaturalLanguageToCommand(
         "/ai deploy the latest build to staging",
-        config
+        config,
       );
 
-      expect(command).toBe("cd /project && make build && scp build.tar.gz staging:/var/www/");
+      expect(command).toBe(
+        "cd /project && make build && scp build.tar.gz staging:/var/www/",
+      );
       expect(calls).toBe(2);
     } finally {
       global.fetch = originalFetch;

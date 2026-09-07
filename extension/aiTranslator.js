@@ -5,7 +5,8 @@
  */
 
 let GLib, Gio;
-const isNode = typeof process !== "undefined" && process.versions && process.versions.node;
+const isNode =
+  typeof process !== "undefined" && process.versions && process.versions.node;
 
 if (!isNode) {
   try {
@@ -69,7 +70,10 @@ export function cleanAIPrompt(prompt) {
   if (!prompt || typeof prompt !== "string") {
     return "";
   }
-  return prompt.trim().replace(/^\/ai\s*/i, "").trim();
+  return prompt
+    .trim()
+    .replace(/^\/ai\s*/i, "")
+    .trim();
 }
 
 /**
@@ -92,7 +96,11 @@ export function isAICommand(text) {
  */
 export function getAIApiKey(provider, config = {}) {
   const aiCfg = config.ai || config || {};
-  if (aiCfg.api_key && typeof aiCfg.api_key === "string" && aiCfg.api_key.trim()) {
+  if (
+    aiCfg.api_key &&
+    typeof aiCfg.api_key === "string" &&
+    aiCfg.api_key.trim()
+  ) {
     return aiCfg.api_key.trim();
   }
   if (aiCfg.apiKey && typeof aiCfg.apiKey === "string" && aiCfg.apiKey.trim()) {
@@ -104,14 +112,17 @@ export function getAIApiKey(provider, config = {}) {
   let envVal = "";
   if (isNode) {
     if (prov === "openai") envVal = process.env.OPENAI_API_KEY || "";
-    else if (prov === "anthropic" || prov === "claude") envVal = process.env.ANTHROPIC_API_KEY || "";
+    else if (prov === "anthropic" || prov === "claude")
+      envVal = process.env.ANTHROPIC_API_KEY || "";
     else if (prov === "ollama") envVal = process.env.OLLAMA_API_KEY || "";
   } else {
     try {
       if (typeof GLib !== "undefined" && GLib.getenv) {
         if (prov === "openai") envVal = GLib.getenv("OPENAI_API_KEY") || "";
-        else if (prov === "anthropic" || prov === "claude") envVal = GLib.getenv("ANTHROPIC_API_KEY") || "";
-        else if (prov === "ollama") envVal = GLib.getenv("OLLAMA_API_KEY") || "";
+        else if (prov === "anthropic" || prov === "claude")
+          envVal = GLib.getenv("ANTHROPIC_API_KEY") || "";
+        else if (prov === "ollama")
+          envVal = GLib.getenv("OLLAMA_API_KEY") || "";
       }
     } catch (e) {}
   }
@@ -174,7 +185,7 @@ export async function httpPost(url, headers = {}, body = {}) {
       try {
         const proc = Gio.Subprocess.new(
           args,
-          Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+          Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
         );
         proc.communicate_utf8_async(null, null, (subprocess, result) => {
           try {
@@ -214,7 +225,8 @@ export function buildAIRequest(provider, rawPrompt, options = {}) {
   const apiKey = getAIApiKey(prov, options);
 
   if (prov === "openai") {
-    const endpoint = options.endpoint || "https://api.openai.com/v1/chat/completions";
+    const endpoint =
+      options.endpoint || "https://api.openai.com/v1/chat/completions";
     const model = options.model || "gpt-4o";
     const headers = {
       "Content-Type": "application/json",
@@ -232,7 +244,8 @@ export function buildAIRequest(provider, rawPrompt, options = {}) {
     };
     return { endpoint, headers, body, provider: "openai" };
   } else if (prov === "anthropic" || prov === "claude") {
-    const endpoint = options.endpoint || "https://api.anthropic.com/v1/messages";
+    const endpoint =
+      options.endpoint || "https://api.anthropic.com/v1/messages";
     const model = options.model || "claude-3-5-sonnet-20241022";
     const headers = {
       "Content-Type": "application/json",
@@ -326,7 +339,10 @@ export function extractAIResponseText(provider, responseData) {
  * @param {object} [config]
  * @returns {Promise<string>}
  */
-export async function translateNaturalLanguageToCommand(rawPrompt, config = {}) {
+export async function translateNaturalLanguageToCommand(
+  rawPrompt,
+  config = {},
+) {
   const prompt = cleanAIPrompt(rawPrompt);
   if (!prompt) {
     throw new Error("Prompt cannot be empty.");
@@ -334,7 +350,9 @@ export async function translateNaturalLanguageToCommand(rawPrompt, config = {}) 
 
   const aiConfig = config.ai || config || {};
   const primaryProvider = (aiConfig.provider || "openai").toLowerCase();
-  const fallbackProvider = (aiConfig.fallback_provider || "ollama").toLowerCase();
+  const fallbackProvider = (
+    aiConfig.fallback_provider || "ollama"
+  ).toLowerCase();
 
   // Try Primary Provider
   try {
@@ -351,7 +369,7 @@ export async function translateNaturalLanguageToCommand(rawPrompt, config = {}) 
     throw new Error("AI provider returned empty command.");
   } catch (primaryErr) {
     console.warn(
-      `CmdBar AI: Primary provider (${primaryProvider}) failed: ${primaryErr.message}. Attempting fallback (${fallbackProvider})...`
+      `CmdBar AI: Primary provider (${primaryProvider}) failed: ${primaryErr.message}. Attempting fallback (${fallbackProvider})...`,
     );
 
     if (primaryProvider === fallbackProvider) {
@@ -362,7 +380,9 @@ export async function translateNaturalLanguageToCommand(rawPrompt, config = {}) 
     try {
       const fallbackOptions = {
         ...aiConfig,
-        model: aiConfig.fallback_model || (fallbackProvider === "ollama" ? "llama3" : aiConfig.model),
+        model:
+          aiConfig.fallback_model ||
+          (fallbackProvider === "ollama" ? "llama3" : aiConfig.model),
         apiKey: getAIApiKey(fallbackProvider, config),
       };
       const req = buildAIRequest(fallbackProvider, prompt, fallbackOptions);
@@ -375,7 +395,7 @@ export async function translateNaturalLanguageToCommand(rawPrompt, config = {}) 
       throw new Error("Fallback AI provider returned empty command.");
     } catch (fallbackErr) {
       throw new Error(
-        `AI Command Translation failed. Primary (${primaryProvider}): ${primaryErr.message}; Fallback (${fallbackProvider}): ${fallbackErr.message}`
+        `AI Command Translation failed. Primary (${primaryProvider}): ${primaryErr.message}; Fallback (${fallbackProvider}): ${fallbackErr.message}`,
       );
     }
   }
