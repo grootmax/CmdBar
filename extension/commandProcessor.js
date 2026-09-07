@@ -1,10 +1,5 @@
-/**
- * Core business logic for CmdBar extension command processing and validation.
- */
-
 export { ChainRunner, ChainStatus, StepStatus } from "./chainRunner.js";
 import { RBACManager } from "./rbacManager.js";
-
 let GLib;
 try {
   if (typeof globalThis.imports !== "undefined" && globalThis.imports.gi) {
@@ -130,10 +125,7 @@ export async function writeConfigAtomically(targetPath, data) {
   } else {
     // GJS (GNOME Shell) environment
     const giModule = await import("gi");
-    const Gio =
-      giModule.Gio ||
-      (giModule.default && giModule.default.Gio) ||
-      giModule.default;
+    const Gio = giModule.Gio || (giModule.default && giModule.default.Gio) || giModule.default;
     const GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
     const file = Gio.File.new_for_path(targetPath);
     const tmpPath = targetPath + ".tmp";
@@ -437,7 +429,7 @@ export function getPreviewTokens(argv, placeholderMap, parametersSchema) {
  * @returns {string}
  */
 export function formatShortcutHint(accel) {
-  let str = Array.isArray(accel) ? accel[0] || "" : accel || "";
+  let str = Array.isArray(accel) ? (accel[0] || "") : (accel || "");
   if (!str) return "Super+Space";
 
   let parts = [];
