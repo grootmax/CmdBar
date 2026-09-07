@@ -16,9 +16,14 @@ import {
   formatShortcutHint,
   parseAccel,
   formatOutput,
+  detectGitRepo,
+  getGitStateSync,
+  getGitStateAsync,
+  substituteGitPlaceholders,
+  hasNonGitPlaceholders,
 } from "./commandProcessor.js";
 import { wrapCommandInSandbox, isSandboxEnabled } from "./sandboxWrapper.js";
-import { loadConfig, getEffectiveBranding, getEffectiveDomainUrl } from "./configSync.js";
+import { loadConfig, saveConfig, getEffectiveBranding, getEffectiveDomainUrl } from "./configSync.js";
 import {
   translateNaturalLanguageToCommand,
   isAICommand,
@@ -1185,7 +1190,7 @@ const JobMenuItem = GObject.registerClass(
 // Menu item for group/category headers
 const CategoryHeaderMenuItem = GObject.registerClass(
   class CategoryHeaderMenuItem extends PopupMenu.PopupBaseMenuItem {
-    _init(categoryName) {
+    _init(categoryName, iconName) {
       super._init({
         reactive: false,
         activate: false,
@@ -1198,7 +1203,7 @@ const CategoryHeaderMenuItem = GObject.registerClass(
       });
 
       this.icon = new St.Icon({
-        icon_name: "folder-symbolic",
+        icon_name: iconName || "folder-symbolic",
         style_class: "popup-menu-icon",
         style: "margin-right: 8px; margin-top: 6px; margin-bottom: 2px;",
         y_align: Clutter.ActorAlign.CENTER,
@@ -1218,6 +1223,60 @@ const CategoryHeaderMenuItem = GObject.registerClass(
   },
 );
 
+// Visual Branch Indicator Menu Item
+const GitHeaderMenuItem = GObject.registerClass(
+  class GitHeaderMenuItem extends PopupMenu.PopupBaseMenuItem {
+    _init(gitState) {
+      super._init({
+        reactive: false,
+        activate: false,
+      });
+
+      this.box = new St.BoxLayout({
+        vertical: false,
+        style_class: "cmdbar-git-header",
+        x_expand: true,
+      });
+
+      this.icon = new St.Icon({
+        icon_name: "code-branches-symbolic",
+        style_class: "popup-menu-icon",
+        style: "margin-right: 8px; color: #3584e4;",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      this.box.add_child(this.icon);
+
+      let branchText = gitState.branch ? `Git: ${gitState.branch}` : "Git Repository";
+      if (gitState.status) {
+        branchText += ` (${gitState.status})`;
+      }
+
+      this.label = new St.Label({
+        text: branchText,
+        style_class: "cmdbar-git-branch-label",
+        y_align: Clutter.ActorAlign.CENTER,
+        x_expand: true,
+      });
+      this.box.add_child(this.label);
+
+      if (gitState.lastCommit) {
+        let commitText = gitState.lastCommit;
+        if (commitText.length > 28) {
+          commitText = commitText.substring(0, 25) + "...";
+        }
+        this.commitLabel = new St.Label({
+          text: commitText,
+          style_class: "cmdbar-git-status-label",
+          y_align: Clutter.ActorAlign.CENTER,
+        });
+        this.box.add_child(this.commitLabel);
+      }
+
+      this.add_child(this.box);
+    }
+  },
+);
+
 // The top bar status area panel indicator
 const CmdBarIndicator = GObject.registerClass(
   class CmdBarIndicator extends PanelMenu.Button {
@@ -1228,6 +1287,22 @@ const CmdBarIndicator = GObject.registerClass(
       this._monitor = null;
       this._cachedConfig = null;
       this._timeoutId = 0;
+
+      this._gitState = {
+        isGitRepo: false,
+        branch: "",
+        status: "",
+        lastCommit: "",
+        repoPath: "",
+      };
+
+      if (this.menu && typeof this.menu.connect === "function") {
+        this.menu.connect("open-state-changed", (menu, open) => {
+          if (open) {
+            this._updateGitState();
+          }
+        });
+      }
 
       // Container box to support text and icon side-by-side
       this._box = new St.BoxLayout({
@@ -1251,6 +1326,8 @@ const CmdBarIndicator = GObject.registerClass(
 
       this.add_child(this._box);
 
+      this._updateGitState();
+
       // Harvest environment asynchronously on startup
       harvestEnvironment();
 
@@ -1262,6 +1339,7 @@ const CmdBarIndicator = GObject.registerClass(
     }
 
     setButtonLabel(labelText) {
+      if (!this._label) return;
       if (labelText && labelText.trim().length > 0) {
         this._label.text = labelText.trim();
         this._label.visible = true;
@@ -1271,12 +1349,59 @@ const CmdBarIndicator = GObject.registerClass(
       }
     }
 
+    async toggleFavorite(cmdObj) {
+      if (!cmdObj) return;
+      try {
+        let configPath = this._getConfigPath();
+        let extensionPath = this._extension && this._extension.dir ? this._extension.dir.get_path() : null;
+        let config = await loadConfig(configPath, extensionPath);
+
+        if (!config || !config.categories) return;
+
+        let found = false;
+        let newFavState = false;
+
+        for (let cat of config.categories) {
+          if (!cat.commands) continue;
+          for (let cmd of cat.commands) {
+            if (
+              cmd === cmdObj ||
+              (cmd.name === cmdObj.name && cmd.command === cmdObj.command)
+            ) {
+              const current = Boolean(cmd.favorite || cmd.pinned);
+              cmd.favorite = !current;
+              cmd.pinned = !current;
+              newFavState = !current;
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
+        }
+
+        if (found) {
+          await saveConfig(config, configPath);
+          this._cachedConfig = config;
+          await this._reloadMenu();
+          let stateText = newFavState ? "added to" : "removed from";
+          if (typeof this._showNotification === "function") {
+            this._showNotification(
+              "Command Favorites",
+              `'${cmdObj.name}' ${stateText} Favorites.`,
+            );
+          }
+        }
+      } catch (e) {
+        console.error(`CmdBar: error toggling favorite: ${e.message}`);
+      }
+    }
+
     /**
      * Apply custom white label branding options to top bar indicator and popup menu.
      * @param {object} branding
      */
     _applyBranding(branding) {
-      if (!branding) return;
+      if (!branding || !this._icon) return;
       this._effectiveBranding = branding;
 
       // Custom icon / logo
@@ -1337,7 +1462,7 @@ const CmdBarIndicator = GObject.registerClass(
     async _reloadMenu() {
       try {
         let configPath = this._getConfigPath();
-        let extensionPath = this._extension.dir.get_path();
+        let extensionPath = this._extension && this._extension.dir ? this._extension.dir.get_path() : null;
         let config = await loadConfig(configPath, extensionPath);
 
         let branding = getEffectiveBranding(config);
@@ -1353,10 +1478,60 @@ const CmdBarIndicator = GObject.registerClass(
         // Clear all current items in menu
         this.menu.removeAll();
 
+        if (this._gitState && this._gitState.isGitRepo) {
+          this.menu.addMenuItem(new GitHeaderMenuItem(this._gitState));
+          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        }
+
         if (!config || !config.categories || config.categories.length === 0) {
           let infoItem = new PopupMenu.PopupMenuItem("No commands configured");
           this.menu.addMenuItem(infoItem);
           return;
+        }
+
+        // 1. Gather all favorite commands across all categories
+        let favoriteCommands = [];
+        config.categories.forEach((category) => {
+          if (category.commands && Array.isArray(category.commands)) {
+            category.commands.forEach((cmd) => {
+              if (cmd && (cmd.favorite || cmd.pinned)) {
+                favoriteCommands.push(cmd);
+              }
+            });
+          }
+        });
+
+        // 2. Add "Favorites" category section at top if any favorites exist
+        if (favoriteCommands.length > 0) {
+          this.menu.addMenuItem(
+            new CategoryHeaderMenuItem("Favorites", "starred-symbolic"),
+          );
+
+          favoriteCommands.forEach((cmd) => {
+            let rawCmd = cmd.command;
+            let substitutedCmd = rawCmd;
+            if (this._gitState && this._gitState.isGitRepo) {
+              substitutedCmd = substituteGitPlaceholders(rawCmd, this._gitState);
+            }
+
+            if (hasNonGitPlaceholders(rawCmd)) {
+              this.menu.addMenuItem(
+                new CommandInputMenuItem(
+                  this,
+                  cmd.name,
+                  substitutedCmd,
+                  cmd.placeholder,
+                  cmd,
+                ),
+              );
+            } else {
+              this.menu.addMenuItem(
+                new CommandMenuItem(this, cmd.name, substitutedCmd, cmd),
+              );
+            }
+          });
+
+          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         }
 
         config.categories.forEach((category, catIndex) => {
@@ -1369,13 +1544,19 @@ const CmdBarIndicator = GObject.registerClass(
           // Category commands
           if (category.commands && Array.isArray(category.commands)) {
             category.commands.forEach((cmd) => {
-              if (hasPlaceholder(cmd.command)) {
+              let rawCmd = cmd.command;
+              let substitutedCmd = rawCmd;
+              if (this._gitState && this._gitState.isGitRepo) {
+                substitutedCmd = substituteGitPlaceholders(rawCmd, this._gitState);
+              }
+
+              if (hasNonGitPlaceholders(rawCmd)) {
                 // Commands requiring text inputs (Requirement 1 & 2)
                 this.menu.addMenuItem(
                   new CommandInputMenuItem(
                     this,
                     cmd.name,
-                    cmd.command,
+                    substitutedCmd,
                     cmd.placeholder,
                     cmd,
                   ),
@@ -1383,7 +1564,7 @@ const CmdBarIndicator = GObject.registerClass(
               } else {
                 // Ordinary parameterless commands
                 this.menu.addMenuItem(
-                  new CommandMenuItem(this, cmd.name, cmd.command, cmd),
+                  new CommandMenuItem(this, cmd.name, substitutedCmd, cmd),
                 );
               }
             });
@@ -1722,6 +1903,26 @@ export default class CmdBarExtension extends Extension {
         this._registerKeybinding();
       },
     );
+
+    this._enableGitId = this._settings.connect(
+      "changed::enable-git-integration",
+      () => {
+        if (this._indicator) {
+          this._indicator._updateGitState();
+          this._indicator._reloadMenu();
+        }
+      },
+    );
+
+    this._gitRepoPathId = this._settings.connect(
+      "changed::git-repo-path",
+      () => {
+        if (this._indicator) {
+          this._indicator._updateGitState();
+          this._indicator._reloadMenu();
+        }
+      },
+    );
   }
 
   /**
@@ -1811,6 +2012,14 @@ export default class CmdBarExtension extends Extension {
       if (this._shortcutId) {
         this._settings.disconnect(this._shortcutId);
         this._shortcutId = 0;
+      }
+      if (this._enableGitId) {
+        this._settings.disconnect(this._enableGitId);
+        this._enableGitId = 0;
+      }
+      if (this._gitRepoPathId) {
+        this._settings.disconnect(this._gitRepoPathId);
+        this._gitRepoPathId = 0;
       }
       this._settings = null;
     }
