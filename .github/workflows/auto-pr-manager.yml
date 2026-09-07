@@ -140,7 +140,11 @@ jobs:
           # We process them strictly in this order.
           # ==================================================
 
-          jq -c 'if type == "array" then .[]? else empty end' /tmp/jules-prs.json | while read -r PR; do
+          mapfile -t JULES_PRS < <(jq -c 'if type == "array" then .[]? else empty end' /tmp/jules-prs.json 2>/dev/null || echo "")
+          for PR in "${JULES_PRS[@]}"; do
+            if [ -z "$PR" ]; then
+              continue
+            fi
 
             PR_NUMBER=$(echo "$PR" | jq -r '.number // empty' 2>/dev/null || echo "")
             TITLE=$(echo "$PR" | jq -r '.title // empty' 2>/dev/null || echo "")
@@ -374,23 +378,17 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
-                mapfile -t CONFLICTED_FILES < <(
-                  git diff \
-                    --name-only \
-                    --diff-filter=U
-                )
-
+                readarray -t CONFLICTED_FILES <<< "$(git diff --name-only --diff-filter=U)"
                 for FILE in "${CONFLICTED_FILES[@]}"; do
+                  if [ -n "$FILE" ]; then
+                    echo "Resolving conflict:"
+                    echo "  $FILE"
 
-                  [ -z "$FILE" ] && continue
-
-                  echo "Resolving conflict:"
-                  echo "  $FILE"
-
-                  if git checkout --theirs -- "$FILE" 2>/dev/null; then
-                    git add -- "$FILE"
-                  else
-                    git rm -f -- "$FILE" 2>/dev/null || true
+                    if git checkout --theirs -- "$FILE" 2>/dev/null; then
+                      git add -- "$FILE"
+                    else
+                      git rm -f -- "$FILE" 2>/dev/null || true
+                    fi
                   fi
                 done
 
@@ -401,7 +399,7 @@ jobs:
                 REMAINING_CONFLICTS=$(git diff \
                   --name-only \
                   --diff-filter=U |
-                  wc -l)
+                  wc -l | tr -d ' ')
 
                 if [ "$REMAINING_CONFLICTS" -ne 0 ]; then
 
@@ -433,10 +431,8 @@ jobs:
                 echo ""
                 echo "Committing conflict resolution..."
 
-                if ! git diff --quiet || ! git diff --cached --quiet || [ -f .git/MERGE_HEAD ]; then
-                  git commit \
-                    -m "chore: auto-resolve merge conflicts" || true
-                fi
+                git commit \
+                  -m "chore: auto-resolve merge conflicts" || true
 
               fi
 
