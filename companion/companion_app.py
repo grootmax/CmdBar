@@ -17,6 +17,18 @@ from app.template_manager import (
     export_command_as_template,
     export_templates_to_file,
 )
+from companion.audit_logger import log_command, read_audit_logs, clear_audit_log, get_audit_log_path
+try:
+    from app.config_schema import get_profiles, get_active_profile_name, get_profile_env, is_command_visible_in_profile, merge_environment
+except ImportError:
+    try:
+        from config_schema import get_profiles, get_active_profile_name, get_profile_env, is_command_visible_in_profile, merge_environment
+    except ImportError:
+        def get_profiles(cfg): return []
+        def get_active_profile_name(cfg): return None
+        def get_profile_env(cfg, name=None): return {}
+        def is_command_visible_in_profile(cmd, name): return True
+        def merge_environment(base, cfg, name=None): return dict(base or {})
 
 def canonical_json(obj):
     if isinstance(obj, dict):
@@ -360,16 +372,48 @@ def run_command_in_shell(command_str):
     """
     Runs the given command string inside a shell and returns (exit_code, stdout, stderr).
     """
+    import time
+    start_time = time.time()
     try:
         res = subprocess.run(command_str, shell=True, text=True, capture_output=True)
+        dur_ms = int((time.time() - start_time) * 1000)
+        config_data = load_config()
+        log_command(command_str, res.returncode, dur_ms, config=config_data)
         return res.returncode, res.stdout, res.stderr
     except Exception as e:
+        dur_ms = int((time.time() - start_time) * 1000)
+        config_data = load_config()
+        log_command(command_str, -1, dur_ms, config=config_data)
         return -1, "", str(e)
 
 
 # =====================================================================
 # CLI / INTERACTIVE COMPANION APP MODE
 # =====================================================================
+
+def view_audit_log_cli():
+    print("\n===============================================")
+    print("            Command Audit Log Viewer            ")
+    print("===============================================")
+    log_path = get_audit_log_path()
+    print(f"Log path: {log_path}\n")
+    entries = read_audit_logs(log_path)
+    if not entries:
+        print("No audit log entries found.")
+        return
+
+    print(f"{'Timestamp':<25} {'User':<12} {'Exit':<6} {'Duration':<10} {'Command'}")
+    print("-" * 80)
+    for entry in entries[-50:]:
+        if "raw" in entry:
+            print(entry["raw"])
+        else:
+            ts = entry.get("timestamp", "")[:19]
+            usr = entry.get("user", "")
+            code = str(entry.get("exit_code", ""))
+            dur = entry.get("duration", f"{entry.get('duration_ms', 0)}ms")
+            cmd = entry.get("command", "")
+            print(f"{ts:<25} {usr:<12} {code:<6} {dur:<10} {cmd}")
 
 def run_cli_mode():
     print("===============================================")
@@ -388,9 +432,10 @@ def run_cli_mode():
         print("7. Import from Template Library")
         print("8. Export Custom Commands as Template")
         print("9. Custom Branding & White Label")
-        print("10. Exit")
+        print("10. View Command Audit Log")
+        print("11. Exit")
         
-        choice = input("\nEnter choice [1-10]: ").strip()
+        choice = input("\nEnter choice [1-11]: ").strip()
         if choice == "1":
             list_categories_and_commands(config_data)
         elif choice == "2":
@@ -410,6 +455,8 @@ def run_cli_mode():
         elif choice == "9":
             manage_branding(config_data)
         elif choice == "10":
+            view_audit_log_cli()
+        elif choice == "11":
             print("Goodbye!")
             break
         else:
@@ -871,6 +918,26 @@ if GUI_AVAILABLE:
                 
                 entry.connect("changed", self.validate_all)
                 
+            # Profile Selector
+            self.profile_combo = None
+            cfg = parent.config_data if hasattr(parent, 'config_data') and parent.config_data else {}
+            profiles = get_profiles(cfg)
+            if profiles:
+                prof_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+                prof_lbl = Gtk.Label(label="Environment Profile:", xalign=0)
+                prof_box.append(prof_lbl)
+                self.profile_combo = Gtk.ComboBoxText()
+                profile_names = [p['name'] for p in profiles]
+                active_prof = get_active_profile_name(cfg)
+                for p_name in profile_names:
+                    self.profile_combo.append_text(p_name)
+                if active_prof and active_prof in profile_names:
+                    self.profile_combo.set_active(profile_names.index(active_prof))
+                else:
+                    self.profile_combo.set_active(0)
+                prof_box.append(self.profile_combo)
+                main_box.append(prof_box)
+
             # Action Buttons
             btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             btn_box.set_halign(Gtk.Align.END)
@@ -970,16 +1037,30 @@ if GUI_AVAILABLE:
             
             try:
                 self.cancellable = Gio.Cancellable()
-                try:
-                    self.proc = Gio.Subprocess.new(
-                        ['setsid', 'sh', '-c', final_cmd],
-                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-                    )
-                except Exception:
-                    self.proc = Gio.Subprocess.new(
-                        ['sh', '-c', final_cmd],
-                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-                    )
+                cfg = self.parent.config_data if hasattr(self, 'parent') and hasattr(self.parent, 'config_data') and self.parent.config_data else {}
+                selected_profile = self.profile_combo.get_active_text() if self.profile_combo else None
+                profile_env = get_profile_env(cfg, selected_profile)
+
+                if profile_env and hasattr(Gio, 'SubprocessLauncher'):
+                    launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE)
+                    for k, v in profile_env.items():
+                        if k and v is not None:
+                            launcher.setenv(str(k), str(v), True)
+                    try:
+                        self.proc = launcher.spawnv(['setsid', 'sh', '-c', final_cmd])
+                    except Exception:
+                        self.proc = launcher.spawnv(['sh', '-c', final_cmd])
+                else:
+                    try:
+                        self.proc = Gio.Subprocess.new(
+                            ['setsid', 'sh', '-c', final_cmd],
+                            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                        )
+                    except Exception:
+                        self.proc = Gio.Subprocess.new(
+                            ['sh', '-c', final_cmd],
+                            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                        )
                 
                 self.run_btn.set_visible(False)
                 self.cancel_test_btn.set_visible(True)

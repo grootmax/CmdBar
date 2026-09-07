@@ -19,12 +19,21 @@ import {
 } from "./commandProcessor.js";
 import { wrapCommandInSandbox, isSandboxEnabled } from "./sandboxWrapper.js";
 import { loadConfig, saveConfig, getEffectiveBranding, getEffectiveDomainUrl } from "./configSync.js";
+import { logCommand } from "./auditLogger.js";
 import {
   translateNaturalLanguageToCommand,
   isAICommand,
   cleanAIPrompt,
 } from "./aiTranslator.js";
 import { ChainRunner, ChainStatus, StepStatus } from "./chainRunner.js";
+import {
+  isCommandCacheable,
+  getCommandTTL,
+  CommandCacheStore,
+} from "./commandCache.js";
+
+export const globalCacheStore = new CommandCacheStore();
+globalCacheStore.init().catch(() => {});
 
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
@@ -84,6 +93,7 @@ async function handleAICommandExecution(commandStr, config, onComplete) {
 }
 
 function _executeDirectTokens(argv, commandName) {
+  const startTime = Date.now();
   try {
     let proc = Gio.Subprocess.new(
       argv,
@@ -91,13 +101,22 @@ function _executeDirectTokens(argv, commandName) {
     );
 
     proc.communicate_utf8_async(null, null, (subprocess, result) => {
+      const durationMs = Date.now() - startTime;
+      let exitCode = -1;
       try {
         let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
         let success = subprocess.get_successful();
         let exitStatus = "unknown";
         if (subprocess.get_if_exited()) {
-          exitStatus = String(subprocess.get_exit_status());
+          exitCode = subprocess.get_exit_status();
+          exitStatus = String(exitCode);
         }
+
+        logCommand({
+          command: Array.isArray(argv) ? argv.join(" ") : String(argv),
+          exitCode,
+          durationMs,
+        });
 
         if (success) {
           let title = `Command Succeeded: ${commandName}`;
@@ -524,17 +543,22 @@ export function executeChain(cmdObj, placeholderMap, config) {
 
 /**
  * Run a command asynchronously as a direct tokenized array and notify the user when done.
+ * Supports command output caching with TTL, manual refresh, and cache invalidation.
  * @param {string} commandName
  * @param {string|string[]} commandString
  * @param {object} [cmdObj]
  * @param {object} [placeholderMap]
+ * @param {object} [config]
+ * @param {object} [options] Options object (e.g. { forceRefresh: true })
+ * @public
  */
-function runCommandAsync(
+export function runCommandAsync(
   commandName,
   commandString,
   cmdObj,
   placeholderMap,
   config,
+  options = {},
 ) {
   if (cmdObj && (cmdObj.type === "chain" || Array.isArray(cmdObj.steps))) {
     executeChain(cmdObj, placeholderMap, config);
@@ -554,16 +578,38 @@ function runCommandAsync(
     : tokenizeCommand(commandString);
   let argv = substituteTokens(tokens, placeholderMap);
   if (argv.length === 0) {
-    Main.notify(
-      "Command Execution Failed",
-      "Command parsed to empty argument list.",
-    );
+    if (Main && typeof Main.notify === "function") {
+      Main.notify(
+        "Command Execution Failed",
+        "Command parsed to empty argument list.",
+      );
+    }
     return;
   }
 
   let execArgv = isSandboxEnabled(cmdObj)
     ? wrapCommandInSandbox(argv, cmdObj)
     : argv;
+  let cacheKey = argv.join(" ");
+  let cacheable = isCommandCacheable(cmdObj);
+  let forceRefresh = Boolean(options && options.forceRefresh);
+
+  if (cacheable && !forceRefresh) {
+    let cached = globalCacheStore.get(cacheKey);
+    if (cached) {
+      let age = Math.max(0, Math.round((Date.now() - cached.timestamp) / 1000));
+      let title = `Command Succeeded (Cached ${age}s ago): ${commandName}`;
+      let body = `Exit status: ${cached.exitStatus}`;
+      if (cached.stdout && cached.stdout.trim()) {
+        const formatted = formatOutput(cached.stdout);
+        body += `\n\nOutput (${formatted.format}):\n${formatted.text}`;
+      }
+      if (Main && typeof Main.notify === "function") {
+        Main.notify(title, body);
+      }
+      return cached;
+    }
+  }
 
   let previewArgv = getPreviewTokens(
     execArgv,
@@ -577,6 +623,7 @@ function runCommandAsync(
     previewArgv,
     cmdObj,
     () => {
+      const startTime = Date.now();
       try {
         let proc = Gio.Subprocess.new(
           execArgv,
@@ -584,23 +631,49 @@ function runCommandAsync(
         );
 
         proc.communicate_utf8_async(null, null, (subprocess, result) => {
+          const durationMs = Date.now() - startTime;
+          let exitCode = -1;
           try {
             let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
             let success = subprocess.get_successful();
             let exitStatus = "unknown";
             if (subprocess.get_if_exited()) {
-              exitStatus = String(subprocess.get_exit_status());
+              exitCode = subprocess.get_exit_status();
+              exitStatus = String(exitCode);
             } else if (subprocess.get_if_signaled()) {
               exitStatus = `Killed by signal ${subprocess.get_term_sig()}`;
             }
 
+            logCommand({
+              command: argv.join(" "),
+              exitCode,
+              durationMs,
+              cmdObj,
+              placeholderMap,
+              config,
+            });
+
             if (success) {
-              let title = `Command Succeeded: ${commandName}`;
+              if (cacheable) {
+                let ttl = getCommandTTL(cmdObj);
+                globalCacheStore.set(cacheKey, rawCmdStr, {
+                  stdout: stdout || "",
+                  stderr: stderr || "",
+                  exitStatus,
+                }, ttl);
+              }
+
+              let title = forceRefresh
+                ? `Command Refreshed: ${commandName}`
+                : `Command Succeeded: ${commandName}`;
               let body = `Exit status: ${exitStatus}`;
               if (stdout && stdout.trim()) {
-                body += `\n\nOutput:\n${stdout.trim()}`;
+                const formatted = formatOutput(stdout);
+                body += `\n\nOutput (${formatted.format}):\n${formatted.text}`;
               }
-              Main.notify(title, body);
+              if (Main && typeof Main.notify === "function") {
+                Main.notify(title, body);
+              }
             } else {
               let title = `Command Failed: ${commandName}`;
               let body = `Exit status: ${exitStatus}`;
@@ -609,22 +682,28 @@ function runCommandAsync(
               } else if (stdout && stdout.trim()) {
                 body += `\n\nOutput:\n${stdout.trim()}`;
               }
-              Main.notify(title, body);
+              if (Main && typeof Main.notify === "function") {
+                Main.notify(title, body);
+              }
             }
           } catch (err) {
             console.error(`CmdBar: error finishing command: ${err.message}`);
-            Main.notify(
-              `Command Error: ${commandName}`,
-              `Failed to execute: ${err.message}`,
-            );
+            if (Main && typeof Main.notify === "function") {
+              Main.notify(
+                `Command Error: ${commandName}`,
+                `Failed to execute: ${err.message}`,
+              );
+            }
           }
         });
       } catch (e) {
         console.error(`CmdBar: failed to spawn command: ${e.message}`);
-        Main.notify(
-          `Command Launch Failed: ${commandName}`,
-          `Could not start command: ${e.message}`,
-        );
+        if (Main && typeof Main.notify === "function") {
+          Main.notify(
+            `Command Launch Failed: ${commandName}`,
+            `Could not start command: ${e.message}`,
+          );
+        }
       }
     },
     () => {
@@ -633,6 +712,38 @@ function runCommandAsync(
       );
     },
   );
+}
+
+/**
+ * Manually refreshes the cache for a given command.
+ * @param {string} commandName
+ * @param {string|string[]} commandString
+ * @param {object} [cmdObj]
+ * @param {object} [placeholderMap]
+ * @param {object} [config]
+ * @public
+ */
+export function refreshCommandCache(commandName, commandString, cmdObj, placeholderMap, config) {
+  return runCommandAsync(commandName, commandString, cmdObj, placeholderMap, config, { forceRefresh: true });
+}
+
+/**
+ * Invalidates cache entry for a given command string.
+ * @param {string|string[]} commandString
+ * @returns {boolean}
+ * @public
+ */
+export function invalidateCommandCache(commandString) {
+  let key = Array.isArray(commandString) ? commandString.join(" ") : String(commandString || "");
+  return globalCacheStore.invalidate(key);
+}
+
+/**
+ * Clears all cached command outputs.
+ * @public
+ */
+export function clearCommandCache() {
+  globalCacheStore.clear();
 }
 
 /**
@@ -670,10 +781,28 @@ function _executeCommandAsync(commandLineString, cmdObj) {
       previewArgv,
       cmdObj,
       () => {
-        let proc = Gio.Subprocess.new(execArgv, Gio.SubprocessFlags.STDERR_PIPE);
+        const startTime = Date.now();
+        let proc = Gio.Subprocess.new(
+          execArgv,
+          Gio.SubprocessFlags.STDERR_PIPE,
+        );
         proc.communicate_utf8_async(null, null, (subprocess, result) => {
+          const durationMs = Date.now() - startTime;
+          let exitCode = -1;
           try {
             let [stdout, stderr] = subprocess.communicate_utf8_finish(result);
+            if (subprocess.get_if_exited()) {
+              exitCode = subprocess.get_exit_status();
+            } else if (subprocess.get_successful()) {
+              exitCode = 0;
+            }
+
+            logCommand({
+              command: Array.isArray(execArgv) ? execArgv.join(" ") : String(execArgv),
+              exitCode,
+              durationMs,
+              cmdObj,
+            });
 
             if (!subprocess.get_successful()) {
               let exitStatus = subprocess.get_exit_status();
@@ -858,11 +987,32 @@ const CommandInputMenuItem = GObject.registerClass(
                   previewArgv,
                   this._cmdObj,
                   () => {
+                    const startTime = Date.now();
                     try {
                       let cmdProc = Gio.Subprocess.new(
                         execArgv,
                         Gio.SubprocessFlags.NONE,
                       );
+                      cmdProc.wait_async(null, (proc, res) => {
+                        const durationMs = Date.now() - startTime;
+                        let exitCode = 0;
+                        try {
+                          proc.wait_finish(res);
+                          if (proc.get_if_exited()) {
+                            exitCode = proc.get_exit_status();
+                          }
+                        } catch (e) {
+                          exitCode = -1;
+                        }
+                        logCommand({
+                          command: fullCmdStr,
+                          exitCode,
+                          durationMs,
+                          cmdObj: this._cmdObj,
+                          placeholderMap,
+                          config: this._indicator ? this._indicator._cachedConfig : {},
+                        });
+                      });
                       if (
                         this._indicator &&
                         this._indicator.menu &&
@@ -977,11 +1127,15 @@ export function copyToClipboard(text) {
 }
 
 /**
- * Helper function supporting pasting clipboard text via wtype (Wayland) or xdotool (X11).
+ * Helper function supporting wl-copy/wtype/ydotool (Wayland) and xclip/xdotool/xte (X11) to paste/type text.
  * @param {string} [text]
  * @returns {boolean}
  */
 export function pasteClipboardText(text) {
+  if (text) {
+    copyToClipboard(text);
+  }
+
   let isWayland = false;
   try {
     let waylandDisplay = GLib.getenv("WAYLAND_DISPLAY");
@@ -994,28 +1148,41 @@ export function pasteClipboardText(text) {
     }
   } catch (e) {}
 
-  let argv = isWayland
-    ? ["wtype", "-M", "ctrl", "v"]
-    : ["xdotool", "key", "--clearmodifiers", "ctrl+v"];
+  let commands = isWayland
+    ? [
+        ["wtype", "-M", "ctrl", "v"],
+        ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
+        ["xdotool", "key", "ctrl+v"],
+      ]
+    : [
+        ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
+        ["xdotool", "type", text || ""],
+        ["xte", "kd Control_L", "k v", "ku Control_L"],
+      ];
 
-  try {
-    let proc = Gio.Subprocess.new(
-      argv,
-      Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-    );
-    if (proc && typeof proc.communicate_utf8_async === "function") {
-      proc.communicate_utf8_async(null, null, (subprocess, result) => {
-        try {
-          if (subprocess && typeof subprocess.communicate_utf8_finish === "function") {
-            subprocess.communicate_utf8_finish(result);
-          }
-        } catch (err) {}
-      });
+  let success = false;
+  for (let argv of commands) {
+    try {
+      let proc = Gio.Subprocess.new(
+        argv,
+        Gio.SubprocessFlags.NONE,
+      );
+      if (proc && typeof proc.communicate_utf8_async === "function") {
+        proc.communicate_utf8_async(null, null, (subprocess, result) => {
+          try {
+            if (subprocess && typeof subprocess.communicate_utf8_finish === "function") {
+              subprocess.communicate_utf8_finish(result);
+            }
+          } catch (err) {}
+        });
+      }
+      success = true;
+      break;
+    } catch (e) {
+      continue;
     }
-    return true;
-  } catch (e) {
-    return false;
   }
+  return success;
 }
 
 // Standard menu item for parameterless or parameter-prompting commands
@@ -1086,6 +1253,38 @@ const CommandMenuItem = GObject.registerClass(
         }
       });
       this.box.add_child(this.copyButton);
+
+      // Refresh Button for Cacheable Commands
+      if (isCommandCacheable(this._cmdObj)) {
+        this.refreshButton = new St.Button({
+          child: new St.Icon({
+            icon_name: "view-refresh-symbolic",
+            style_class: "popup-menu-icon",
+          }),
+          style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
+          track_hover: true,
+          can_focus: true,
+        });
+
+        this.refreshButton.connect("clicked", () => {
+          runCommandAsync(
+            this._commandName,
+            this._commandTemplate,
+            this._cmdObj,
+            null,
+            null,
+            { forceRefresh: true }
+          );
+          if (
+            this._indicator &&
+            this._indicator.menu &&
+            typeof this._indicator.menu.close === "function"
+          ) {
+            this._indicator.menu.close();
+          }
+        });
+        this.box.add_child(this.refreshButton);
+      }
 
       // Execute Button
       this.executeButton = new St.Button({
@@ -1343,10 +1542,7 @@ const CmdBarIndicator = GObject.registerClass(
       if (!cmdObj) return;
       try {
         let configPath = this._getConfigPath();
-        let extensionPath =
-          this._extension && this._extension.dir
-            ? this._extension.dir.get_path()
-            : null;
+        let extensionPath = this._extension && this._extension.dir ? this._extension.dir.get_path() : null;
         let config = await loadConfig(configPath, extensionPath);
 
         if (!config || !config.categories) return;
@@ -1390,10 +1586,7 @@ const CmdBarIndicator = GObject.registerClass(
     async _reloadMenu() {
       try {
         let configPath = this._getConfigPath();
-        let extensionPath =
-          this._extension && this._extension.dir
-            ? this._extension.dir.get_path()
-            : null;
+        let extensionPath = this._extension && this._extension.dir ? this._extension.dir.get_path() : null;
         let config = await loadConfig(configPath, extensionPath);
 
         let branding = getEffectiveBranding(config);
@@ -1405,6 +1598,8 @@ const CmdBarIndicator = GObject.registerClass(
             "Invalid configuration file detected. Using in-memory default settings without overwriting your file.",
           );
         }
+
+        this._cachedConfig = config;
 
         // Clear all current items in menu
         this.menu.removeAll();
@@ -1454,18 +1649,23 @@ const CmdBarIndicator = GObject.registerClass(
           this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         }
 
+        // 3. Render categories with favorites sorted first within each category
         config.categories.forEach((category, catIndex) => {
-          // Category header
           if (catIndex > 0) {
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
           }
           this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
 
-          // Category commands
           if (category.commands && Array.isArray(category.commands)) {
-            category.commands.forEach((cmd) => {
+            let sortedCmds = [...category.commands].sort((a, b) => {
+              let aFav = Boolean(a && (a.favorite || a.pinned));
+              let bFav = Boolean(b && (b.favorite || b.pinned));
+              if (aFav === bFav) return 0;
+              return bFav ? -1 : 1;
+            });
+
+            sortedCmds.forEach((cmd) => {
               if (hasPlaceholder(cmd.command)) {
-                // Commands requiring text inputs (Requirement 1 & 2)
                 this.menu.addMenuItem(
                   new CommandInputMenuItem(
                     this,
@@ -1476,7 +1676,6 @@ const CmdBarIndicator = GObject.registerClass(
                   ),
                 );
               } else {
-                // Ordinary parameterless commands
                 this.menu.addMenuItem(
                   new CommandMenuItem(this, cmd.name, cmd.command, cmd),
                 );

@@ -68,6 +68,25 @@ export const DEFAULT_CONFIG = {
       refresh_threshold_seconds: 300,
     },
   },
+  audit: {
+    enabled: true,
+    privacy_mode: false,
+    sensitive_keywords: [
+      "password",
+      "passwd",
+      "secret",
+      "token",
+      "api_key",
+      "apikey",
+      "key",
+      "credentials",
+      "cred",
+      "sudo",
+      "auth",
+      "bearer",
+      "private_key",
+    ],
+  },
   ai: {
     provider: "openai",
     model: "gpt-4o",
@@ -100,6 +119,30 @@ export const DEFAULT_CONFIG = {
       footer_text: "",
     },
   },
+  profiles: [
+    {
+      name: "Production",
+      env: {
+        ENV: "production",
+        LOG_LEVEL: "warn",
+      },
+    },
+    {
+      name: "Staging",
+      env: {
+        ENV: "staging",
+        LOG_LEVEL: "info",
+      },
+    },
+    {
+      name: "Development",
+      env: {
+        ENV: "development",
+        LOG_LEVEL: "debug",
+      },
+    },
+  ],
+  active_profile: "Development",
   categories: [
     {
       name: "AI Assistant",
@@ -138,6 +181,23 @@ export const DEFAULT_CONFIG = {
           command:
             "aws ecs update-service --service {{service-name}} --desired-count {{count}}",
           placeholder: "service-name & count",
+        },
+      ],
+    },
+    {
+      name: "System Status",
+      commands: [
+        {
+          name: "Disk Space Usage",
+          command: "df -h",
+          cacheable: true,
+          ttl: 60,
+        },
+        {
+          name: "Git Status",
+          command: "git status",
+          cacheable: true,
+          ttl: 30,
         },
       ],
     },
@@ -317,6 +377,23 @@ export function validateConfigSchema(config) {
     return false;
   }
   if (config.white_label !== undefined && !validateBrandingConfig(config.white_label)) {
+    return false;
+  }
+  if (config.profiles !== undefined) {
+    if (!Array.isArray(config.profiles) && typeof config.profiles !== "object") {
+      return false;
+    }
+  }
+  if (
+    config.active_profile !== undefined &&
+    typeof config.active_profile !== "string"
+  ) {
+    return false;
+  }
+  if (
+    config.activeProfile !== undefined &&
+    typeof config.activeProfile !== "string"
+  ) {
     return false;
   }
   for (const category of config.categories) {
