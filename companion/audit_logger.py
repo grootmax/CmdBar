@@ -19,20 +19,25 @@ DEFAULT_SENSITIVE_KEYWORDS = [
     "private_key",
 ]
 
+
 def get_audit_log_path():
     if os.environ.get("CMDBAR_AUDIT_LOG_PATH"):
         return os.environ["CMDBAR_AUDIT_LOG_PATH"]
-    
+
     data_home = os.environ.get("XDG_DATA_HOME")
     if data_home:
         return os.path.join(data_home, "cmdbar", "audit.log")
     return os.path.expanduser("~/.local/share/cmdbar/audit.log")
 
+
 def get_current_user():
     return os.environ.get("USER") or os.environ.get("LOGNAME") or getpass.getuser()
 
+
 def is_sensitive_command(command_str, cmd_obj=None, placeholder_map=None, config=None):
-    if cmd_obj and (cmd_obj.get("secure") or cmd_obj.get("privacy") or cmd_obj.get("sensitive")):
+    if cmd_obj and (
+        cmd_obj.get("secure") or cmd_obj.get("privacy") or cmd_obj.get("sensitive")
+    ):
         return True
 
     if cmd_obj and cmd_obj.get("parameters"):
@@ -45,7 +50,9 @@ def is_sensitive_command(command_str, cmd_obj=None, placeholder_map=None, config
     keywords = DEFAULT_SENSITIVE_KEYWORDS
     if config and isinstance(config, dict):
         audit_cfg = config.get("audit", {})
-        if isinstance(audit_cfg, dict) and isinstance(audit_cfg.get("sensitive_keywords"), list):
+        if isinstance(audit_cfg, dict) and isinstance(
+            audit_cfg.get("sensitive_keywords"), list
+        ):
             keywords = audit_cfg["sensitive_keywords"]
 
     cmd_lower = (command_str or "").lower()
@@ -62,6 +69,7 @@ def is_sensitive_command(command_str, cmd_obj=None, placeholder_map=None, config
 
     return False
 
+
 def rotate_log_if_needed(log_path=None):
     target_path = log_path or get_audit_log_path()
     if not os.path.exists(target_path):
@@ -77,7 +85,16 @@ def rotate_log_if_needed(log_path=None):
     except Exception as e:
         print(f"CmdBar AuditLogger: Python log rotation failed: {e}")
 
-def log_command(command, exit_code=0, duration_ms=0, user=None, cmd_obj=None, placeholder_map=None, config=None):
+
+def log_command(
+    command,
+    exit_code=0,
+    duration_ms=0,
+    user=None,
+    cmd_obj=None,
+    placeholder_map=None,
+    config=None,
+):
     audit_cfg = (config.get("audit") if isinstance(config, dict) else None) or {}
     if audit_cfg.get("enabled") is False:
         return False
@@ -100,7 +117,7 @@ def log_command(command, exit_code=0, duration_ms=0, user=None, cmd_obj=None, pl
         "command": command or "",
         "exit_code": exit_code if isinstance(exit_code, int) else str(exit_code),
         "duration_ms": dur_val,
-        "duration": f"{dur_val}ms"
+        "duration": f"{dur_val}ms",
     }
 
     line = json.dumps(entry) + "\n"
@@ -111,6 +128,7 @@ def log_command(command, exit_code=0, duration_ms=0, user=None, cmd_obj=None, pl
     except Exception as e:
         print(f"CmdBar AuditLogger: Python write log failed: {e}")
         return False
+
 
 def read_audit_logs(custom_path=None):
     log_path = custom_path or get_audit_log_path()
@@ -132,6 +150,7 @@ def read_audit_logs(custom_path=None):
         print(f"CmdBar AuditLogger: Python read log failed: {e}")
 
     return entries
+
 
 def clear_audit_log(custom_path=None):
     log_path = custom_path or get_audit_log_path()

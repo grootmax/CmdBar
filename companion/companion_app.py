@@ -17,18 +17,47 @@ from app.template_manager import (
     export_command_as_template,
     export_templates_to_file,
 )
-from companion.audit_logger import log_command, read_audit_logs, clear_audit_log, get_audit_log_path
+from companion.audit_logger import (
+    log_command,
+    read_audit_logs,
+    clear_audit_log,
+    get_audit_log_path,
+)
+
 try:
-    from app.config_schema import get_profiles, get_active_profile_name, get_profile_env, is_command_visible_in_profile, merge_environment
+    from app.config_schema import (
+        get_profiles,
+        get_active_profile_name,
+        get_profile_env,
+        is_command_visible_in_profile,
+        merge_environment,
+    )
 except ImportError:
     try:
-        from config_schema import get_profiles, get_active_profile_name, get_profile_env, is_command_visible_in_profile, merge_environment
+        from config_schema import (
+            get_profiles,
+            get_active_profile_name,
+            get_profile_env,
+            is_command_visible_in_profile,
+            merge_environment,
+        )
     except ImportError:
-        def get_profiles(cfg): return []
-        def get_active_profile_name(cfg): return None
-        def get_profile_env(cfg, name=None): return {}
-        def is_command_visible_in_profile(cmd, name): return True
-        def merge_environment(base, cfg, name=None): return dict(base or {})
+
+        def get_profiles(cfg):
+            return []
+
+        def get_active_profile_name(cfg):
+            return None
+
+        def get_profile_env(cfg, name=None):
+            return {}
+
+        def is_command_visible_in_profile(cmd, name):
+            return True
+
+        def merge_environment(base, cfg, name=None):
+            return dict(base or {})
+
 
 
 def canonical_json(obj):
@@ -386,6 +415,7 @@ def run_command_in_shell(command_str):
     Runs the given command string inside a shell and returns (exit_code, stdout, stderr).
     """
     import time
+
     start_time = time.time()
     try:
         res = subprocess.run(command_str, shell=True, text=True, capture_output=True)
@@ -403,6 +433,7 @@ def run_command_in_shell(command_str):
 # =====================================================================
 # CLI / INTERACTIVE COMPANION APP MODE
 # =====================================================================
+
 
 def view_audit_log_cli():
     print("\n===============================================")
@@ -428,6 +459,7 @@ def view_audit_log_cli():
             cmd = entry.get("command", "")
             print(f"{ts:<25} {usr:<12} {code:<6} {dur:<10} {cmd}")
 
+
 def run_cli_mode():
     print("===============================================")
     print("   CmdBar Companion Management App (CLI Mode)   ")
@@ -447,7 +479,7 @@ def run_cli_mode():
         print("9. Custom Branding & White Label")
         print("10. View Command Audit Log")
         print("11. Exit")
-        
+
         choice = input("\nEnter choice [1-11]: ").strip()
         if choice == "1":
             list_categories_and_commands(config_data)
@@ -478,9 +510,11 @@ def run_cli_mode():
 
 def import_templates_cli_flow(config_data):
     print("\nTemplate Library Import Wizard:")
-    print("1. Pre-built Template Library (Git, Docker, Kubernetes, AWS, npm/pnpm, System)")
+    print(
+        "1. Pre-built Template Library (Git, Docker, Kubernetes, AWS, npm/pnpm, System)"
+    )
     print("2. Import from Local JSON File or HTTPS URL (Community Sharing)")
-    
+
     choice = input("Enter choice [1-2]: ").strip()
     templates = []
     if choice == "1":
@@ -490,8 +524,12 @@ def import_templates_cli_flow(config_data):
             return
         print("\nAvailable Templates:")
         for idx, tmpl in enumerate(all_tmpls, 1):
-            print(f"{idx}. [{tmpl.get('category')}] {tmpl.get('name')} -> {tmpl.get('command')}")
-        sel = input("\nEnter numbers of templates to import (e.g. 1,3,5 or 'all'): ").strip()
+            print(
+                f"{idx}. [{tmpl.get('category')}] {tmpl.get('name')} -> {tmpl.get('command')}"
+            )
+        sel = input(
+            "\nEnter numbers of templates to import (e.g. 1,3,5 or 'all'): "
+        ).strip()
         if sel.lower() == "all":
             templates = all_tmpls
         else:
@@ -520,7 +558,9 @@ def import_templates_cli_flow(config_data):
 
     config_data, count = import_templates_to_config(config_data, templates)
     if save_config(config_data):
-        print(f"Successfully imported {count} command template(s) into your configuration!")
+        print(
+            f"Successfully imported {count} command template(s) into your configuration!"
+        )
 
 
 def export_templates_cli_flow(config_data):
@@ -529,15 +569,17 @@ def export_templates_cli_flow(config_data):
     for cat in categories:
         for cmd in cat.get("commands", []):
             all_cmds.append((cat["name"], cmd))
-            
+
     if not all_cmds:
         print("No commands available to export.")
         return
 
     print("\nSelect Command to Export as Template:")
     for idx, (cat_name, cmd) in enumerate(all_cmds, 1):
-        print(f"{idx}. [{cat_name}] {cmd.get('name')} -> {cmd.get('command') or cmd.get('template')}")
-        
+        print(
+            f"{idx}. [{cat_name}] {cmd.get('name')} -> {cmd.get('command') or cmd.get('template')}"
+        )
+
     try:
         selection = int(input("Enter choice: ")) - 1
         if not (0 <= selection < len(all_cmds)):
@@ -548,19 +590,24 @@ def export_templates_cli_flow(config_data):
         return
 
     cat_name, cmd = all_cmds[selection]
-    out_path = input("Enter destination JSON file path [default: exported_template.json]: ").strip()
+    out_path = input(
+        "Enter destination JSON file path [default: exported_template.json]: "
+    ).strip()
     if not out_path:
         out_path = "exported_template.json"
-        
+
     author = input("Enter author name (optional): ").strip()
-    tmpl = export_command_as_template(cmd, category_name=cat_name, author=author or None)
-    
+    tmpl = export_command_as_template(
+        cmd, category_name=cat_name, author=author or None
+    )
+
     export_templates_to_file([tmpl], out_path, author=author or None)
     print(f"Successfully exported template '{tmpl['name']}' to {out_path}!")
 
 
 def manage_branding(config_data):
     from app.config_schema import get_effective_branding
+
     branding = get_effective_branding(config_data)
     print("\n--- Custom Branding & White Label Options ---")
     print(f"Enabled: {branding['enabled']}")
@@ -569,14 +616,14 @@ def manage_branding(config_data):
     print(f"Primary Color: {branding['brand_colors']['primary']}")
     print(f"Domain Alias: {branding['domain_alias']}")
     print(f"Organization Name: {branding['enterprise_identity']['organization_name']}")
-    
+
     print("\n1. Toggle White Labeling (Enable/Disable)")
     print("2. Set Application Name")
     print("3. Set Logo Path")
     print("4. Set Brand Primary Color")
     print("5. Set Domain Alias")
     print("6. Back to Main Menu")
-    
+
     choice = input("\nEnter choice [1-6]: ").strip()
     if choice == "1":
         branding["enabled"] = not branding["enabled"]
@@ -623,7 +670,9 @@ def list_categories_and_commands(config_data):
         if not commands:
             print("    (No commands)")
         for j, cmd in enumerate(commands, 1):
-            fav_str = " [★ Favorite]" if (cmd.get("favorite") or cmd.get("pinned")) else ""
+            fav_str = (
+                " [★ Favorite]" if (cmd.get("favorite") or cmd.get("pinned")) else ""
+            )
             print(f"    {i}.{j} {cmd.get('name')}{fav_str}")
             print(f"        Template: {cmd.get('template')}")
             params = cmd.get("parameters", {})
@@ -948,17 +997,21 @@ if GUI_AVAILABLE:
                 self.warning_labels[ph] = warn_lbl
 
                 entry.connect("changed", self.validate_all)
-                
+
             # Profile Selector
             self.profile_combo = None
-            cfg = parent.config_data if hasattr(parent, 'config_data') and parent.config_data else {}
+            cfg = (
+                parent.config_data
+                if hasattr(parent, "config_data") and parent.config_data
+                else {}
+            )
             profiles = get_profiles(cfg)
             if profiles:
                 prof_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
                 prof_lbl = Gtk.Label(label="Environment Profile:", xalign=0)
                 prof_box.append(prof_lbl)
                 self.profile_combo = Gtk.ComboBoxText()
-                profile_names = [p['name'] for p in profiles]
+                profile_names = [p["name"] for p in profiles]
                 active_prof = get_active_profile_name(cfg)
                 for p_name in profile_names:
                     self.profile_combo.append_text(p_name)
@@ -1085,32 +1138,44 @@ if GUI_AVAILABLE:
 
             try:
                 self.cancellable = Gio.Cancellable()
-                cfg = self.parent.config_data if hasattr(self, 'parent') and hasattr(self.parent, 'config_data') and self.parent.config_data else {}
-                selected_profile = self.profile_combo.get_active_text() if self.profile_combo else None
+                cfg = (
+                    self.parent.config_data
+                    if hasattr(self, "parent")
+                    and hasattr(self.parent, "config_data")
+                    and self.parent.config_data
+                    else {}
+                )
+                selected_profile = (
+                    self.profile_combo.get_active_text() if self.profile_combo else None
+                )
                 profile_env = get_profile_env(cfg, selected_profile)
 
-                if profile_env and hasattr(Gio, 'SubprocessLauncher'):
-                    launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE)
+                if profile_env and hasattr(Gio, "SubprocessLauncher"):
+                    launcher = Gio.SubprocessLauncher.new(
+                        Gio.SubprocessFlags.STDOUT_PIPE
+                        | Gio.SubprocessFlags.STDERR_PIPE
+                    )
                     for k, v in profile_env.items():
                         if k and v is not None:
                             launcher.setenv(str(k), str(v), True)
                     try:
-                        self.proc = launcher.spawnv(['setsid', 'sh', '-c', final_cmd])
+                        self.proc = launcher.spawnv(["setsid", "sh", "-c", final_cmd])
                     except Exception:
-                        self.proc = launcher.spawnv(['sh', '-c', final_cmd])
+                        self.proc = launcher.spawnv(["sh", "-c", final_cmd])
                 else:
                     try:
                         self.proc = Gio.Subprocess.new(
-                            ['setsid', 'sh', '-c', final_cmd],
-                            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                            ["setsid", "sh", "-c", final_cmd],
+                            Gio.SubprocessFlags.STDOUT_PIPE
+                            | Gio.SubprocessFlags.STDERR_PIPE,
                         )
                     except Exception:
                         self.proc = Gio.Subprocess.new(
-                            ['sh', '-c', final_cmd],
-                            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                            ["sh", "-c", final_cmd],
+                            Gio.SubprocessFlags.STDOUT_PIPE
+                            | Gio.SubprocessFlags.STDERR_PIPE,
                         )
                 self.run_btn.set_visible(False)
-                self.cancel_test_btn.set_visible(True)
                 self.cancel_test_btn.set_sensitive(True)
 
                 self.proc.communicate_utf8_async(
@@ -1211,7 +1276,7 @@ if GUI_AVAILABLE:
             export_btn = Gtk.Button(label="Export Template")
             export_btn.connect("clicked", self.on_export_template_clicked)
             header.pack_start(export_btn)
-            # Content Pane
+
             paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
             paned.set_position(300)
             main_box.append(paned)
@@ -1402,7 +1467,7 @@ if GUI_AVAILABLE:
                 return
             tmpl = export_command_as_template(
                 self.selected_cmd,
-                category_name=self.selected_category.get("name", "Custom")
+                category_name=self.selected_category.get("name", "Custom"),
             )
             config_dir = os.path.dirname(get_config_path())
             export_path = os.path.join(config_dir, "exported_templates.json")
@@ -1444,16 +1509,34 @@ def main():
         action="store_true",
         help="Force running in Command Line Interface mode",
     )
-    parser.add_argument("--branding", action="store_true", help="Print current branding configuration")
-    parser.add_argument("--enable-white-label", action="store_true", help="Enable enterprise white labeling")
-    parser.add_argument("--disable-white-label", action="store_true", help="Disable enterprise white labeling")
-    parser.add_argument("--set-app-name", type=str, help="Set white label application name")
+    parser.add_argument(
+        "--branding", action="store_true", help="Print current branding configuration"
+    )
+    parser.add_argument(
+        "--enable-white-label",
+        action="store_true",
+        help="Enable enterprise white labeling",
+    )
+    parser.add_argument(
+        "--disable-white-label",
+        action="store_true",
+        help="Disable enterprise white labeling",
+    )
+    parser.add_argument(
+        "--set-app-name", type=str, help="Set white label application name"
+    )
     args = parser.parse_args()
 
     # Initialize config directory/file
     init_config()
-    if args.branding or args.enable_white_label or args.disable_white_label or args.set_app_name:
+    if (
+        args.branding
+        or args.enable_white_label
+        or args.disable_white_label
+        or args.set_app_name
+    ):
         from app.config_schema import get_effective_branding
+
         config = load_config()
         branding = get_effective_branding(config)
         if args.enable_white_label:

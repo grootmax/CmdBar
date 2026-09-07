@@ -29,7 +29,9 @@ class TestCICDPipelineCompanion(unittest.TestCase):
         }
 
     def test_normalize_config(self):
-        cfg = normalize_config("github", {"repo": "owner/repo", "token": "ghp_secret_123"})
+        cfg = normalize_config(
+            "github", {"repo": "owner/repo", "token": "ghp_secret_123"}
+        )
         self.assertEqual(cfg["provider"], "github")
         self.assertEqual(cfg["repo"], "owner/repo")
         self.assertEqual(cfg["token"], "ghp_secret_123")
@@ -67,7 +69,11 @@ class TestCICDPipelineCompanion(unittest.TestCase):
     def test_get_trigger_command_masks_token(self):
         cmd = get_trigger_command(
             "github",
-            {"repo": "org/repo", "token": "ghp_my_secret_token_val_123", "job": "deploy.yml"},
+            {
+                "repo": "org/repo",
+                "token": "ghp_my_secret_token_val_123",
+                "job": "deploy.yml",
+            },
         )
         self.assertIn("curl", cmd)
         self.assertNotIn("ghp_my_secret_token_val_123", cmd)
@@ -76,7 +82,12 @@ class TestCICDPipelineCompanion(unittest.TestCase):
     def test_get_rollback_command(self):
         cmd = get_rollback_command(
             "jenkins",
-            {"job": "deploy-job", "user": "admin", "token": "secret_tok", "targetVersion": "v1.2.0"},
+            {
+                "job": "deploy-job",
+                "user": "admin",
+                "token": "secret_tok",
+                "targetVersion": "v1.2.0",
+            },
         )
         self.assertIn("TARGET_VERSION", cmd)
         self.assertIn("v1.2.0", cmd)

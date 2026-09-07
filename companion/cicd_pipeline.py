@@ -49,10 +49,20 @@ def normalize_config(provider, options=None):
         or mapping["base_url"]
     ).rstrip("/")
     repo = options.get("repo") or os.environ.get(mapping.get("repo_env", ""), "") or ""
-    project_id = options.get("project_id") or options.get("project") or os.environ.get(mapping.get("project_env", ""), "") or repo
+    project_id = (
+        options.get("project_id")
+        or options.get("project")
+        or os.environ.get(mapping.get("project_env", ""), "")
+        or repo
+    )
     job = options.get("job") or options.get("job_name") or options.get("workflow") or ""
     branch = options.get("branch") or options.get("ref") or "main"
-    user = options.get("user") or options.get("username") or os.environ.get(mapping.get("user_env", ""), "") or ""
+    user = (
+        options.get("user")
+        or options.get("username")
+        or os.environ.get(mapping.get("user_env", ""), "")
+        or ""
+    )
 
     return {
         "provider": norm_provider,
@@ -91,7 +101,12 @@ def mask_secrets(text, additional_secrets=None):
         if secret and isinstance(secret, str) and len(secret.strip()) > 2:
             result = result.replace(secret.strip(), "[REDACTED]")
 
-    env_keys = ["GITHUB_TOKEN", "GITLAB_TOKEN", "JENKINS_API_TOKEN", "AWS_SECRET_ACCESS_KEY"]
+    env_keys = [
+        "GITHUB_TOKEN",
+        "GITLAB_TOKEN",
+        "JENKINS_API_TOKEN",
+        "AWS_SECRET_ACCESS_KEY",
+    ]
     for key in env_keys:
         val = os.environ.get(key)
         if val and len(val.strip()) > 2:
@@ -119,7 +134,11 @@ def parse_pipeline_status(provider, raw_data):
     stages = []
 
     if norm_provider == "github":
-        runs = raw.get("workflow_runs") if isinstance(raw, dict) and "workflow_runs" in raw else [raw]
+        runs = (
+            raw.get("workflow_runs")
+            if isinstance(raw, dict) and "workflow_runs" in raw
+            else [raw]
+        )
         run = runs[0] if isinstance(runs, list) and runs else {}
         pipeline_id = str(run.get("id", "N/A"))
         branch = run.get("head_branch") or "main"
@@ -190,10 +209,18 @@ def parse_pipeline_status(provider, raw_data):
                     if rev.get("SHA1"):
                         commit = rev["SHA1"][:7]
                     branches = rev.get("branch", [])
-                    if branches and isinstance(branches, list) and isinstance(branches[0], dict):
+                    if (
+                        branches
+                        and isinstance(branches, list)
+                        and isinstance(branches[0], dict)
+                    ):
                         branch = branches[0].get("name", branch)
                     causes = act.get("causes", [])
-                    if causes and isinstance(causes, list) and isinstance(causes[0], dict):
+                    if (
+                        causes
+                        and isinstance(causes, list)
+                        and isinstance(causes[0], dict)
+                    ):
                         author = causes[0].get("userName", author)
 
         if raw.get("building"):
@@ -245,7 +272,9 @@ def format_pipeline_status_output(status_obj):
         "unknown": "❓ UNKNOWN",
     }
 
-    status_tag = icon_map.get(status_obj.get("status"), f"[{str(status_obj.get('status')).upper()}]")
+    status_tag = icon_map.get(
+        status_obj.get("status"), f"[{str(status_obj.get('status')).upper()}]"
+    )
     provider_tag = str(status_obj.get("provider") or "ci").upper()
 
     output = f"[{provider_tag}] Pipeline #{status_obj.get('id', 'N/A')}: {status_tag}\n"
@@ -282,13 +311,15 @@ def get_trigger_command(provider, options=None):
         return mask_secrets(cmd, [cfg["token"]])
 
     elif cfg["provider"] == "gitlab":
-        payload = json.dumps({
-            "ref": ref,
-            "variables": [
-                {"key": "ENVIRONMENT", "value": env},
-                *[{"key": k, "value": str(v)} for k, v in inputs.items()]
-            ]
-        })
+        payload = json.dumps(
+            {
+                "ref": ref,
+                "variables": [
+                    {"key": "ENVIRONMENT", "value": env},
+                    *[{"key": k, "value": str(v)} for k, v in inputs.items()],
+                ],
+            }
+        )
         cmd = (
             f'curl -s -X POST -H "PRIVATE-TOKEN: {cfg["token"] or "$GITLAB_TOKEN"}" '
             f'-H "Content-Type: application/json" '
@@ -299,7 +330,11 @@ def get_trigger_command(provider, options=None):
 
     elif cfg["provider"] == "jenkins":
         job = cfg["job"] or "build-job"
-        auth = f'-u "{cfg["user"]}:{cfg["token"]}" ' if cfg["user"] and cfg["token"] else ""
+        auth = (
+            f'-u "{cfg["user"]}:{cfg["token"]}" '
+            if cfg["user"] and cfg["token"]
+            else ""
+        )
         param_str = urllib.parse.urlencode({"ENVIRONMENT": env, **inputs})
         endpoint = f"buildWithParameters?{param_str}" if param_str else "build"
         cmd = f'curl -s -X POST {auth}"{cfg["base_url"]}/job/{urllib.parse.quote_plus(job)}/{endpoint}"'
@@ -314,7 +349,9 @@ def get_rollback_command(provider, options=None):
     :visibility: public
     """
     options = options or {}
-    target_version = options.get("targetVersion") or options.get("targetCommit") or "previous"
+    target_version = (
+        options.get("targetVersion") or options.get("targetCommit") or "previous"
+    )
     rollback_opts = dict(options)
     rollback_opts["inputs"] = {
         "ACTION": "rollback",

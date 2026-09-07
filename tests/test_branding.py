@@ -9,9 +9,10 @@ from app.config_schema import (
     get_ssl_context,
     load_config,
     save_config,
-    DEFAULT_CONFIG
+    DEFAULT_CONFIG,
 )
 from companion.dbus_service import CmdBarDBusService
+
 
 def test_validate_branding_config_valid():
     valid = {
@@ -22,21 +23,21 @@ def test_validate_branding_config_valid():
             "primary": "#1e3a8a",
             "accent": "#3b82f6",
             "background": "#0f172a",
-            "text": "#ffffff"
+            "text": "#ffffff",
         },
         "domain_alias": "cmd.acme.corp",
         "custom_ssl": {
             "cert_path": "/etc/ssl/acme.crt",
             "key_path": "/etc/ssl/acme.key",
             "ca_path": "/etc/ssl/ca.crt",
-            "verify_ssl": True
+            "verify_ssl": True,
         },
         "enterprise_identity": {
             "organization_name": "Acme Corp",
             "support_url": "https://support.acme.corp",
             "support_email": "ops@acme.corp",
-            "footer_text": "Internal Acme Corporate Tooling"
-        }
+            "footer_text": "Internal Acme Corporate Tooling",
+        },
     }
     assert validate_branding_config(valid) is True
     assert validate_branding_config(None) is True
@@ -67,7 +68,7 @@ def test_get_effective_branding():
             "enabled": True,
             "app_name": "AcmeConsole",
             "brand_colors": {"primary": "#002288"},
-            "domain_alias": "console.acme.corp"
+            "domain_alias": "console.acme.corp",
         }
     }
     effective_custom = get_effective_branding(custom_config)
@@ -79,8 +80,14 @@ def test_get_effective_branding():
 
 def test_get_effective_domain_url():
     branding = {"domain_alias": "cmd.acme.corp"}
-    assert get_effective_domain_url(branding, "/api/v1/status") == "https://cmd.acme.corp/api/v1/status"
-    assert get_effective_domain_url(branding, "api/v1/status") == "https://cmd.acme.corp/api/v1/status"
+    assert (
+        get_effective_domain_url(branding, "/api/v1/status")
+        == "https://cmd.acme.corp/api/v1/status"
+    )
+    assert (
+        get_effective_domain_url(branding, "api/v1/status")
+        == "https://cmd.acme.corp/api/v1/status"
+    )
     assert get_effective_domain_url({}, "/api/v1/status") == "/api/v1/status"
 
 
@@ -108,7 +115,7 @@ def test_python_dbus_branding_service():
             "app_name": "AcmeSystem",
             "logo_path": "acme-logo",
             "brand_colors": {"primary": "#ff1122"},
-            "domain_alias": "system.acme.corp"
+            "domain_alias": "system.acme.corp",
         }
 
         success = service.set_branding(json.dumps(new_branding))

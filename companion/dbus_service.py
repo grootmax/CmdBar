@@ -15,6 +15,7 @@ from companion.yubikey_auth import (
 from companion.event_triggers import EventTriggerEngine
 from companion.stream_deck import get_stream_deck_manager
 
+
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
@@ -155,7 +156,10 @@ class CmdBarDBusService:
                 {"name": clean_name, "template": clean_cmd, "command": clean_cmd}
             )
 
-        return save_config(config)
+        saved = save_config(config)
+        if saved and hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            self.stream_deck_manager.load_profiles(config)
+        return saved
 
     def remove_command(self, name: str) -> bool:
         if not name or not str(name).strip():
@@ -174,6 +178,8 @@ class CmdBarDBusService:
 
         if removed:
             save_config(config)
+            if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+                self.stream_deck_manager.load_profiles(config)
         return removed
 
     def execute_command(self, name: str) -> bool:
@@ -202,7 +208,11 @@ class CmdBarDBusService:
             else clean_name
         )
 
+        import time
+
+        start_time = time.perf_counter()
         code, stdout, stderr = run_command_in_shell(cmd_str)
+        exec_ms = (time.perf_counter() - start_time) * 1000.0
         success = code == 0
 
         for listener in self._output_listeners:
@@ -216,6 +226,11 @@ class CmdBarDBusService:
                 listener(cmd_name, code, success)
             except Exception:
                 pass
+
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            self.stream_deck_manager.update_command_feedback(
+                cmd_name, code, success, exec_ms
+            )
 
         return True
 
@@ -250,12 +265,22 @@ class CmdBarDBusService:
         if not json_branding or not str(json_branding).strip():
             return False
         try:
-            parsed = json.loads(json_branding) if isinstance(json_branding, str) else json_branding
+            parsed = (
+                json.loads(json_branding)
+                if isinstance(json_branding, str)
+                else json_branding
+            )
             if not validate_branding_config(parsed):
                 return False
-            config = load_config(self.config_path) if self.config_path else load_config()
+            config = (
+                load_config(self.config_path) if self.config_path else load_config()
+            )
             config["branding"] = parsed
-            return save_config(config, self.config_path) if self.config_path else save_config(config)
+            return (
+                save_config(config, self.config_path)
+                if self.config_path
+                else save_config(config)
+            )
         except Exception:
             return False
 
@@ -327,6 +352,7 @@ class CmdBarDBusService:
         if hasattr(self, "_resource_monitor") and self._resource_monitor:
             return self._resource_monitor.get_metrics_dict()
         from companion.resource_monitor import SystemResourceMonitor
+
         rm = SystemResourceMonitor()
         rm.sample_metrics()
         return rm.get_metrics_dict()
@@ -395,29 +421,31 @@ class CmdBarDBusService:
 
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
-        if self.stream_deck_manager:
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             summary = self.stream_deck_manager.get_status_summary()
-            return json.dumps({
-                "active_profile": summary["active_profile"],
-                "profiles": summary["available_profiles"]
-            })
+            return json.dumps(
+                {
+                    "active_profile": summary["active_profile"],
+                    "profiles": summary["available_profiles"],
+                }
+            )
         return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
 
     def set_stream_deck_profile(self, profile_name: str) -> bool:
         """Switches the active Stream Deck profile."""
-        if self.stream_deck_manager:
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             return self.stream_deck_manager.switch_profile(profile_name)
         return False
 
     def get_stream_deck_status(self) -> str:
         """Returns diagnostic status JSON summary for Stream Deck integration."""
-        if self.stream_deck_manager:
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             return json.dumps(self.stream_deck_manager.get_status_summary())
         return json.dumps({})
 
     def trigger_stream_deck_button(self, key_index: int) -> bool:
         """Simulates key press on active Stream Deck grid."""
-        if self.stream_deck_manager:
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
             return res.get("status") in ("executed", "profile_switched")
         return False
