@@ -1,0 +1,57 @@
+{
+  "Name": "CmdBar Stream Deck Integration",
+  "Description": "Control your CmdBar top-bar shortcuts, visual buttons, LEDs, dynamic labels, and profiles directly from Elgato Stream Deck.",
+  "Author": "CmdBar Team",
+  "Version": "1.0.0",
+  "Category": "CmdBar",
+  "CodePath": "plugin.py",
+  "Icon": "images/pluginIcon",
+  "URL": "https://github.com/grootmax/CmdBar",
+  "Actions": [
+    {
+      "Name": "Execute Command",
+      "UUID": "com.cmdbar.streamdeck.execute",
+      "Icon": "images/actionIcon",
+      "States": [
+        {
+          "Image": "images/state0",
+          "TitleAlignment": "middle",
+          "FontSize": "11"
+        }
+      ],
+      "SupportedInMultiActions": true,
+      "Tooltip": "Execute a CmdBar shortcut"
+    },
+    {
+      "Name": "Switch Profile",
+      "UUID": "com.cmdbar.streamdeck.profile_switch",
+      "Icon": "images/switchIcon",
+      "States": [
+        {
+          "Image": "images/state0",
+          "TitleAlignment": "middle",
+          "FontSize": "11"
+        }
+      ],
+      "SupportedInMultiActions": true,
+      "Tooltip": "Switch active CmdBar Stream Deck profile"
+    }
+  ],
+  "OS": [
+    {
+      "Platform": "mac",
+      "MinimumVersion": "10.14"
+    },
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
+    },
+    {
+      "Platform": "linux",
+      "MinimumVersion": "1.0"
+    }
+  ],
+  "Software": {
+    "MinimumVersion": "6.0"
+  }
+}

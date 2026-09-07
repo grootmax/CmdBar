@@ -194,6 +194,42 @@ DEFAULT_CONFIG = {
     }
   ],
   "active_profile": "Development",
+  "policy": {
+    "enabled": True,
+    "mode": "blacklist",
+    "blacklist": [
+      "rm -rf *",
+      "rm -rf /",
+      "mkfs*",
+      "dd if=*",
+      ":(){ :|:& };:",
+      "chmod -R 777 *",
+      "shutdown*",
+      "reboot*",
+      "> /dev/sd*",
+      "wget * | sh",
+      "curl * | sh",
+      "wget * | bash",
+      "curl * | bash"
+    ],
+    "whitelist": [
+      "echo *",
+      "make *",
+      "git *",
+      "aws *",
+      "ping *",
+      "docker *",
+      "python*",
+      "node *",
+      "npm *",
+      "notify-send *",
+      "deploy *",
+      "pkill *",
+      "zenity *"
+    ],
+    "rules": [],
+    "overrides": []
+  },
   "categories": [
     {
       "name": "System Utilities",

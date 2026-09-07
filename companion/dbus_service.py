@@ -321,60 +321,14 @@ class CmdBarDBusService:
         """
         return self._sso_manager.validate_category_access(session_id, category_name)
 
-    def add_event_listener(self, on_event_triggered=None):
-        if on_event_triggered:
-            self._event_triggered_listeners.append(on_event_triggered)
+    def get_resource_metrics(self) -> dict:
+        if hasattr(self, "_resource_monitor") and self._resource_monitor:
+            return self._resource_monitor.get_metrics_dict()
+        from companion.resource_monitor import SystemResourceMonitor
+        rm = SystemResourceMonitor()
+        rm.sample_metrics()
+        return rm.get_metrics_dict()
 
-    def trigger_event(self, event_type: str, payload_json: str = "{}") -> bool:
-        """
-        Triggers an event and processes matching triggers.
-        :visibility: public
-        """
-        try:
-            payload = json.loads(payload_json) if payload_json else {}
-        except Exception:
-            payload = {}
-
-        def executor(cmd, params, context):
-            return run_command_in_shell(cmd)
-
-        results = self.trigger_engine.process_event(event_type, payload, command_executor=executor)
-        for res in results:
-            for listener in self._event_triggered_listeners:
-                try:
-                    listener(res["trigger_id"], event_type, res["command"], res["success"])
-                except Exception:
-                    pass
-        return True
-
-    def get_triggers(self) -> list:
-        """
-        Returns list of registered triggers.
-        :visibility: public
-        """
-        return self.trigger_engine.get_triggers()
-
-    def get_triggers_json(self) -> str:
-        """
-        Returns registered triggers as JSON string.
-        :visibility: public
-        """
-        return json.dumps(self.get_triggers())
-
-    def add_trigger(self, trigger_json: str) -> bool:
-        """
-        Adds a trigger from JSON string.
-        :visibility: public
-        """
-        try:
-            trig = json.loads(trigger_json)
-            return self.trigger_engine.add_trigger(trig)
-        except Exception:
-            return False
-
-    def remove_trigger(self, trigger_id: str) -> bool:
-        """
-        Removes a trigger by ID.
-        :visibility: public
-        """
-        return self.trigger_engine.remove_trigger(trigger_id)
+    def get_resource_metrics_json(self) -> str:
+        res = self.get_resource_metrics()
+        return json.dumps(res)

@@ -697,6 +697,16 @@ export function rankCommands(commands, pattern, usageMap = {}) {
 }
 
 export {
+  evaluateCommandPolicy,
+  CommandPolicyManager,
+  matchPattern,
+  globToRegex,
+  resolveUserContext,
+  DEFAULT_BLACKLIST_PATTERNS,
+  DEFAULT_WHITELIST_PATTERNS,
+} from "./commandPolicy.js";
+
+export {
   detectFormat,
   parseCsvLine,
   parseCsvOrTsv,
@@ -966,7 +976,6 @@ export {
 } from "./yubikeyAuth.js";
 
 /**
- * Checks if search text triggers calculator mode (> prefix, = prefix, or calc prefix).
  * @param {string} text
  * @returns {boolean}
  */

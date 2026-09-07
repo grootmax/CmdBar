@@ -67,3 +67,23 @@ CmdBar supports caching read-only command outputs with TTL logic to eliminate re
 - **TTL Logic & Persistence**: Cached outputs (stdout, stderr, exit status, timestamp, TTL) are stored in `CommandCacheStore` and persisted atomically to `~/.config/cmdbar/cache.json`.
 - **Manual Cache Refresh**: Menu items for cacheable commands feature a dedicated refresh button (`view-refresh-symbolic`) to force re-executing the process and updating the cache store.
 - **Cache Invalidation**: Cache entries can be invalidated individually using `invalidateCommandCache(key)` or purged completely via `clearCommandCache()`. Expired entries are automatically pruned.
+
+### Command Security Policy Engine Specification
+
+The Security Policy Engine (`extension/commandPolicy.js` and `app/policy_manager.py`) evaluates execution eligibility for commands before process invocation:
+
+1. **Policy Evaluation Priority**:
+   - **Active Override Token**: Valid override tokens skip policy evaluation and permit execution.
+   - **User & Group Rules**: Evaluates scoped `deny` or `allow` rules matching the user/group context.
+   - **Blacklist Filter**: Rejects command if matching blacklisted patterns in `blacklist` or `combined` modes.
+   - **Whitelist Filter**: Rejects command if not matching whitelisted patterns in `whitelist` or `combined` modes.
+
+2. **Pattern Matching Engine**:
+   - `globToRegex(pattern)`: Converts wildcards (`*`, `?`) to regexes.
+   - `matchPattern(cmd, pattern)`: Handles exact, glob, `regex:`, and binary prefix matching.
+
+3. **Approval Request Lifecycle**:
+   - `requestApproval(commandStr, requesterContext, reason)`: Instantiates request object with unique ID.
+   - `approveRequest(requestId, approverContext, ttlMs)`: Issues time-bound `token_appr_*` token.
+   - `rejectRequest(requestId, approverContext, reason)`: Marks request rejected.
+   - `grantOverride(commandPattern, approverContext, ttlMs)`: Directly issues `token_dir_*` token for command pattern.
