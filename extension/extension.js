@@ -1666,7 +1666,7 @@ const CmdBarIndicator = GObject.registerClass(
 
         // 3. Render categories with favorites sorted first within each category
         config.categories.forEach((category, catIndex) => {
-          if (catIndex > 0) {
+          if (catIndex > 0 || favoriteCommands.length > 0) {
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
           }
           this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
@@ -1956,7 +1956,9 @@ const CmdBarIndicator = GObject.registerClass(
         body = `The process was stopped by the user.`;
       } else if (success) {
         title = `Command Succeeded: ${job.commandName}`;
-        body = stdout ? formatOutput(stdout).text : "Execution completed successfully.";
+        body = stdout
+          ? formatOutput(stdout).text
+          : "Execution completed successfully.";
       } else {
         title = `Command Failed: ${job.commandName}`;
         body = stderr

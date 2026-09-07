@@ -7,6 +7,7 @@ import {
   generateEmergencyCodes,
   verifyAndConsumeEmergencyCode,
 } from "./yubikeyAuth.js";
+import { evaluatePolicy } from "./policyEngine.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -24,6 +25,12 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="ExecuteCommand">
       <arg name="name" type="s" direction="in"/>
       <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="EvaluatePolicy">
+      <arg name="command" type="s" direction="in"/>
+      <arg name="params_json" type="s" direction="in"/>
+      <arg name="context_json" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
     </method>
     <method name="GetCommands">
       <arg name="json_commands" type="s" direction="out"/>
@@ -272,20 +279,86 @@ export class CmdBarDBusService {
       }
 
       const cmdName = foundCmd ? foundCmd.name : cleanName;
-      const cmdStr = foundCmd
-        ? foundCmd.command || foundCmd.template
-        : cleanName;
+      let cmdStr = foundCmd ? foundCmd.command || foundCmd.template : cleanName;
+
+      // Evaluate Security Policy
+      const evalResult = evaluatePolicy(
+        foundCmd || { name: cmdName, command: cmdStr },
+        {},
+        {},
+        config.policy,
+      );
+
+      if (!evalResult.allowed) {
+        console.warn(
+          `CmdBar D-Bus ExecuteCommand blocked by policy: ${evalResult.reasons.join(", ")}`,
+        );
+        this.emitCommandOutput(
+          cmdName,
+          "",
+          `Policy enforcement error: ${evalResult.reasons.join(", ")}`,
+        );
+        this.emitCommandExecuted(cmdName, 1, false);
+        return false;
+      }
+
+      if (evalResult.sanitized_command) {
+        cmdStr = evalResult.sanitized_command;
+      }
 
       if (
         this._indicator &&
         typeof this._indicator.executeCommand === "function"
       ) {
-        this._indicator.executeCommand(cmdName, cmdStr, {}, foundCmd);
+        this._indicator.executeCommand(
+          cmdName,
+          cmdStr,
+          evalResult.sanitized_params || {},
+          foundCmd,
+        );
       }
       return true;
     } catch (e) {
       console.error(`CmdBar D-Bus ExecuteCommand error: ${e.message}`);
       return false;
+    }
+  }
+
+  async EvaluatePolicy(command, paramsJson, contextJson) {
+    try {
+      let params = {};
+      let context = {};
+      if (paramsJson) {
+        try {
+          params = JSON.parse(paramsJson);
+        } catch (e) {}
+      }
+      if (contextJson) {
+        try {
+          context = JSON.parse(contextJson);
+        } catch (e) {}
+      }
+
+      const configPath =
+        this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+
+      const result = evaluatePolicy(
+        command || "",
+        params,
+        context,
+        config.policy,
+      );
+      return JSON.stringify(result);
+    } catch (e) {
+      console.error(`CmdBar D-Bus EvaluatePolicy error: ${e.message}`);
+      return JSON.stringify({
+        allowed: false,
+        action: "block",
+        reasons: [`Policy evaluation internal error: ${e.message}`],
+      });
     }
   }
 

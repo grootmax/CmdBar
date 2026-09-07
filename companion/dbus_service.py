@@ -12,6 +12,8 @@ from companion.yubikey_auth import (
     generate_emergency_codes,
     verify_and_consume_emergency_code,
 )
+from companion.stream_deck import get_stream_deck_manager
+from app.policy_engine import evaluate_policy
 
 class CmdBarDBusService:
     """
@@ -25,9 +27,10 @@ class CmdBarDBusService:
         self._executed_listeners = []
         self._output_listeners = []
         self._sso_session_listeners = []
-        config = load_config()
+        config = load_config(self.config_path) if self.config_path else load_config()
         self._sso_manager = SSOManager(config)
         self.auth_manager = YubiKeyAuthManager()
+        self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:
@@ -193,6 +196,27 @@ class CmdBarDBusService:
             if found_cmd
             else clean_name
         )
+        policy_config = config.get("policy")
+        eval_res = evaluate_policy(found_cmd or clean_name, policy_config=policy_config)
+
+        if not eval_res["allowed"]:
+            err_msg = (
+                f"Policy enforcement error: {', '.join(eval_res.get('reasons', []))}"
+            )
+            for listener in self._output_listeners:
+                try:
+                    listener(cmd_name, "", err_msg)
+                except Exception:
+                    pass
+            for listener in self._executed_listeners:
+                try:
+                    listener(cmd_name, 1, False)
+                except Exception:
+                    pass
+            return False
+
+        if eval_res.get("sanitized_command"):
+            cmd_str = eval_res["sanitized_command"]
 
         code, stdout, stderr = run_command_in_shell(cmd_str)
         success = code == 0
@@ -210,6 +234,11 @@ class CmdBarDBusService:
                 pass
 
         return True
+
+    def evaluate_policy(self, command, params=None, context=None) -> dict:
+        config = load_config()
+        policy_config = config.get("policy")
+        return evaluate_policy(command, params, context, policy_config)
 
     def get_commands(self) -> list:
         config = load_config()
@@ -326,3 +355,32 @@ class CmdBarDBusService:
     def get_resource_metrics_json(self) -> str:
         res = self.get_resource_metrics()
         return json.dumps(res)
+
+    def get_stream_deck_profiles(self) -> dict:
+        """Returns available Stream Deck profiles and active profile."""
+        if self.stream_deck_manager:
+            summary = self.stream_deck_manager.get_status_summary()
+            return {
+                "active_profile": summary["active_profile"],
+                "profiles": summary["available_profiles"],
+            }
+        return {"active_profile": "Default", "profiles": ["Default"]}
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Switches the active Stream Deck profile."""
+        if self.stream_deck_manager:
+            return self.stream_deck_manager.switch_profile(profile_name)
+        return False
+
+    def get_stream_deck_status(self) -> dict:
+        """Returns diagnostic status dictionary for Stream Deck integration."""
+        if self.stream_deck_manager:
+            return self.stream_deck_manager.get_status_summary()
+        return {}
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Simulates key press on active Stream Deck grid."""
+        if self.stream_deck_manager:
+            res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
+            return res.get("status") in ("executed", "profile_switched")
+        return False

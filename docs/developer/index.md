@@ -87,3 +87,11 @@ The Security Policy Engine (`extension/commandPolicy.js` and `app/policy_manager
    - `approveRequest(requestId, approverContext, ttlMs)`: Issues time-bound `token_appr_*` token.
    - `rejectRequest(requestId, approverContext, reason)`: Marks request rejected.
    - `grantOverride(commandPattern, approverContext, ttlMs)`: Directly issues `token_dir_*` token for command pattern.
+
+### Policy Enforcement Engine Module
+
+The policy enforcement engine (`extension/policyEngine.js` and `app/policy_engine.py`) provides enterprise security controls:
+- **Multi-Factor Authentication (MFA)**: Enforces RFC 6238 TOTP verification for sensitive commands and sensitive operations.
+- **Data Loss Prevention (DLP)**: Scans commands, parameters, and outputs for sensitive patterns (AWS keys, private keys, SSNs, credit cards, tokens) with block, redact, and warn actions.
+- **Geographic Restrictions**: Restricts command execution by country code or IP CIDR ranges.
+- **Time-Based Access Controls**: Limits command execution to designated days and time windows.
