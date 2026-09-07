@@ -98,8 +98,8 @@ jest.unstable_mockModule('gi', () => ({
   GObject: {
     registerClass: (cls) => cls,
   },
-  Meta: {},
-  Shell: {},
+  Meta: { KeyBindingFlags: { NONE: 0 } },
+  Shell: { ActionMode: { ALL: 1 } },
 }), { virtual: true });
 
 jest.unstable_mockModule('resource:///org/gnome/shell/extensions/extension.js', () => ({
