@@ -140,7 +140,11 @@ jobs:
           # We process them strictly in this order.
           # ==================================================
 
-          jq -c 'if type == "array" then .[]? else empty end' /tmp/jules-prs.json | while read -r PR; do
+          mapfile -t JULES_PRS < <(jq -c 'if type == "array" then .[]? else empty end' /tmp/jules-prs.json 2>/dev/null || true)
+
+          for PR in "${JULES_PRS[@]}"; do
+
+            [ -z "$PR" ] && continue
 
             PR_NUMBER=$(echo "$PR" | jq -r '.number // empty' 2>/dev/null || echo "")
             TITLE=$(echo "$PR" | jq -r '.title // empty' 2>/dev/null || echo "")
@@ -401,7 +405,7 @@ jobs:
                 REMAINING_CONFLICTS=$(git diff \
                   --name-only \
                   --diff-filter=U |
-                  wc -l)
+                  wc -l | tr -d ' ')
 
                 if [ "$REMAINING_CONFLICTS" -ne 0 ]; then
 
