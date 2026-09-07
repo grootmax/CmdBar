@@ -8,11 +8,18 @@ import {
   verifyAndConsumeEmergencyCode,
 } from "./yubikeyAuth.js";
 import { EventTriggerManager } from "./eventTriggers.js";
+import { TerminalSharingSession } from "./terminalSharing.js";
 import {
   WorkspaceManager,
   findWorkspaceConfigPath,
   initWorkspaceConfig,
 } from "./workspaceConfig.js";
+import {
+  TeamSharingService,
+  exportCommandToUrl,
+  parseShareUrl,
+  ROLES,
+} from "./teamSharing.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -88,6 +95,49 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="code" type="s" direction="in"/>
       <arg name="success" type="b" direction="out"/>
     </method>
+    <method name="StartTerminalSharing">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="title" type="s" direction="in"/>
+      <arg name="json_session_info" type="s" direction="out"/>
+    </method>
+    <method name="StopTerminalSharing">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetTerminalSharingSessions">
+      <arg name="json_sessions" type="s" direction="out"/>
+    </method>
+    <method name="ShareCommandUrl">
+      <arg name="command_json" type="s" direction="in"/>
+      <arg name="url" type="s" direction="out"/>
+    </method>
+    <method name="ImportCommandFromUrl">
+      <arg name="url" type="s" direction="in"/>
+      <arg name="role" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetPendingApprovals">
+      <arg name="json_approvals" type="s" direction="out"/>
+    </method>
+    <method name="ApproveCommand">
+      <arg name="submission_id" type="s" direction="in"/>
+      <arg name="reviewer_role" type="s" direction="in"/>
+      <arg name="notes" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="RejectCommand">
+      <arg name="submission_id" type="s" direction="in"/>
+      <arg name="reviewer_role" type="s" direction="in"/>
+      <arg name="reason" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetActivityFeed">
+      <arg name="limit" type="i" direction="in"/>
+      <arg name="json_feed" type="s" direction="out"/>
+    </method>
+    <method name="GetConfigHistory">
+      <arg name="json_history" type="s" direction="out"/>
+    </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
       <arg name="exit_code" type="i"/>
@@ -138,6 +188,10 @@ try {
 } catch (e) {}
 
 export class CmdBarDBusService {
+  /**
+   * Initializes D-Bus service for CmdBar.
+   * @param {object} [indicator] - Reference to indicator instance.
+   */
   constructor(indicator) {
     this._indicator = indicator;
     this._dbusImpl = null;
@@ -145,8 +199,15 @@ export class CmdBarDBusService {
     this._ssoManager = new SSOManager();
     this._triggerManager = new EventTriggerManager();
     this.workspaceManager = new WorkspaceManager();
+    this._teamSharingService = new TeamSharingService({ baseDir: "/tmp/cmdbar-dbus-team" });
+    this._terminalSessions = new Map();
   }
 
+  /**
+   * Exports D-Bus service interface to session bus.
+   * @returns {boolean} True if successfully exported.
+   * @public
+   */
   export() {
     if (!Gio || !Gio.DBusNodeInfo) return false;
     try {
@@ -505,6 +566,47 @@ export class CmdBarDBusService {
     }
   }
 
+  /**
+   * Shares a command JSON via URL string over D-Bus.
+   * @param {string} commandJson - JSON string of command object.
+   * @returns {Promise<string>} Share URL string.
+   * @public
+   */
+  async ShareCommandUrl(commandJson) {
+    try {
+      const cmdObj = JSON.parse(commandJson);
+      return exportCommandToUrl(cmdObj);
+    } catch (e) {
+      console.error(`CmdBar D-Bus ShareCommandUrl error: ${e.message}`);
+      return "";
+    }
+  }
+
+  /**
+   * Imports a command from a share URL string over D-Bus.
+   * @param {string} url - Share URL string.
+   * @param {string} role - User role string.
+   * @returns {Promise<boolean>} Success flag.
+   * @public
+   */
+  async ImportCommandFromUrl(url, role) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const res = await this._teamSharingService.importFromUrl(url, config, role || ROLES.EDITOR);
+      await saveConfig(res.config, configPath);
+      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        this._indicator._reloadMenu();
+      }
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ImportCommandFromUrl error: ${e.message}`);
+      return false;
+    }
+  }
+
   async GetEffectiveAppName() {
     try {
       const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
@@ -574,6 +676,20 @@ export class CmdBarDBusService {
       }
     }
   }
+  /**
+   * Returns pending command approval submissions over D-Bus.
+   * @returns {Promise<string>} JSON string of pending approvals.
+   * @public
+   */
+  async GetPendingApprovals() {
+    try {
+      const pending = await this._teamSharingService.approvalWorkflow.getPendingSubmissions();
+      return JSON.stringify(pending);
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetPendingApprovals error: ${e.message}`);
+      return JSON.stringify([]);
+    }
+  }
 
   async GetResourceMetrics() {
     try {
@@ -599,6 +715,45 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus GetResourceMetrics error: ${e.message}`);
       return JSON.stringify({ error: e.message });
+    }
+  }
+  /**
+   * Approves a pending submission over D-Bus.
+   * @param {string} submissionId - ID of submission to approve.
+   * @param {string} reviewerRole - Role of reviewer.
+   * @param {string} notes - Reviewer notes.
+   * @returns {Promise<boolean>} Success flag.
+   * @public
+   */
+  async ApproveCommand(submissionId, reviewerRole, notes) {
+    try {
+      const sub = await this._teamSharingService.approvalWorkflow.approveSubmission(
+        submissionId,
+        "dbus_admin",
+        reviewerRole || ROLES.APPROVER,
+        notes || ""
+      );
+      if (sub && sub.command) {
+        const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
+        const config = await loadConfig(configPath);
+        const catName = sub.category || "Team Commands";
+        let cat = config.categories.find((c) => c.name === catName);
+        if (!cat) {
+          cat = { name: catName, commands: [] };
+          config.categories.push(cat);
+        }
+        cat.commands.push(sub.command);
+        await saveConfig(config, configPath);
+        if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+          this._indicator._reloadMenu();
+        }
+      }
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ApproveCommand error: ${e.message}`);
+      return false;
     }
   }
 
@@ -635,6 +790,29 @@ export class CmdBarDBusService {
     }
   }
 
+  /**
+   * Rejects a pending submission over D-Bus.
+   * @param {string} submissionId - ID of submission to reject.
+   * @param {string} reviewerRole - Role of reviewer.
+   * @param {string} reason - Rejection reason.
+   * @returns {Promise<boolean>} Success flag.
+   * @public
+   */
+  async RejectCommand(submissionId, reviewerRole, reason) {
+    try {
+      await this._teamSharingService.approvalWorkflow.rejectSubmission(
+        submissionId,
+        "dbus_admin",
+        reviewerRole || ROLES.APPROVER,
+        reason || ""
+      );
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus RejectCommand error: ${e.message}`);
+      return false;
+    }
+  }
+
   async ListWorkspaces() {
     try {
       return JSON.stringify(this.workspaceManager.listWorkspaces());
@@ -643,6 +821,74 @@ export class CmdBarDBusService {
     }
   }
 
+  /**
+   * Gets activity feed log over D-Bus.
+   * @param {number} limit - Maximum number of activity records.
+   * @returns {Promise<string>} JSON string of activity records.
+   * @public
+   */
+  async GetActivityFeed(limit) {
+    try {
+      const feed = await this._teamSharingService.activityFeed.getActivityFeed({ limit: limit || 50 });
+      return JSON.stringify(feed);
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetActivityFeed error: ${e.message}`);
+      return JSON.stringify([]);
+    }
+  }
+
+  /**
+   * Gets configuration revision history over D-Bus.
+   * @returns {Promise<string>} JSON string of revision history.
+   * @public
+   */
+  async GetConfigHistory() {
+    try {
+      const history = await this._teamSharingService.versionControl.getHistory();
+      return JSON.stringify(history);
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetConfigHistory error: ${e.message}`);
+      return JSON.stringify([]);
+    }
+  }
+
+  async StartTerminalSharing(sessionId, title) {
+    try {
+      const session = new TerminalSharingSession({
+        sessionId: sessionId || undefined,
+        title: title || "CmdBar Shared Terminal",
+      });
+      session.start();
+      this._terminalSessions.set(session.sessionId, session);
+      return JSON.stringify(session.getMetrics());
+    } catch (e) {
+      console.error(`CmdBar D-Bus StartTerminalSharing error: ${e.message}`);
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async StopTerminalSharing(sessionId) {
+    if (this._terminalSessions.has(sessionId)) {
+      const session = this._terminalSessions.get(sessionId);
+      session.endSession();
+      this._terminalSessions.delete(sessionId);
+      return true;
+    }
+    return false;
+  }
+
+  async GetTerminalSharingSessions() {
+    const sessionsInfo = Array.from(this._terminalSessions.values()).map((s) => s.getMetrics());
+    return JSON.stringify(sessionsInfo);
+  }
+
+  /**
+   * Emits CommandExecuted signal.
+   * @param {string} name - Command name.
+   * @param {number} exitCode - Exit code.
+   * @param {boolean} success - Success flag.
+   * @public
+   */
   emitCommandExecuted(name, exitCode, success) {
     if (this._dbusImpl && GLib) {
       try {

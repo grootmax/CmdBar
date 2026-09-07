@@ -907,10 +907,51 @@ const CommandInputMenuItem = GObject.registerClass(
       });
       this.box.add_child(this.label);
 
+      // Star / Favorite Button
+      let isFavInput = Boolean(this._cmdObj && (this._cmdObj.favorite || this._cmdObj.pinned));
+      this.favoriteButton = new St.Button({
+        child: new St.Icon({
+          icon_name: isFavInput ? "starred-symbolic" : "non-starred-symbolic",
+          style_class: isFavInput ? "popup-menu-icon cmdbar-star-icon-active" : "popup-menu-icon cmdbar-star-icon",
+        }),
+        style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
+        track_hover: true,
+        can_focus: true,
+        accessible_name: isFavInput ? "Remove from Favorites" : "Add to Favorites",
+      });
+
+      this.favoriteButton.connect("clicked", () => {
+        if (
+          this._indicator &&
+          typeof this._indicator.toggleFavorite === "function"
+        ) {
+          this._indicator.toggleFavorite(this._cmdObj);
+        }
+      });
+      this.box.add_child(this.favoriteButton);
+
       this.add_child(this.box);
 
       this._activateId = this.connect("activate", () => {
         this._onSubmit(commandName);
+      });
+
+      this.connect("key-press-event", (actor, event) => {
+        let symbol = typeof event.get_key_symbol === "function" ? event.get_key_symbol() : 0;
+        if (
+          symbol === Clutter.KEY_f ||
+          symbol === Clutter.KEY_F ||
+          symbol === Clutter.KEY_asterisk
+        ) {
+          if (
+            this._indicator &&
+            typeof this._indicator.toggleFavorite === "function"
+          ) {
+            this._indicator.toggleFavorite(this._cmdObj);
+            return typeof Clutter.EVENT_STOP !== "undefined" ? Clutter.EVENT_STOP : true;
+          }
+        }
+        return typeof Clutter.EVENT_PROPAGATE !== "undefined" ? Clutter.EVENT_PROPAGATE : false;
       });
     }
 
@@ -1228,6 +1269,29 @@ const CommandMenuItem = GObject.registerClass(
       });
       this.box.add_child(this.label);
 
+      // Star / Favorite Button
+      let isFav = Boolean(this._cmdObj && (this._cmdObj.favorite || this._cmdObj.pinned));
+      this.favoriteButton = new St.Button({
+        child: new St.Icon({
+          icon_name: isFav ? "starred-symbolic" : "non-starred-symbolic",
+          style_class: isFav ? "popup-menu-icon cmdbar-star-icon-active" : "popup-menu-icon cmdbar-star-icon",
+        }),
+        style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
+        track_hover: true,
+        can_focus: true,
+        accessible_name: isFav ? "Remove from Favorites" : "Add to Favorites",
+      });
+
+      this.favoriteButton.connect("clicked", () => {
+        if (
+          this._indicator &&
+          typeof this._indicator.toggleFavorite === "function"
+        ) {
+          this._indicator.toggleFavorite(this._cmdObj);
+        }
+      });
+      this.box.add_child(this.favoriteButton);
+
       // Copy Button
       this.copyButton = new St.Button({
         child: new St.Icon({
@@ -1320,6 +1384,24 @@ const CommandMenuItem = GObject.registerClass(
 
       this._activateId = this.connect("activate", () => {
         runCommandAsync(this._commandName, this._commandTemplate, this._cmdObj);
+      });
+
+      this.connect("key-press-event", (actor, event) => {
+        let symbol = typeof event.get_key_symbol === "function" ? event.get_key_symbol() : 0;
+        if (
+          symbol === Clutter.KEY_f ||
+          symbol === Clutter.KEY_F ||
+          symbol === Clutter.KEY_asterisk
+        ) {
+          if (
+            this._indicator &&
+            typeof this._indicator.toggleFavorite === "function"
+          ) {
+            this._indicator.toggleFavorite(this._cmdObj);
+            return typeof Clutter.EVENT_STOP !== "undefined" ? Clutter.EVENT_STOP : true;
+          }
+        }
+        return typeof Clutter.EVENT_PROPAGATE !== "undefined" ? Clutter.EVENT_PROPAGATE : false;
       });
     }
 
@@ -1516,19 +1598,17 @@ const CmdBarIndicator = GObject.registerClass(
       }
 
       // Custom brand color styling
-      if (this._box) {
-        if (branding.enabled && branding.brand_colors) {
-          const primary = branding.brand_colors.primary || "#3584e4";
-          const text = branding.brand_colors.text || "#ffffff";
-          this._box.style = `color: ${text};`;
-          if (this.menu && this.menu.actor) {
-            this.menu.actor.style = `border-top: 2px solid ${primary};`;
-          }
-        } else {
-          this._box.style = null;
-          if (this.menu && this.menu.actor) {
-            this.menu.actor.style = null;
-          }
+      if (branding.enabled && branding.brand_colors) {
+        const primary = branding.brand_colors.primary || "#3584e4";
+        const text = branding.brand_colors.text || "#ffffff";
+        if (this._box) this._box.style = `color: ${text};`;
+        if (this.menu && this.menu.actor) {
+          this.menu.actor.style = `border-top: 2px solid ${primary};`;
+        }
+      } else {
+        if (this._box) this._box.style = null;
+        if (this.menu && this.menu.actor) {
+          this.menu.actor.style = null;
         }
       }
     }
