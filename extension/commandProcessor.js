@@ -1366,6 +1366,7 @@ const isNode =
 let nodeFs = null;
 let nodeCp = null;
 let nodePath = null;
+
 if (isNode) {
   try {
     nodeFs = (await import("fs")).default || (await import("fs"));
