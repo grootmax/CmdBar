@@ -26,6 +26,14 @@ import {
   cleanAIPrompt,
 } from "./aiTranslator.js";
 import { ChainRunner, ChainStatus, StepStatus } from "./chainRunner.js";
+import {
+  isCommandCacheable,
+  getCommandTTL,
+  CommandCacheStore,
+} from "./commandCache.js";
+
+export const globalCacheStore = new CommandCacheStore();
+globalCacheStore.init().catch(() => {});
 
 async function handleAICommandExecution(commandStr, config, onComplete) {
   try {
@@ -535,17 +543,22 @@ export function executeChain(cmdObj, placeholderMap, config) {
 
 /**
  * Run a command asynchronously as a direct tokenized array and notify the user when done.
+ * Supports command output caching with TTL, manual refresh, and cache invalidation.
  * @param {string} commandName
  * @param {string|string[]} commandString
  * @param {object} [cmdObj]
  * @param {object} [placeholderMap]
+ * @param {object} [config]
+ * @param {object} [options] Options object (e.g. { forceRefresh: true })
+ * @public
  */
-function runCommandAsync(
+export function runCommandAsync(
   commandName,
   commandString,
   cmdObj,
   placeholderMap,
   config,
+  options = {},
 ) {
   if (cmdObj && (cmdObj.type === "chain" || Array.isArray(cmdObj.steps))) {
     executeChain(cmdObj, placeholderMap, config);
@@ -565,16 +578,38 @@ function runCommandAsync(
     : tokenizeCommand(commandString);
   let argv = substituteTokens(tokens, placeholderMap);
   if (argv.length === 0) {
-    Main.notify(
-      "Command Execution Failed",
-      "Command parsed to empty argument list.",
-    );
+    if (Main && typeof Main.notify === "function") {
+      Main.notify(
+        "Command Execution Failed",
+        "Command parsed to empty argument list.",
+      );
+    }
     return;
   }
 
   let execArgv = isSandboxEnabled(cmdObj)
     ? wrapCommandInSandbox(argv, cmdObj)
     : argv;
+  let cacheKey = argv.join(" ");
+  let cacheable = isCommandCacheable(cmdObj);
+  let forceRefresh = Boolean(options && options.forceRefresh);
+
+  if (cacheable && !forceRefresh) {
+    let cached = globalCacheStore.get(cacheKey);
+    if (cached) {
+      let age = Math.max(0, Math.round((Date.now() - cached.timestamp) / 1000));
+      let title = `Command Succeeded (Cached ${age}s ago): ${commandName}`;
+      let body = `Exit status: ${cached.exitStatus}`;
+      if (cached.stdout && cached.stdout.trim()) {
+        const formatted = formatOutput(cached.stdout);
+        body += `\n\nOutput (${formatted.format}):\n${formatted.text}`;
+      }
+      if (Main && typeof Main.notify === "function") {
+        Main.notify(title, body);
+      }
+      return cached;
+    }
+  }
 
   let previewArgv = getPreviewTokens(
     execArgv,
@@ -619,12 +654,26 @@ function runCommandAsync(
             });
 
             if (success) {
-              let title = `Command Succeeded: ${commandName}`;
+              if (cacheable) {
+                let ttl = getCommandTTL(cmdObj);
+                globalCacheStore.set(cacheKey, rawCmdStr, {
+                  stdout: stdout || "",
+                  stderr: stderr || "",
+                  exitStatus,
+                }, ttl);
+              }
+
+              let title = forceRefresh
+                ? `Command Refreshed: ${commandName}`
+                : `Command Succeeded: ${commandName}`;
               let body = `Exit status: ${exitStatus}`;
               if (stdout && stdout.trim()) {
-                body += `\n\nOutput:\n${stdout.trim()}`;
+                const formatted = formatOutput(stdout);
+                body += `\n\nOutput (${formatted.format}):\n${formatted.text}`;
               }
-              Main.notify(title, body);
+              if (Main && typeof Main.notify === "function") {
+                Main.notify(title, body);
+              }
             } else {
               let title = `Command Failed: ${commandName}`;
               let body = `Exit status: ${exitStatus}`;
@@ -633,22 +682,28 @@ function runCommandAsync(
               } else if (stdout && stdout.trim()) {
                 body += `\n\nOutput:\n${stdout.trim()}`;
               }
-              Main.notify(title, body);
+              if (Main && typeof Main.notify === "function") {
+                Main.notify(title, body);
+              }
             }
           } catch (err) {
             console.error(`CmdBar: error finishing command: ${err.message}`);
-            Main.notify(
-              `Command Error: ${commandName}`,
-              `Failed to execute: ${err.message}`,
-            );
+            if (Main && typeof Main.notify === "function") {
+              Main.notify(
+                `Command Error: ${commandName}`,
+                `Failed to execute: ${err.message}`,
+              );
+            }
           }
         });
       } catch (e) {
         console.error(`CmdBar: failed to spawn command: ${e.message}`);
-        Main.notify(
-          `Command Launch Failed: ${commandName}`,
-          `Could not start command: ${e.message}`,
-        );
+        if (Main && typeof Main.notify === "function") {
+          Main.notify(
+            `Command Launch Failed: ${commandName}`,
+            `Could not start command: ${e.message}`,
+          );
+        }
       }
     },
     () => {
@@ -657,6 +712,38 @@ function runCommandAsync(
       );
     },
   );
+}
+
+/**
+ * Manually refreshes the cache for a given command.
+ * @param {string} commandName
+ * @param {string|string[]} commandString
+ * @param {object} [cmdObj]
+ * @param {object} [placeholderMap]
+ * @param {object} [config]
+ * @public
+ */
+export function refreshCommandCache(commandName, commandString, cmdObj, placeholderMap, config) {
+  return runCommandAsync(commandName, commandString, cmdObj, placeholderMap, config, { forceRefresh: true });
+}
+
+/**
+ * Invalidates cache entry for a given command string.
+ * @param {string|string[]} commandString
+ * @returns {boolean}
+ * @public
+ */
+export function invalidateCommandCache(commandString) {
+  let key = Array.isArray(commandString) ? commandString.join(" ") : String(commandString || "");
+  return globalCacheStore.invalidate(key);
+}
+
+/**
+ * Clears all cached command outputs.
+ * @public
+ */
+export function clearCommandCache() {
+  globalCacheStore.clear();
 }
 
 /**
@@ -813,51 +900,10 @@ const CommandInputMenuItem = GObject.registerClass(
       });
       this.box.add_child(this.label);
 
-      // Star / Favorite Button
-      let isFavInput = Boolean(this._cmdObj && (this._cmdObj.favorite || this._cmdObj.pinned));
-      this.favoriteButton = new St.Button({
-        child: new St.Icon({
-          icon_name: isFavInput ? "starred-symbolic" : "non-starred-symbolic",
-          style_class: isFavInput ? "popup-menu-icon cmdbar-star-icon-active" : "popup-menu-icon cmdbar-star-icon",
-        }),
-        style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
-        track_hover: true,
-        can_focus: true,
-        accessible_name: isFavInput ? "Remove from Favorites" : "Add to Favorites",
-      });
-
-      this.favoriteButton.connect("clicked", () => {
-        if (
-          this._indicator &&
-          typeof this._indicator.toggleFavorite === "function"
-        ) {
-          this._indicator.toggleFavorite(this._cmdObj);
-        }
-      });
-      this.box.add_child(this.favoriteButton);
-
       this.add_child(this.box);
 
       this._activateId = this.connect("activate", () => {
         this._onSubmit(commandName);
-      });
-
-      this.connect("key-press-event", (actor, event) => {
-        let symbol = typeof event.get_key_symbol === "function" ? event.get_key_symbol() : 0;
-        if (
-          symbol === Clutter.KEY_f ||
-          symbol === Clutter.KEY_F ||
-          symbol === Clutter.KEY_asterisk
-        ) {
-          if (
-            this._indicator &&
-            typeof this._indicator.toggleFavorite === "function"
-          ) {
-            this._indicator.toggleFavorite(this._cmdObj);
-            return typeof Clutter.EVENT_STOP !== "undefined" ? Clutter.EVENT_STOP : true;
-          }
-        }
-        return typeof Clutter.EVENT_PROPAGATE !== "undefined" ? Clutter.EVENT_PROPAGATE : false;
       });
     }
 
@@ -1081,7 +1127,7 @@ export function copyToClipboard(text) {
 }
 
 /**
- * Helper function supporting pasting clipboard text.
+ * Helper function supporting wl-copy/wtype/ydotool (Wayland) and xclip/xdotool/xte (X11) to paste/type text.
  * @param {string} [text]
  * @returns {boolean}
  */
@@ -1110,7 +1156,7 @@ export function pasteClipboardText(text) {
       ]
     : [
         ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
-        ["xdotool", "type", text],
+        ["xdotool", "type", text || ""],
         ["xte", "kd Control_L", "k v", "ku Control_L"],
       ];
 
@@ -1119,7 +1165,7 @@ export function pasteClipboardText(text) {
     try {
       let proc = Gio.Subprocess.new(
         argv,
-        Gio.SubprocessFlags.NONE
+        Gio.SubprocessFlags.NONE,
       );
       if (proc && typeof proc.communicate_utf8_async === "function") {
         proc.communicate_utf8_async(null, null, (subprocess, result) => {
@@ -1175,29 +1221,6 @@ const CommandMenuItem = GObject.registerClass(
       });
       this.box.add_child(this.label);
 
-      // Star / Favorite Button
-      let isFav = Boolean(this._cmdObj && (this._cmdObj.favorite || this._cmdObj.pinned));
-      this.favoriteButton = new St.Button({
-        child: new St.Icon({
-          icon_name: isFav ? "starred-symbolic" : "non-starred-symbolic",
-          style_class: isFav ? "popup-menu-icon cmdbar-star-icon-active" : "popup-menu-icon cmdbar-star-icon",
-        }),
-        style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
-        track_hover: true,
-        can_focus: true,
-        accessible_name: isFav ? "Remove from Favorites" : "Add to Favorites",
-      });
-
-      this.favoriteButton.connect("clicked", () => {
-        if (
-          this._indicator &&
-          typeof this._indicator.toggleFavorite === "function"
-        ) {
-          this._indicator.toggleFavorite(this._cmdObj);
-        }
-      });
-      this.box.add_child(this.favoriteButton);
-
       // Copy Button
       this.copyButton = new St.Button({
         child: new St.Icon({
@@ -1230,6 +1253,38 @@ const CommandMenuItem = GObject.registerClass(
         }
       });
       this.box.add_child(this.copyButton);
+
+      // Refresh Button for Cacheable Commands
+      if (isCommandCacheable(this._cmdObj)) {
+        this.refreshButton = new St.Button({
+          child: new St.Icon({
+            icon_name: "view-refresh-symbolic",
+            style_class: "popup-menu-icon",
+          }),
+          style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
+          track_hover: true,
+          can_focus: true,
+        });
+
+        this.refreshButton.connect("clicked", () => {
+          runCommandAsync(
+            this._commandName,
+            this._commandTemplate,
+            this._cmdObj,
+            null,
+            null,
+            { forceRefresh: true }
+          );
+          if (
+            this._indicator &&
+            this._indicator.menu &&
+            typeof this._indicator.menu.close === "function"
+          ) {
+            this._indicator.menu.close();
+          }
+        });
+        this.box.add_child(this.refreshButton);
+      }
 
       // Execute Button
       this.executeButton = new St.Button({
@@ -1326,668 +1381,8 @@ const JobMenuItem = GObject.registerClass(
   },
 );
 
-// CategoryCache for category-level command caching
-export class CategoryCache {
-  /**
-   * Initializes category cache data structure.
-   */
-  constructor() {
-    // In-memory cache for category commands
-    this._cache = new Map();
-    // In-memory map for category loading states
-    this._loading = new Map();
-  }
-
-  /**
-   * Checks if category exists in cache.
-   * @param {string} categoryName
-   * @returns {boolean}
-   */
-  has(categoryName) {
-    return this._cache.has(categoryName);
-  }
-
-  /**
-   * Retrieves category commands from cache.
-   * @param {string} categoryName
-   * @returns {Array<object>|undefined}
-   */
-  get(categoryName) {
-    return this._cache.get(categoryName);
-  }
-
-  /**
-   * Sets category commands in cache.
-   * @param {string} categoryName
-   * @param {Array<object>} commands
-   */
-  set(categoryName, commands) {
-    this._cache.set(categoryName, commands || []);
-  }
-
-  /**
-   * Clears category cache.
-   */
-  clear() {
-    this._cache.clear();
-    this._loading.clear();
-  }
-
-  /**
-   * Returns whether category is currently loading.
-   * @param {string} categoryName
-   * @returns {boolean}
-   */
-  isLoading(categoryName) {
-    return this._loading.get(categoryName) === true;
-  }
-
-  /**
-   * Sets loading state for category.
-   * @param {string} categoryName
-   * @param {boolean} state
-   */
-  setLoading(categoryName, state) {
-    this._loading.set(categoryName, state === true);
-  }
-}
-
-// Progressive loading indicator menu item
-export const ProgressiveLoadingMenuItem = GObject.registerClass(
-  class ProgressiveLoadingMenuItem extends PopupMenu.PopupBaseMenuItem {
-    /**
-     * @param {string} [message="Loading category commands..."]
-     */
-    _init(message = "Loading category commands...") {
-      super._init({
-        reactive: false,
-        activate: false,
-      });
-
-      // Box layout container for progressive loading indicator
-      this.box = new St.BoxLayout({
-        vertical: false,
-        style_class: "cmdbar-loading-indicator",
-        x_expand: true,
-        style: "padding: 6px 12px;",
-      });
-
-      // Loading spinner icon
-      this.spinner = new St.Icon({
-        icon_name: "process-working-symbolic",
-        style_class: "popup-menu-icon cmdbar-loading-spinner",
-        style: "margin-right: 8px; color: #3584e4;",
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      this.box.add_child(this.spinner);
-
-      // Label showing loading status message
-      this.label = new St.Label({
-        text: message,
-        style: "font-size: 0.9em; color: #888888; font-style: italic;",
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      this.box.add_child(this.label);
-
-      this.add_child(this.box);
-    }
-
-    /**
-     * Updates progressive status message.
-     * @param {string} text
-     */
-    setMessage(text) {
-      if (this.label) {
-        this.label.text = text || "";
-      }
-    }
-  }
-);
-
-// Menu item for triggering next page chunk in virtual list
-export const LoadMoreMenuItem = GObject.registerClass(
-  class LoadMoreMenuItem extends PopupMenu.PopupBaseMenuItem {
-    /**
-     * @param {string} labelText
-     * @param {function} onClick
-     */
-    _init(labelText, onClick) {
-      super._init({
-        reactive: true,
-        activate: false,
-      });
-
-      this._onClick = onClick;
-
-      // Box layout for load more item
-      this.box = new St.BoxLayout({
-        vertical: false,
-        style_class: "cmdbar-load-more-item",
-        x_expand: true,
-        style: "padding: 6px 12px;",
-      });
-
-      // Arrow down icon
-      this.icon = new St.Icon({
-        icon_name: "go-down-symbolic",
-        style_class: "popup-menu-icon",
-        style: "margin-right: 8px; color: #3584e4;",
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      this.box.add_child(this.icon);
-
-      // Label for load more action
-      this.label = new St.Label({
-        text: labelText || "Load More...",
-        style: "font-weight: bold; color: #3584e4; font-size: 0.9em;",
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      this.box.add_child(this.label);
-
-      this.add_child(this.box);
-
-      // Connect activate signal for load more
-      this._activateId = this.connect("activate", () => {
-        if (typeof this._onClick === "function") {
-          this._onClick();
-        }
-      });
-    }
-
-    /**
-     * Clean up activate signal listener.
-     */
-    destroy() {
-      if (this._activateId) {
-        this.disconnect(this._activateId);
-        this._activateId = 0;
-      }
-      super.destroy();
-    }
-  }
-);
-
-// VirtualListWidget for paginated/virtual list rendering
-export class VirtualListWidget {
-  /**
-   * @param {object} [options]
-   */
-  constructor(options = {}) {
-    // Page size chunk count
-    this.pageSize = options.pageSize || 20;
-    // Total items array
-    this.items = [];
-    // Currently rendered item count
-    this.renderedCount = 0;
-    // Container widget or menu
-    this.container = options.container || null;
-    // Item renderer callback
-    this.renderItem = options.renderItem || ((item) => item);
-    // Progress callback
-    this.onProgress = options.onProgress || null;
-    // Reference to active LoadMoreMenuItem widget
-    this.loadMoreItem = null;
-  }
-
-  /**
-   * Set total items list.
-   * @param {Array} items
-   */
-  setItems(items) {
-    this.items = items || [];
-    this.renderedCount = 0;
-  }
-
-  /**
-   * Clear virtual list items and state.
-   */
-  clear() {
-    this.items = [];
-    this.renderedCount = 0;
-    if (this.loadMoreItem) {
-      try {
-        if (typeof this.loadMoreItem.destroy === "function") {
-          this.loadMoreItem.destroy();
-        }
-      } catch (e) {}
-      this.loadMoreItem = null;
-    }
-  }
-
-  /**
-   * Render initial page window.
-   * @param {object} [targetMenu]
-   * @returns {Array}
-   */
-  renderInitialPage(targetMenu) {
-    const menu = targetMenu || this.container;
-    this.renderedCount = 0;
-    return this.renderNextChunk(menu);
-  }
-
-  /**
-   * Render next chunk page slice.
-   * @param {object} [targetMenu]
-   * @returns {Array}
-   */
-  renderNextChunk(targetMenu) {
-    const menu = targetMenu || this.container;
-    if (!menu) return [];
-
-    // Remove existing loadMoreItem before adding next page chunk
-    if (this.loadMoreItem) {
-      try {
-        if (typeof this.loadMoreItem.destroy === "function") {
-          this.loadMoreItem.destroy();
-        }
-      } catch (e) {}
-      this.loadMoreItem = null;
-    }
-
-    const start = this.renderedCount;
-    const end = Math.min(start + this.pageSize, this.items.length);
-    const chunk = this.items.slice(start, end);
-
-    const createdWidgets = [];
-    for (const item of chunk) {
-      const widget = this.renderItem(item);
-      if (widget) {
-        if (typeof menu.addMenuItem === "function") {
-          menu.addMenuItem(widget);
-        } else if (typeof menu.add_child === "function") {
-          menu.add_child(widget);
-        }
-        createdWidgets.push(widget);
-      }
-    }
-
-    this.renderedCount = end;
-
-    // Append load more item if remaining items exist
-    if (this.renderedCount < this.items.length) {
-      const remaining = this.items.length - this.renderedCount;
-      this.loadMoreItem = new LoadMoreMenuItem(
-        `Load More (${remaining} remaining)...`,
-        () => {
-          this.renderNextChunk(menu);
-        }
-      );
-      if (typeof menu.addMenuItem === "function") {
-        menu.addMenuItem(this.loadMoreItem);
-      } else if (typeof menu.add_child === "function") {
-        menu.add_child(this.loadMoreItem);
-      }
-    }
-
-    if (typeof this.onProgress === "function") {
-      this.onProgress(this.renderedCount, this.items.length);
-    }
-
-    return createdWidgets;
-  }
-
-  /**
-   * Returns whether additional items remain to be rendered.
-   * @returns {boolean}
-   */
-  hasMore() {
-    return this.renderedCount < this.items.length;
-  }
-}
-
-// Expandable category header for lazy loading
-export const LazyCategoryHeaderMenuItem = GObject.registerClass(
-  class LazyCategoryHeaderMenuItem extends PopupMenu.PopupBaseMenuItem {
-    /**
-     * @param {object} indicator
-     * @param {object} category
-     * @param {CategoryCache} categoryCache
-     * @param {object} [options]
-     */
-    _init(indicator, category, categoryCache, options = {}) {
-      super._init({
-        reactive: true,
-        activate: false,
-      });
-
-      this._indicator = indicator;
-      this._category = category || {};
-      this._categoryName = this._category.name || "Category";
-      this._categoryCache = categoryCache;
-      this._expanded = false;
-      this._childMenuItems = [];
-      this._virtualList = null;
-      this._pageSize = options.pageSize || 20;
-
-      // Header container box
-      this.box = new St.BoxLayout({
-        vertical: false,
-        style_class: "cmdbar-category-header cmdbar-lazy-category",
-        x_expand: true,
-      });
-
-      // Expand/collapse indicator icon
-      this.expandIcon = new St.Icon({
-        icon_name: "pan-end-symbolic",
-        style_class: "popup-menu-icon cmdbar-expand-icon",
-        style: "margin-right: 6px;",
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      this.box.add_child(this.expandIcon);
-
-      // Category icon
-      this.icon = new St.Icon({
-        icon_name: this._category.icon || "folder-symbolic",
-        style_class: "popup-menu-icon",
-        style: "margin-right: 8px;",
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      this.box.add_child(this.icon);
-
-      // Command count label
-      let cmdCount = Array.isArray(this._category.commands)
-        ? this._category.commands.length
-        : 0;
-      this.label = new St.Label({
-        text: `${this._categoryName} (${cmdCount})`,
-        style: "font-weight: bold; color: #888888; font-size: 0.95em;",
-        y_align: Clutter.ActorAlign.CENTER,
-        x_expand: true,
-      });
-      this.box.add_child(this.label);
-
-      this.add_child(this.box);
-
-      // Connect activation event to toggle expansion
-      this._activateId = this.connect("activate", () => {
-        this.toggle();
-      });
-    }
-
-    /**
-     * Check if category is expanded.
-     * @returns {boolean}
-     */
-    get isExpanded() {
-      return this._expanded;
-    }
-
-    /**
-     * Toggle expand/collapse state.
-     */
-    async toggle() {
-      if (this._expanded) {
-        this.collapse();
-      } else {
-        await this.expand();
-      }
-    }
-
-    /**
-     * Collapse category and remove rendered items.
-     */
-    collapse() {
-      if (!this._expanded) return;
-      this._expanded = false;
-      if (this.expandIcon) {
-        this.expandIcon.icon_name = "pan-end-symbolic";
-      }
-      this._clearChildMenuItems();
-    }
-
-    /**
-     * Clear rendered child menu items.
-     */
-    _clearChildMenuItems() {
-      for (let item of this._childMenuItems) {
-        if (item && typeof item.destroy === "function") {
-          try {
-            item.destroy();
-          } catch (e) {}
-        }
-      }
-      this._childMenuItems = [];
-      if (this._virtualList) {
-        this._virtualList.clear();
-      }
-    }
-
-    /**
-     * Expand category and lazy load command items.
-     */
-    async expand() {
-      if (this._expanded) return;
-      this._expanded = true;
-      if (this.expandIcon) {
-        this.expandIcon.icon_name = "pan-down-symbolic";
-      }
-
-      let commands = null;
-      if (this._categoryCache && this._categoryCache.has(this._categoryName)) {
-        commands = this._categoryCache.get(this._categoryName);
-      } else {
-        if (this._categoryCache) {
-          this._categoryCache.setLoading(this._categoryName, true);
-        }
-
-        // Show progressive loading indicator item
-        const loadingItem = new ProgressiveLoadingMenuItem(
-          `Loading ${this._categoryName} commands...`
-        );
-        this._insertChildMenuItem(loadingItem);
-
-        commands = await this._loadCategoryCommandsAsync(this._category);
-
-        if (this._categoryCache) {
-          this._categoryCache.set(this._categoryName, commands);
-          this._categoryCache.setLoading(this._categoryName, false);
-        }
-
-        loadingItem.destroy();
-        const idx = this._childMenuItems.indexOf(loadingItem);
-        if (idx !== -1) {
-          this._childMenuItems.splice(idx, 1);
-        }
-      }
-
-      this._renderCommands(commands);
-    }
-
-    /**
-     * Async loader for category commands.
-     * @param {object} category
-     * @returns {Promise<Array>}
-     */
-    async _loadCategoryCommandsAsync(category) {
-      return new Promise((resolve) => {
-        if (typeof GLib !== "undefined" && GLib && typeof GLib.timeout_add === "function") {
-          GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1, () => {
-            resolve(category.commands || []);
-            return false;
-          });
-        } else {
-          setTimeout(() => {
-            resolve(category.commands || []);
-          }, 1);
-        }
-      });
-    }
-
-    /**
-     * Render category commands using VirtualListWidget.
-     * @param {Array} commands
-     */
-    _renderCommands(commands) {
-      if (!commands || commands.length === 0) {
-        const emptyItem = new PopupMenu.PopupMenuItem("No commands in category", {
-          reactive: false,
-        });
-        this._insertChildMenuItem(emptyItem);
-        return;
-      }
-
-      this._virtualList = new VirtualListWidget({
-        pageSize: this._pageSize,
-        renderItem: (cmd) => this._createCommandMenuItem(cmd),
-      });
-
-      this._virtualList.setItems(commands);
-
-      this._virtualList.renderInitialPage({
-        addMenuItem: (item) => {
-          this._insertChildMenuItem(item);
-        },
-      });
-    }
-
-    /**
-     * Insert child item into menu.
-     * @param {object} item
-     */
-    _insertChildMenuItem(item) {
-      const menu = this._indicator ? this._indicator.menu : null;
-      if (menu && typeof menu.addMenuItem === "function") {
-        menu.addMenuItem(item);
-      }
-      this._childMenuItems.push(item);
-    }
-
-    /**
-     * Create command menu item widget.
-     * @param {object} cmd
-     * @returns {object}
-     */
-    _createCommandMenuItem(cmd) {
-      if (hasPlaceholder(cmd.command)) {
-        return new CommandInputMenuItem(
-          this._indicator,
-          cmd.name,
-          cmd.command,
-          cmd.placeholder,
-          cmd
-        );
-      } else {
-        return new CommandMenuItem(
-          this._indicator,
-          cmd.name,
-          cmd.command,
-          cmd
-        );
-      }
-    }
-
-    /**
-     * Clean up resources on destroy.
-     */
-    destroy() {
-      if (this._activateId) {
-        this.disconnect(this._activateId);
-        this._activateId = 0;
-      }
-      this._clearChildMenuItems();
-      super.destroy();
-    }
-  }
-);
-
-// Search entry menu item for fast filtering across 100+ commands
-export const SearchMenuItem = GObject.registerClass(
-  class SearchMenuItem extends PopupMenu.PopupBaseMenuItem {
-    /**
-     * @param {function} onSearchCallback
-     */
-    _init(onSearchCallback) {
-      super._init({
-        reactive: false,
-        activate: false,
-      });
-
-      this._onSearch = onSearchCallback;
-
-      // Container box for search entry
-      this.box = new St.BoxLayout({
-        vertical: false,
-        style: "padding: 6px 12px;",
-        x_expand: true,
-      });
-
-      // Search icon
-      this.icon = new St.Icon({
-        icon_name: "edit-find-symbolic",
-        style_class: "popup-menu-icon",
-        style: "margin-right: 8px;",
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      this.box.add_child(this.icon);
-
-      // Search entry input
-      if (typeof St.Entry === "function") {
-        this.entry = new St.Entry({
-          hint_text: "Search commands...",
-          style_class: "cmdbar-search-entry",
-          can_focus: true,
-          x_expand: true,
-        });
-      } else {
-        this.entry = {
-          text: "",
-          get_text: () => "",
-          set_text: () => {},
-          connect: () => {},
-        };
-      }
-
-      // Connect text-changed signal
-      this._textChangedId = 0;
-      if (this.entry.clutter_text && typeof this.entry.clutter_text.connect === "function") {
-        this._textChangedId = this.entry.clutter_text.connect("text-changed", () => {
-          let text = this.getSearchText();
-          if (typeof this._onSearch === "function") {
-            this._onSearch(text);
-          }
-        });
-      } else if (typeof this.entry.connect === "function") {
-        this._textChangedId = this.entry.connect("changed", () => {
-          let text = this.getSearchText();
-          if (typeof this._onSearch === "function") {
-            this._onSearch(text);
-          }
-        });
-      }
-
-      this.box.add_child(this.entry);
-      this.add_child(this.box);
-    }
-
-    /**
-     * Sets search entry text.
-     * @param {string} text
-     */
-    setSearchText(text) {
-      if (this.entry) {
-        if (typeof this.entry.set_text === "function") {
-          this.entry.set_text(text || "");
-        } else {
-          this.entry.text = text || "";
-        }
-      }
-    }
-
-    /**
-     * Gets current search entry text.
-     * @returns {string}
-     */
-    getSearchText() {
-      if (!this.entry) return "";
-      return typeof this.entry.get_text === "function"
-        ? this.entry.get_text()
-        : this.entry.text || "";
-    }
-  }
-);
-
 // Menu item for group/category headers
-export const CategoryHeaderMenuItem = GObject.registerClass(
+const CategoryHeaderMenuItem = GObject.registerClass(
   class CategoryHeaderMenuItem extends PopupMenu.PopupBaseMenuItem {
     _init(categoryName, iconName) {
       super._init({
@@ -2032,8 +1427,6 @@ const CmdBarIndicator = GObject.registerClass(
       this._monitor = null;
       this._cachedConfig = null;
       this._timeoutId = 0;
-      this._categoryCache = new CategoryCache();
-      this._virtualList = new VirtualListWidget({ pageSize: 20 });
 
       // Container box to support text and icon side-by-side
       this._box = new St.BoxLayout({
@@ -2106,63 +1499,20 @@ const CmdBarIndicator = GObject.registerClass(
       }
 
       // Custom brand color styling
-      if (branding && branding.enabled && branding.brand_colors) {
-        const primary = branding.brand_colors.primary || "#3584e4";
-        const text = branding.brand_colors.text || "#ffffff";
-        if (this._box) this._box.style = `color: ${text};`;
-        if (this.menu && this.menu.actor) {
-          this.menu.actor.style = `border-top: 2px solid ${primary};`;
-        }
-      } else {
-        if (this._box) this._box.style = null;
-        if (this.menu && this.menu.actor) {
-          this.menu.actor.style = null;
-        }
-      }
-    }
-
-    async toggleFavorite(cmdObj) {
-      if (!cmdObj) return;
-      try {
-        let configPath = this._getConfigPath();
-        let extensionPath = this._extension && this._extension.dir ? this._extension.dir.get_path() : null;
-        let config = await loadConfig(configPath, extensionPath);
-
-        if (!config || !config.categories) return;
-
-        let found = false;
-        let newFavState = false;
-
-        for (let cat of config.categories) {
-          if (!cat.commands) continue;
-          for (let cmd of cat.commands) {
-            if (
-              cmd === cmdObj ||
-              (cmd.name === cmdObj.name && cmd.command === cmdObj.command)
-            ) {
-              const current = Boolean(cmd.favorite || cmd.pinned);
-              cmd.favorite = !current;
-              cmd.pinned = !current;
-              newFavState = !current;
-              found = true;
-              break;
-            }
+      if (this._box) {
+        if (branding.enabled && branding.brand_colors) {
+          const primary = branding.brand_colors.primary || "#3584e4";
+          const text = branding.brand_colors.text || "#ffffff";
+          this._box.style = `color: ${text};`;
+          if (this.menu && this.menu.actor) {
+            this.menu.actor.style = `border-top: 2px solid ${primary};`;
           }
-          if (found) break;
+        } else {
+          this._box.style = null;
+          if (this.menu && this.menu.actor) {
+            this.menu.actor.style = null;
+          }
         }
-
-        if (found) {
-          await saveConfig(config, configPath);
-          this._cachedConfig = config;
-          await this._reloadMenu();
-          let stateText = newFavState ? "added to" : "removed from";
-          this._showNotification(
-            "Command Favorites",
-            `'${cmdObj.name}' ${stateText} Favorites.`,
-          );
-        }
-      } catch (e) {
-        console.error(`CmdBar: error toggling favorite: ${e.message}`);
       }
     }
 
@@ -2236,9 +1586,8 @@ const CmdBarIndicator = GObject.registerClass(
     async _reloadMenu() {
       try {
         let configPath = this._getConfigPath();
-        let extensionPath = this._extension && this._extension.dir ? this._extension.dir.get_path() : "";
+        let extensionPath = this._extension && this._extension.dir ? this._extension.dir.get_path() : null;
         let config = await loadConfig(configPath, extensionPath);
-        this._cachedConfig = config;
 
         let branding = getEffectiveBranding(config);
         this._applyBranding(branding);
@@ -2250,12 +1599,7 @@ const CmdBarIndicator = GObject.registerClass(
           );
         }
 
-        // Reset category cache on config reload
-        if (this._categoryCache) {
-          this._categoryCache.clear();
-        } else {
-          this._categoryCache = new CategoryCache();
-        }
+        this._cachedConfig = config;
 
         // Clear all current items in menu
         this.menu.removeAll();
@@ -2266,95 +1610,47 @@ const CmdBarIndicator = GObject.registerClass(
           return;
         }
 
-        let settings = this._extension ? this._extension._settings : null;
-        let lazyLoad = true;
-        let pageSize = 20;
-        try {
-          if (settings) {
-            if (typeof settings.get_boolean === "function") {
-              lazyLoad = settings.get_boolean("lazy-load-categories");
-            }
-            if (typeof settings.get_int === "function") {
-              pageSize = settings.get_int("virtual-page-size") || 20;
-            }
+        // 1. Gather all favorite commands across all categories
+        let favoriteCommands = [];
+        config.categories.forEach((category) => {
+          if (category.commands && Array.isArray(category.commands)) {
+            category.commands.forEach((cmd) => {
+              if (cmd && (cmd.favorite || cmd.pinned)) {
+                favoriteCommands.push(cmd);
+              }
+            });
           }
-        } catch (e) {}
-
-        // Add Search / Filter entry item at top of menu
-        const searchItem = new SearchMenuItem((filterText) => {
-          this._handleMenuFilter(filterText, config, pageSize);
         });
-        this.menu.addMenuItem(searchItem);
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        this._renderCategoryList(config.categories, lazyLoad, pageSize);
-      } catch (e) {
-        console.error(`CmdBar: error reloading menu: ${e.message}`);
-      }
-    }
+        // 2. Add "Favorites" category section at top if any favorites exist
+        if (favoriteCommands.length > 0) {
+          this.menu.addMenuItem(
+            new CategoryHeaderMenuItem("Favorites", "starred-symbolic"),
+          );
 
-    /**
-     * Render category list (lazy loaded or eager).
-     * @param {Array} categories
-     * @param {boolean} lazyLoad
-     * @param {number} pageSize
-     */
-    _renderCategoryList(categories, lazyLoad, pageSize) {
-      if (!categories || categories.length === 0) return;
-
-      // 1. Gather all favorite commands across all categories
-      let favoriteCommands = [];
-      categories.forEach((category) => {
-        if (category.commands && Array.isArray(category.commands)) {
-          category.commands.forEach((cmd) => {
-            if (cmd && (cmd.favorite || cmd.pinned)) {
-              favoriteCommands.push(cmd);
+          favoriteCommands.forEach((cmd) => {
+            if (hasPlaceholder(cmd.command)) {
+              this.menu.addMenuItem(
+                new CommandInputMenuItem(
+                  this,
+                  cmd.name,
+                  cmd.command,
+                  cmd.placeholder,
+                  cmd,
+                ),
+              );
+            } else {
+              this.menu.addMenuItem(
+                new CommandMenuItem(this, cmd.name, cmd.command, cmd),
+              );
             }
           });
+
+          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         }
-      });
 
-      // 2. Add "Favorites" category section at top if any favorites exist
-      if (favoriteCommands.length > 0) {
-        this.menu.addMenuItem(
-          new CategoryHeaderMenuItem("Favorites", "starred-symbolic"),
-        );
-
-        favoriteCommands.forEach((cmd) => {
-          if (hasPlaceholder(cmd.command)) {
-            this.menu.addMenuItem(
-              new CommandInputMenuItem(
-                this,
-                cmd.name,
-                cmd.command,
-                cmd.placeholder,
-                cmd,
-              ),
-            );
-          } else {
-            this.menu.addMenuItem(
-              new CommandMenuItem(this, cmd.name, cmd.command, cmd),
-            );
-          }
-        });
-
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-      }
-
-      if (lazyLoad) {
-        // Render lazy category headers
-        categories.forEach((category) => {
-          let lazyHeader = new LazyCategoryHeaderMenuItem(
-            this,
-            category,
-            this._categoryCache,
-            { pageSize }
-          );
-          this.menu.addMenuItem(lazyHeader);
-        });
-      } else {
-        // Eager loading mode fallback
-        categories.forEach((category, catIndex) => {
+        // 3. Render categories with favorites sorted first within each category
+        config.categories.forEach((category, catIndex) => {
           if (catIndex > 0) {
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
           }
@@ -2377,11 +1673,11 @@ const CmdBarIndicator = GObject.registerClass(
                     cmd.command,
                     cmd.placeholder,
                     cmd,
-                  )
+                  ),
                 );
               } else {
                 this.menu.addMenuItem(
-                  new CommandMenuItem(this, cmd.name, cmd.command, cmd)
+                  new CommandMenuItem(this, cmd.name, cmd.command, cmd),
                 );
               }
             });
@@ -2389,9 +1685,7 @@ const CmdBarIndicator = GObject.registerClass(
         });
 
         // Add enterprise identity footer if configured
-        let config = this._cachedConfig;
-        let branding = getEffectiveBranding(config);
-        if (branding && branding.enabled && branding.enterprise_identity) {
+        if (branding.enabled && branding.enterprise_identity) {
           const ent = branding.enterprise_identity;
           if (ent.organization_name || ent.footer_text) {
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -2403,89 +1697,9 @@ const CmdBarIndicator = GObject.registerClass(
             this.menu.addMenuItem(footerItem);
           }
         }
+      } catch (e) {
+        console.error(`CmdBar: error reloading menu: ${e.message}`);
       }
-    }
-
-    /**
-     * Filter commands across 100+ items and display virtual list.
-     * @param {string} filterText
-     * @param {object} config
-     * @param {number} [pageSize=20]
-     */
-    _handleMenuFilter(filterText, config, pageSize = 20) {
-      const query = (filterText || "").trim();
-
-      if (!query) {
-        this._reloadMenu();
-        return;
-      }
-
-      let allCommands = [];
-      if (config && config.categories) {
-        config.categories.forEach((cat) => {
-          let cmds = cat.commands || [];
-          if (this._categoryCache && !this._categoryCache.has(cat.name)) {
-            this._categoryCache.set(cat.name, cmds);
-          }
-          cmds.forEach((c) => {
-            allCommands.push({ ...c, categoryName: cat.name });
-          });
-        });
-      }
-
-      const ranked = rankCommands(allCommands, query);
-      const matchedCmds = ranked.map((r) => r.command);
-
-      this.menu.removeAll();
-
-      const searchItem = new SearchMenuItem((txt) => {
-        this._handleMenuFilter(txt, config, pageSize);
-      });
-      searchItem.setSearchText(query);
-      this.menu.addMenuItem(searchItem);
-      this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-      if (matchedCmds.length === 0) {
-        this.menu.addMenuItem(
-          new PopupMenu.PopupMenuItem(`No commands matching "${query}"`, { reactive: false })
-        );
-        return;
-      }
-
-      let headerItem = new PopupMenu.PopupMenuItem(
-        `Search Results (${matchedCmds.length} matches)`,
-        { reactive: false }
-      );
-      if (headerItem.label && headerItem.label.style) {
-        headerItem.label.style = "font-weight: bold; color: #888888; font-size: 0.9em;";
-      }
-      this.menu.addMenuItem(headerItem);
-
-      this._virtualList = new VirtualListWidget({
-        pageSize,
-        container: this.menu,
-        renderItem: (cmd) => {
-          if (hasPlaceholder(cmd.command)) {
-            return new CommandInputMenuItem(
-              this,
-              cmd.name,
-              cmd.command,
-              cmd.placeholder,
-              cmd
-            );
-          } else {
-            return new CommandMenuItem(
-              this,
-              cmd.name,
-              cmd.command,
-              cmd
-            );
-          }
-        },
-      });
-
-      this._virtualList.setItems(matchedCmds);
-      this._virtualList.renderInitialPage(this.menu);
     }
 
     _setupFileMonitor() {
