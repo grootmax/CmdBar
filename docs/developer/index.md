@@ -96,12 +96,15 @@ The policy enforcement engine (`extension/policyEngine.js` and `app/policy_engin
 - **Geographic Restrictions**: Restricts command execution by country code or IP CIDR ranges.
 - **Time-Based Access Controls**: Limits command execution to designated days and time windows.
 
-### Shared Audit Trail & Compliance Module
+### Workspace-Specific Configuration Module
 
-The audit trail module (`extension/auditTrail.js`) provides security logging and enterprise compliance:
-- **Shared Audit Trail**: Tamper-evident SHA-256 hash chaining over JSON audit logs for team activity.
-- **GDPR Compliance**: Automatic PII scrubbing for emails, IP addresses, tokens, and API keys, plus data retention purging and user anonymization.
-- **Anomaly Detection Engine**: Rule-based detection for execution bursts, failure spikes, dangerous shell commands, AI prompt injections, and log tampering.
-- **Compliance Reports**: Generates compliance reports mapped to SOC2, ISO27001, GDPR, and HIPAA frameworks in JSON, HTML, Markdown, and CSV formats.
-- **SIEM Export**: Exports structured logs to Syslog (RFC 5424), Splunk HEC, Elastic ECS, Datadog, and CEF formats.
-- **Real-Time Alerts**: AlertManager with deduplication cooldown windows, system desktop notifications, and webhook dispatching.
+The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`) manages project-level configuration discovery and switching:
+- **CWD & Git Auto-Detection**: Searches upward from current working directory to Git repository root for `.cmdbar.json` or `.cmdbar/config.json`.
+- **Project Templates**: Initializes project configurations using built-in templates (`node`, `python`, `rust`, `go`, `generic`).
+- **Smooth Merging**: Merges workspace categories with global configuration, prepending project commands while avoiding command duplicates.
+- **WorkspaceManager**: High-performance active workspace manager with caching to guarantee sub-5ms lookup performance.
+
+### Team Command Sharing & Enterprise Collaboration
+
+The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
+For full details, see [Team Command Sharing Specification](team_command_sharing.md).

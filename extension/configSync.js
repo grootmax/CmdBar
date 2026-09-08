@@ -5,6 +5,7 @@
 
 import { sanitizeHistoryItem, MAX_HISTORY_ITEMS } from "./commandProcessor.js";
 import { DEFAULT_POLICY_CONFIG } from "./policyEngine.js";
+import { DEFAULT_RBAC_CONFIG } from "./rbacManager.js";
 
 export const DEFAULT_CONFIG = {
   sso: {
@@ -205,6 +206,7 @@ export const DEFAULT_CONFIG = {
     },
   ],
   triggers: [],
+  rbac: DEFAULT_RBAC_CONFIG,
 };
 
 const isNode =
@@ -1269,3 +1271,14 @@ export async function saveCommandHistory(history, historyPath) {
     await releaseLock(lockPath);
   }
 }
+
+export {
+  PROJECT_TEMPLATES,
+  findGitRepositoryRoot,
+  findWorkspaceConfigPath,
+  detectProjectType,
+  initWorkspaceConfig,
+  loadWorkspaceConfig,
+  mergeConfigs,
+  WorkspaceManager
+} from "./workspaceConfig.js";

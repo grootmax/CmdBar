@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0 http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+  <kcfgfile name=""/>
+  <group name="General">
+    <entry name="shortcut" type="String">
+      <label>Global Activation Shortcut</label>
+      <default>Meta+Space</default>
+    </entry>
+    <entry name="icon" type="String">
+      <label>System Tray Icon Name</label>
+      <default>utilities-terminal</default>
+    </entry>
+    <entry name="enableKWallet" type="Bool">
+      <label>Enable KWallet for Secure API Key Storage</label>
+      <default>true</default>
+    </entry>
+    <entry name="enableAI" type="Bool">
+      <label>Enable AI Natural Language Translation</label>
+      <default>true</default>
+    </entry>
+    <entry name="themeMode" type="String">
+      <label>Theme Color Scheme Mode (system, dark, light)</label>
+      <default>system</default>
+    </entry>
+  </group>
+</kcfg>

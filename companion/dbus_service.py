@@ -6,6 +6,7 @@ import subprocess
 from companion.companion_app import load_config, save_config, run_command_in_shell
 from app.config_schema import validate_branding_config, get_effective_branding
 from companion.sso_manager import SSOManager, SSOProviderConfig
+from companion.stream_deck import get_stream_deck_manager
 from companion.yubikey_auth import (
     YubiKeyAuthManager,
     is_sensitive_command,
@@ -13,14 +14,22 @@ from companion.yubikey_auth import (
     verify_and_consume_emergency_code,
 )
 from companion.event_triggers import EventTriggerEngine
+from app.workspace_config import (
+    WorkspaceManager,
+    init_workspace_config,
+    find_workspace_config_path,
+    detect_project_type,
+    PROJECT_TEMPLATES,
+)
 from companion.stream_deck import get_stream_deck_manager
+
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, and manages signals for CommandExecuted,
+    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
     CommandOutput, and EventTriggered.
     :visibility: public
     """
@@ -35,7 +44,9 @@ class CmdBarDBusService:
         self.auth_manager = YubiKeyAuthManager()
         self._event_triggered_listeners = []
         self.trigger_engine = EventTriggerEngine()
+        self.workspace_manager = WorkspaceManager()
         self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
+        self.active_terminal_sessions = {}
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:
@@ -155,7 +166,10 @@ class CmdBarDBusService:
                 {"name": clean_name, "template": clean_cmd, "command": clean_cmd}
             )
 
-        return save_config(config)
+        saved = save_config(config)
+        if saved and hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            self.stream_deck_manager.load_profiles(config)
+        return saved
 
     def remove_command(self, name: str) -> bool:
         if not name or not str(name).strip():
@@ -174,6 +188,8 @@ class CmdBarDBusService:
 
         if removed:
             save_config(config)
+            if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+                self.stream_deck_manager.load_profiles(config)
         return removed
 
     def execute_command(self, name: str) -> bool:
@@ -202,7 +218,11 @@ class CmdBarDBusService:
             else clean_name
         )
 
+        import time
+
+        start_time = time.perf_counter()
         code, stdout, stderr = run_command_in_shell(cmd_str)
+        exec_ms = (time.perf_counter() - start_time) * 1000.0
         success = code == 0
 
         for listener in self._output_listeners:
@@ -216,6 +236,11 @@ class CmdBarDBusService:
                 listener(cmd_name, code, success)
             except Exception:
                 pass
+
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            self.stream_deck_manager.update_command_feedback(
+                cmd_name, code, success, exec_ms
+            )
 
         return True
 
@@ -250,12 +275,22 @@ class CmdBarDBusService:
         if not json_branding or not str(json_branding).strip():
             return False
         try:
-            parsed = json.loads(json_branding) if isinstance(json_branding, str) else json_branding
+            parsed = (
+                json.loads(json_branding)
+                if isinstance(json_branding, str)
+                else json_branding
+            )
             if not validate_branding_config(parsed):
                 return False
-            config = load_config(self.config_path) if self.config_path else load_config()
+            config = (
+                load_config(self.config_path) if self.config_path else load_config()
+            )
             config["branding"] = parsed
-            return save_config(config, self.config_path) if self.config_path else save_config(config)
+            return (
+                save_config(config, self.config_path)
+                if self.config_path
+                else save_config(config)
+            )
         except Exception:
             return False
 
@@ -327,6 +362,7 @@ class CmdBarDBusService:
         if hasattr(self, "_resource_monitor") and self._resource_monitor:
             return self._resource_monitor.get_metrics_dict()
         from companion.resource_monitor import SystemResourceMonitor
+
         rm = SystemResourceMonitor()
         rm.sample_metrics()
         return rm.get_metrics_dict()
@@ -393,31 +429,82 @@ class CmdBarDBusService:
         """
         return self.trigger_engine.remove_trigger(trigger_id)
 
+    def detect_workspace(self, cwd: str) -> tuple:
+        path = find_workspace_config_path(cwd)
+        has_ws = path is not None
+        return has_ws, path or ""
+
+    def init_workspace(self, cwd: str, template_name: str = None) -> tuple:
+        try:
+            cfg, path = init_workspace_config(cwd, template_name)
+            self.workspace_manager.register_workspace(cwd)
+            return True, path
+        except Exception:
+            return False, ""
+
+    def switch_workspace(self, cwd: str) -> bool:
+        try:
+            global_cfg = load_config()
+            self.workspace_manager.set_global_config(global_cfg)
+            ws_cfg = self.workspace_manager.switch_workspace(cwd)
+            return ws_cfg is not None
+        except Exception:
+            return False
+
+    def list_workspaces(self) -> list:
+        return self.workspace_manager.list_workspaces()
+
+    def list_workspaces_json(self) -> str:
+        return json.dumps(self.list_workspaces())
+
+    def get_workspace_templates(self) -> dict:
+        return PROJECT_TEMPLATES
+
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
-        if self.stream_deck_manager:
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             summary = self.stream_deck_manager.get_status_summary()
-            return json.dumps({
-                "active_profile": summary["active_profile"],
-                "profiles": summary["available_profiles"]
-            })
+            return json.dumps(
+                {
+                    "active_profile": summary["active_profile"],
+                    "profiles": summary["available_profiles"],
+                }
+            )
         return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
 
     def set_stream_deck_profile(self, profile_name: str) -> bool:
         """Switches the active Stream Deck profile."""
-        if self.stream_deck_manager:
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             return self.stream_deck_manager.switch_profile(profile_name)
         return False
 
     def get_stream_deck_status(self) -> str:
         """Returns diagnostic status JSON summary for Stream Deck integration."""
-        if self.stream_deck_manager:
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             return json.dumps(self.stream_deck_manager.get_status_summary())
         return json.dumps({})
 
     def trigger_stream_deck_button(self, key_index: int) -> bool:
         """Simulates key press on active Stream Deck grid."""
-        if self.stream_deck_manager:
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
             return res.get("status") in ("executed", "profile_switched")
         return False
+
+    def start_terminal_sharing(self, session_id: str, title: str = "CmdBar Shared Terminal") -> str:
+        from companion.terminal_sharing import TerminalSharingSession
+        session = TerminalSharingSession(session_id=session_id, title=title)
+        session.start()
+        self.active_terminal_sessions[session.session_id] = session
+        return json.dumps(session.get_metrics())
+
+    def stop_terminal_sharing(self, session_id: str) -> bool:
+        if session_id in self.active_terminal_sessions:
+            session = self.active_terminal_sessions.pop(session_id)
+            session.end_session()
+            return True
+        return False
+
+    def get_terminal_sharing_sessions(self) -> str:
+        sessions_info = [s.get_metrics() for s in self.active_terminal_sessions.values()]
+        return json.dumps(sessions_info)
