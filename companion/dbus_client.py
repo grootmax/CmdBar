@@ -175,6 +175,41 @@ class CmdBarDBusClient:
                 return []
         return []
 
+    def process_midi_message(self, msg_type: str, channel: int, number: int, value: int):
+        """Process incoming MIDI message via D-Bus."""
+        res = self._call_method("ProcessMidiMessage", msg_type, channel, number, value)
+        if isinstance(res, str):
+            try:
+                return json.loads(res)
+            except Exception:
+                return res
+        return res
+
+    def set_midi_performance_mode(self, enabled: bool) -> bool:
+        """Enable or disable MIDI performance mode."""
+        res = self._call_method("SetMidiPerformanceMode", enabled)
+        return bool(res)
+
+    def switch_midi_bank(self, bank: str) -> bool:
+        """Switch active MIDI bank profile."""
+        res = self._call_method("SwitchMidiBank", bank)
+        return bool(res)
+
+    def get_midi_mappings(self) -> list:
+        """Get MIDI mappings as list of dicts."""
+        res = self._call_method("GetMidiMappings")
+        if isinstance(res, list):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return []
+        return []
+
     def verify_emergency_code(self, code: str) -> bool:
         """Verifies and consumes a single-use emergency recovery code."""
         res = self._call_method("VerifyEmergencyCode", code)
@@ -195,6 +230,10 @@ class CmdBarDBusClient:
                 return {}
         return {}
 
+    def set_midi_led_feedback(self, enabled: bool) -> bool:
+        """Enable or disable MIDI LED feedback."""
+        res = self._call_method("SetMidiLedFeedback", enabled)
+        return bool(res)
     def get_stream_deck_profiles(self) -> dict:
         """Retrieve Stream Deck active and available profiles."""
         res = self._call_method("GetStreamDeckProfiles")

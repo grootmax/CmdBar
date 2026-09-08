@@ -146,6 +146,82 @@ export const DEFAULT_CONFIG = {
   ],
   active_profile: "Development",
   policy: DEFAULT_POLICY_CONFIG,
+  midi: {
+    enabled: true,
+    performance_mode: false,
+    active_bank: "Bank A",
+    throttle_ms: 50,
+    led_feedback: true,
+    mappings: [
+      {
+        id: "dj_deck_a_play",
+        name: "Deck A Play/Pause",
+        bank: "Bank A",
+        type: "note",
+        channel: 1,
+        number: 60,
+        mode: "toggle",
+        action: "execute_command",
+        command: "playerctl play-pause",
+        led_on_value: 127,
+        led_off_value: 0,
+      },
+      {
+        id: "dj_deck_a_cue",
+        name: "Deck A Cue Point 1",
+        bank: "Bank A",
+        type: "note",
+        channel: 1,
+        number: 61,
+        mode: "momentary",
+        action: "execute_command",
+        command: "echo Cue Deck A",
+        release_command: "echo Release Cue Deck A",
+        led_on_value: 127,
+        led_off_value: 0,
+      },
+      {
+        id: "dj_volume_fader",
+        name: "Master Volume Slider",
+        bank: "Bank A",
+        type: "cc",
+        channel: 1,
+        number: 7,
+        mode: "trigger",
+        action: "parameter_slider",
+        command: "amixer set Master <value>%",
+        min_value: 0,
+        max_value: 100,
+        led_on_value: 127,
+        led_off_value: 0,
+      },
+      {
+        id: "switch_bank_b",
+        name: "Switch to Bank B",
+        bank: "Global",
+        type: "note",
+        channel: 1,
+        number: 64,
+        mode: "trigger",
+        action: "switch_bank",
+        target_bank: "Bank B",
+        led_on_value: 127,
+        led_off_value: 0,
+      },
+      {
+        id: "toggle_performance_mode",
+        name: "Toggle Performance Mode",
+        bank: "Global",
+        type: "note",
+        channel: 1,
+        number: 65,
+        mode: "trigger",
+        action: "toggle_performance_mode",
+        led_on_value: 127,
+        led_off_value: 0,
+      },
+    ],
+  },
   categories: [
     {
       name: "AI Assistant",
@@ -400,6 +476,10 @@ export function validateConfigSchema(config) {
     typeof config.activeProfile !== "string"
   ) {
     return false;
+  }
+  if (config.midi !== undefined) {
+    if (typeof config.midi !== "object" || config.midi === null) return false;
+    if (config.midi.mappings !== undefined && !Array.isArray(config.midi.mappings)) return false;
   }
   for (const category of config.categories) {
     if (!category || typeof category !== "object") return false;
