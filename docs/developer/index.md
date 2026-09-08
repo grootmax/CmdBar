@@ -117,3 +117,13 @@ The YubiKey authentication modules (`extension/yubikeyAuth.js` and `companion/yu
 - **Yubico OTP & FIDO2/U2F Assertions**: Parses 44-character ModHex OTP tokens, verifies device IDs, and validates FIDO2 assertion signatures against registered public keys.
 - **Emergency Access**: Single-use 8-character emergency recovery codes for fallback access when hardware keys are unavailable.
 - **D-Bus Interface Integration**: Exposes `VerifyYubiKey2FA`, `GetYubiKeyStatus`, `RegisterYubiKeyDevice`, and `ValidateEmergencyCode` D-Bus methods on `org.gnome.CmdBar`.
+
+### Role-Based Access Control (RBAC) Module
+
+The RBAC subsystem (`extension/rbac.js` and `app/rbac.py` / `companion/rbac.py`) enforces security boundaries across both JavaScript and Python components:
+- **Permissions**: Granular capabilities such as `commands:view`, `commands:execute`, `commands:approve`, `commands:manage`, `rbac:manage`, and `audit:view`.
+- **Roles**: Default roles (`admin`, `operator`, `user`, `viewer`, `auditor`) and custom user assignments.
+- **Visibility Rules**: Dynamic command filtering based on user roles and permissions (`visibility: "public" | "role-restricted" | "admin-only" | "hidden"`).
+- **Approval Chains**: Command approval workflow requiring approver review before executing sensitive operations.
+- **Delegation**: Temporary delegation of roles or permissions with expiration tracking.
+- **Audit Logging**: Comprehensive, queryable audit trail for all access and execution events.

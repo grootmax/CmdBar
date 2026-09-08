@@ -235,6 +235,41 @@ DEFAULT_CONFIG = {
         "registered_keys": [],
         "emergency_codes": [],
     },
+    "rbac": {
+        "enabled": True,
+        "default_role": "user",
+        "roles": {
+            "admin": {
+                "name": "Admin",
+                "description": "Administrator with full access",
+                "permissions": ["*"],
+            },
+            "operator": {
+                "name": "Operator",
+                "description": "Operator with command execution and approval access",
+                "permissions": ["commands:view", "commands:execute", "commands:approve"],
+            },
+            "user": {
+                "name": "User",
+                "description": "Standard user with command execution access",
+                "permissions": ["commands:view", "commands:execute"],
+            },
+            "viewer": {
+                "name": "Viewer",
+                "description": "Read-only access to view commands",
+                "permissions": ["commands:view"],
+            },
+            "auditor": {
+                "name": "Auditor",
+                "description": "Access to view commands and audit trail",
+                "permissions": ["commands:view", "audit:view"],
+            },
+        },
+        "users": {},
+        "delegations": [],
+        "approval_requests": [],
+        "audit_logs": [],
+    },
     "profiles": [
         {
             "name": "Production",
