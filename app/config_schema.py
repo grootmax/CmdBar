@@ -235,6 +235,7 @@ DEFAULT_CONFIG = {
         "registered_keys": [],
         "emergency_codes": [],
     },
+    "schedules": [],
     "profiles": [
         {
             "name": "Production",
@@ -401,6 +402,9 @@ def load_config(path=None):
 
         # Normalize and migrate loaded configuration
         migrated = False
+        if "schedules" not in config_data or not isinstance(config_data.get("schedules"), list):
+            config_data["schedules"] = []
+            migrated = True
         if "branding" in config_data and not validate_branding_config(config_data["branding"]):
             config_data["branding"] = json.loads(json.dumps(DEFAULT_CONFIG["branding"]))
             migrated = True

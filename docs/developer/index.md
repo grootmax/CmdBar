@@ -108,3 +108,11 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 
 The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
 For full details, see [Team Command Sharing Specification](team_command_sharing.md).
+
+### Cron Scheduling Engine
+
+The cron scheduler module (`app/cron_scheduler.py` & `extension/cronScheduler.js`) provides scheduled task execution:
+- **Cron Parsing**: Evaluates 5-field expressions and shorthand macros (`@daily`, `@hourly`, etc.).
+- **Timezone Calculations**: Timezone-aware next run calculations using `zoneinfo`.
+- **Overlap Prevention**: Thread-safe active process tracking to prevent duplicate concurrent runs.
+- **Email Reporting**: SMTP email notification reports detailing execution status, duration, stdout, and stderr.
