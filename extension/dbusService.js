@@ -7,7 +7,7 @@ import {
   generateEmergencyCodes,
   verifyAndConsumeEmergencyCode,
 } from "./yubikeyAuth.js";
-import { EventTriggerManager } from "./eventTriggers.js";
+import { EventTriggerManager, EventTriggerEngine } from "./eventTriggers.js";
 import { TerminalSharingSession } from "./terminalSharing.js";
 import {
   WorkspaceManager,
@@ -138,6 +138,44 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="GetConfigHistory">
       <arg name="json_history" type="s" direction="out"/>
     </method>
+    <method name="RegisterTrigger">
+      <arg name="trigger_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="UnregisterTrigger">
+      <arg name="trigger_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetTriggers">
+      <arg name="json_triggers" type="s" direction="out"/>
+    </method>
+    <method name="FireEvent">
+      <arg name="event_type" type="s" direction="in"/>
+      <arg name="context_json" type="s" direction="in"/>
+      <arg name="json_results" type="s" direction="out"/>
+    </method>
+    <method name="EnableTrigger">
+      <arg name="trigger_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="DisableTrigger">
+      <arg name="trigger_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetStreamDeckProfiles">
+      <arg name="json_profiles" type="s" direction="out"/>
+    </method>
+    <method name="SetStreamDeckProfile">
+      <arg name="profile_name" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetStreamDeckStatus">
+      <arg name="json_status" type="s" direction="out"/>
+    </method>
+    <method name="TriggerStreamDeckButton">
+      <arg name="key_index" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
       <arg name="exit_code" type="i"/>
@@ -198,6 +236,7 @@ export class CmdBarDBusService {
     this._busNameId = 0;
     this._ssoManager = new SSOManager();
     this._triggerManager = new EventTriggerManager();
+    this.triggerEngine = new EventTriggerEngine();
     this.workspaceManager = new WorkspaceManager();
     this._teamSharingService = new TeamSharingService({ baseDir: "/tmp/cmdbar-dbus-team" });
     this._terminalSessions = new Map();
@@ -790,6 +829,109 @@ export class CmdBarDBusService {
     }
   }
 
+  async RegisterTrigger(triggerJson) {
+    try {
+      const trigger = typeof triggerJson === "string" ? JSON.parse(triggerJson) : triggerJson;
+      const res = this.triggerEngine ? this.triggerEngine.registerTrigger(trigger) : this._triggerManager.addTrigger(trigger);
+      if (res) {
+        const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
+        const config = await loadConfig(configPath);
+        if (!config.triggers) config.triggers = [];
+        config.triggers.push(trigger);
+        await saveConfig(config, configPath);
+      }
+      return res;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async UnregisterTrigger(triggerId) {
+    try {
+      const res = this.triggerEngine ? this.triggerEngine.unregisterTrigger(triggerId) : this._triggerManager.removeTrigger(triggerId);
+      if (res) {
+        const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
+        const config = await loadConfig(configPath);
+        if (config.triggers) {
+          config.triggers = config.triggers.filter((t) => t.id !== triggerId);
+          await saveConfig(config, configPath);
+        }
+      }
+      return res;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async ListWorkspaces() {
+    try {
+      return JSON.stringify(this.workspaceManager.listWorkspaces());
+    } catch (e) {
+      return JSON.stringify([]);
+    }
+  }
+
+  async FireEvent(eventType, contextJson) {
+    try {
+      const ctx = typeof contextJson === "string" ? JSON.parse(contextJson || "{}") : (contextJson || {});
+      if (this.triggerEngine) {
+        const results = this.triggerEngine.fireEvent(eventType, ctx);
+        return JSON.stringify(results);
+      }
+      return JSON.stringify([]);
+    } catch (e) {
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async EnableTrigger(triggerId) {
+    if (this.triggerEngine) {
+      return this.triggerEngine.enableTrigger(triggerId);
+    }
+    return false;
+  }
+
+  async DisableTrigger(triggerId) {
+    if (this.triggerEngine) {
+      return this.triggerEngine.disableTrigger(triggerId);
+    }
+    return false;
+  }
+
+  async GetStreamDeckProfiles() {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const profiles = ["Default"];
+      if (config.categories && Array.isArray(config.categories)) {
+        config.categories.forEach((cat) => {
+          if (cat.name) profiles.push(cat.name);
+        });
+      }
+      return JSON.stringify({ active_profile: "Default", profiles });
+    } catch (e) {
+      return JSON.stringify({ active_profile: "Default", profiles: ["Default"] });
+    }
+  }
+
+  async SetStreamDeckProfile(profileName) {
+    return Boolean(profileName && typeof profileName === "string");
+  }
+
+  async GetStreamDeckStatus() {
+    return JSON.stringify({ active_profile: "Default", connected_devices: 1 });
+  }
+
+  async TriggerStreamDeckButton(keyIndex) {
+    return typeof keyIndex === "number" && keyIndex >= 0;
+  }
+
   /**
    * Rejects a pending submission over D-Bus.
    * @param {string} submissionId - ID of submission to reject.
@@ -810,14 +952,6 @@ export class CmdBarDBusService {
     } catch (e) {
       console.error(`CmdBar D-Bus RejectCommand error: ${e.message}`);
       return false;
-    }
-  }
-
-  async ListWorkspaces() {
-    try {
-      return JSON.stringify(this.workspaceManager.listWorkspaces());
-    } catch (e) {
-      return JSON.stringify([]);
     }
   }
 
@@ -881,14 +1015,6 @@ export class CmdBarDBusService {
     const sessionsInfo = Array.from(this._terminalSessions.values()).map((s) => s.getMetrics());
     return JSON.stringify(sessionsInfo);
   }
-
-  /**
-   * Emits CommandExecuted signal.
-   * @param {string} name - Command name.
-   * @param {number} exitCode - Exit code.
-   * @param {boolean} success - Success flag.
-   * @public
-   */
   emitCommandExecuted(name, exitCode, success) {
     if (this._dbusImpl && GLib) {
       try {

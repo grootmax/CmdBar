@@ -646,6 +646,34 @@ export class EventTriggerManager {
   }
 
   /**
+   * Alias for addTrigger for DBus compatibility.
+   */
+  registerTrigger(trigger) {
+    return this.addTrigger(trigger);
+  }
+
+  /**
+   * Alias for removeTrigger for DBus compatibility.
+   */
+  unregisterTrigger(triggerId) {
+    return this.removeTrigger(triggerId);
+  }
+
+  /**
+   * Alias for processEvent for DBus compatibility.
+   */
+  fireEvent(eventType, context = {}) {
+    return this.processEvent(eventType, context);
+  }
+
+  /**
+   * Alias for disabling a trigger for DBus compatibility.
+   */
+  disableTrigger(triggerId) {
+    return this.enableTrigger(triggerId, false);
+  }
+
+  /**
    * Clears all triggers.
    * @public
    */
@@ -803,3 +831,6 @@ export class EventTriggerManager {
     };
   }
 }
+
+export class EventTriggerEngine extends EventTriggerManager {}
+

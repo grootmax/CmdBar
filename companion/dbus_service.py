@@ -21,7 +21,6 @@ from app.workspace_config import (
     detect_project_type,
     PROJECT_TEMPLATES,
 )
-from companion.stream_deck import get_stream_deck_manager
 
 
 class CmdBarDBusService:
@@ -43,10 +42,11 @@ class CmdBarDBusService:
         self._sso_manager = SSOManager(config)
         self.auth_manager = YubiKeyAuthManager()
         self._event_triggered_listeners = []
-        self.trigger_engine = EventTriggerEngine()
         self.workspace_manager = WorkspaceManager()
         self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
         self.active_terminal_sessions = {}
+        self.trigger_engine = EventTriggerEngine(action_executor=self._execute_trigger_action)
+        self._load_triggers_from_config()
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:
@@ -119,6 +119,94 @@ class CmdBarDBusService:
 
     is_yubi_key_required = is_yubikey_required
     authenticate_yubi_key = authenticate_yubikey
+
+    def _load_triggers_from_config(self):
+        try:
+            cfg = load_config()
+            for trig in cfg.get("triggers", []):
+                self.trigger_engine.register_trigger(trig)
+        except Exception:
+            pass
+
+    def _execute_trigger_action(self, cmd_str: str, context: dict):
+        code, stdout, stderr = run_command_in_shell(cmd_str)
+        return {
+            "exit_code": code,
+            "stdout": stdout,
+            "stderr": stderr,
+            "success": code == 0
+        }
+
+    def register_trigger(self, trigger_json_str: str) -> bool:
+        try:
+            trig_data = json.loads(trigger_json_str) if isinstance(trigger_json_str, str) else trigger_json_str
+            res = self.trigger_engine.register_trigger(trig_data)
+            if res:
+                cfg = load_config()
+                triggers = cfg.setdefault("triggers", [])
+                triggers.append(trig_data)
+                save_config(cfg)
+            return res
+        except Exception:
+            return False
+
+    def unregister_trigger(self, trigger_id: str) -> bool:
+        res = self.trigger_engine.unregister_trigger(trigger_id)
+        if res:
+            cfg = load_config()
+            triggers = cfg.get("triggers", [])
+            cfg["triggers"] = [t for t in triggers if t.get("id") != trigger_id]
+            save_config(cfg)
+        return res
+
+    def get_triggers(self) -> list:
+        return self.trigger_engine.get_triggers()
+
+    def get_triggers_json(self) -> str:
+        return json.dumps(self.get_triggers())
+
+    def fire_event(self, event_type: str, context_json_str: str = "{}") -> str:
+        try:
+            ctx = json.loads(context_json_str) if isinstance(context_json_str, str) else (context_json_str or {})
+            res = self.trigger_engine.fire_event(event_type, ctx)
+            return json.dumps(res)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    def enable_trigger(self, trigger_id: str) -> bool:
+        return self.trigger_engine.enable_trigger(trigger_id)
+
+    def disable_trigger(self, trigger_id: str) -> bool:
+        return self.trigger_engine.disable_trigger(trigger_id)
+
+    def get_stream_deck_profiles(self) -> str:
+        """Returns JSON string containing available Stream Deck profiles and active profile."""
+        if self.stream_deck_manager:
+            summary = self.stream_deck_manager.get_status_summary()
+            return json.dumps({
+                "active_profile": summary["active_profile"],
+                "profiles": summary["available_profiles"]
+            })
+        return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Switches the active Stream Deck profile."""
+        if self.stream_deck_manager:
+            return self.stream_deck_manager.switch_profile(profile_name)
+        return False
+
+    def get_stream_deck_status(self) -> str:
+        """Returns diagnostic status JSON summary for Stream Deck integration."""
+        if self.stream_deck_manager:
+            return json.dumps(self.stream_deck_manager.get_status_summary())
+        return json.dumps({})
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Simulates key press on active Stream Deck grid."""
+        if self.stream_deck_manager:
+            res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
+            return res.get("status") in ("executed", "profile_switched")
+        return False
 
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
