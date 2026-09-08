@@ -1756,11 +1756,13 @@ const CmdBarIndicator = GObject.registerClass(
           this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
 
           if (category.commands && Array.isArray(category.commands)) {
-            let sortedCmds = [...category.commands].sort((a, b) => {
-              let aFav = Boolean(a && (a.favorite || a.pinned));
-              let bFav = Boolean(b && (b.favorite || b.pinned));
-              if (aFav === bFav) return 0;
-              return bFav ? -1 : 1;
+            let sortedCmds = [...category.commands];
+            sortedCmds.sort((a, b) => {
+              const aFav = Boolean(a && (a.favorite || a.pinned));
+              const bFav = Boolean(b && (b.favorite || b.pinned));
+              if (aFav && !bFav) return -1;
+              if (!aFav && bFav) return 1;
+              return 0;
             });
 
             sortedCmds.forEach((cmd) => {

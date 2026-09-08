@@ -231,6 +231,51 @@ class CmdBarDBusClient:
         res = self._call_method("TriggerStreamDeckButton", key_index)
         return bool(res)
 
+    def capture_screenshot(
+        self,
+        mode: str = "fullscreen",
+        save_path: str = "",
+        copy_to_clipboard: bool = True,
+        annotate_json: str = "",
+        share: bool = False,
+        strip_meta: bool = True,
+    ) -> dict:
+        """Capture screenshot via D-Bus service."""
+        res = self._call_method(
+            "CaptureScreenshot", mode, save_path, copy_to_clipboard, annotate_json, share, strip_meta
+        )
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                return json.loads(res.strip("'\""))
+            except Exception:
+                return {}
+        return {}
+
+    def annotate_screenshot(self, image_base64: str, annotate_json: str) -> dict:
+        """Annotate screenshot image via D-Bus service."""
+        res = self._call_method("AnnotateScreenshot", image_base64, annotate_json)
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                return json.loads(res.strip("'\""))
+            except Exception:
+                return {}
+        return {}
+
+    def upload_screenshot(self, image_base64: str, options_json: str) -> dict:
+        """Upload screenshot via D-Bus service."""
+        res = self._call_method("UploadScreenshot", image_base64, options_json)
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                return json.loads(res.strip("'\""))
+            except Exception:
+                return {}
+        return {}
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
         self._executed_callbacks.append(callback)
