@@ -55,11 +55,7 @@ from app.template_manager import (
     export_command_as_template,
     export_templates_to_file,
 )
-from app.audit_logger import (
-    read_audit_logs,
-    clear_audit_log,
-    get_audit_log_path
-)
+from app.audit_logger import read_audit_logs, clear_audit_log, get_audit_log_path
 
 
 class CmdBarApp(Adw.Application):
@@ -220,7 +216,11 @@ class CmdBarWindow(Adw.ApplicationWindow):
                 sc_box.set_margin_top(6)
                 sc_box.set_margin_bottom(6)
 
-                icon_name = "starred-symbolic" if (sc.get("favorite") or sc.get("pinned")) else "utilities-terminal-symbolic"
+                icon_name = (
+                    "starred-symbolic"
+                    if (sc.get("favorite") or sc.get("pinned"))
+                    else "utilities-terminal-symbolic"
+                )
                 sc_icon = Gtk.Image.new_from_icon_name(icon_name)
                 sc_box.append(sc_icon)
 
@@ -333,8 +333,12 @@ class CmdBarWindow(Adw.ApplicationWindow):
         # Favorite Switch
         favorite_row = Adw.SwitchRow()
         favorite_row.set_title("Favorite Command")
-        favorite_row.set_subtitle("Pin command to top Favorites category in CmdBar menu")
-        favorite_row.set_active(shortcut.get("favorite", False) or shortcut.get("pinned", False))
+        favorite_row.set_subtitle(
+            "Pin command to top Favorites category in CmdBar menu"
+        )
+        favorite_row.set_active(
+            shortcut.get("favorite", False) or shortcut.get("pinned", False)
+        )
         favorite_row.connect("notify::active", self._on_favorite_toggled)
         pref_group.add(favorite_row)
 
@@ -373,7 +377,9 @@ class CmdBarWindow(Adw.ApplicationWindow):
 
         sb_enable_row = Adw.SwitchRow()
         sb_enable_row.set_title("Enable Sandbox")
-        sb_enable_row.set_subtitle("Isolate command execution using bwrap, flatpak-spawn, or firejail")
+        sb_enable_row.set_subtitle(
+            "Isolate command execution using bwrap, flatpak-spawn, or firejail"
+        )
         sb_enable_row.set_active(sb_config.get("enabled", False))
         sb_enable_row.connect("notify::active", self._on_sandbox_toggled)
         sb_group.add(sb_enable_row)
@@ -399,7 +405,9 @@ class CmdBarWindow(Adw.ApplicationWindow):
             self.engine_dropdown.set_selected(2)
         else:
             self.engine_dropdown.set_selected(0)
-        self.engine_dropdown.connect("notify::selected", self._on_sandbox_engine_changed)
+        self.engine_dropdown.connect(
+            "notify::selected", self._on_sandbox_engine_changed
+        )
         engine_box.append(self.engine_dropdown)
 
         engine_row = Adw.PreferencesRow()
@@ -427,7 +435,9 @@ class CmdBarWindow(Adw.ApplicationWindow):
             self.profile_dropdown.set_selected(2)
         else:
             self.profile_dropdown.set_selected(0)
-        self.profile_dropdown.connect("notify::selected", self._on_sandbox_profile_changed)
+        self.profile_dropdown.connect(
+            "notify::selected", self._on_sandbox_profile_changed
+        )
         profile_box.append(self.profile_dropdown)
 
         profile_row = Adw.PreferencesRow()
@@ -974,10 +984,10 @@ class CmdBarWindow(Adw.ApplicationWindow):
             sc = self.app.config["categories"][c_idx]["commands"][s_idx]
             cat_name = self.app.config["categories"][c_idx]["name"]
             tmpl = export_command_as_template(sc, category_name=cat_name)
-            
+
             config_dir = os.path.dirname(get_config_path())
             export_path = os.path.join(config_dir, "exported_templates.json")
-            
+
             existing = []
             if os.path.exists(export_path):
                 try:
@@ -987,12 +997,16 @@ class CmdBarWindow(Adw.ApplicationWindow):
                     existing = []
             if not isinstance(existing, list):
                 existing = [existing]
-            
+
             existing.append(tmpl)
             export_templates_to_file(existing, export_path)
-            self._show_toast(f"Exported '{tmpl['name']}' template to {os.path.basename(export_path)}")
+            self._show_toast(
+                f"Exported '{tmpl['name']}' template to {os.path.basename(export_path)}"
+            )
         else:
-            self._show_toast("Select a shortcut from sidebar first to export it as a template.")
+            self._show_toast(
+                "Select a shortcut from sidebar first to export it as a template."
+            )
 
     def _show_toast(self, text):
         toast = Adw.Toast.new(text)
@@ -1040,18 +1054,24 @@ class CmdBarWindow(Adw.ApplicationWindow):
         audit_group.set_title("Audit Configuration")
         main_box.append(audit_group)
 
-        audit_cfg = self.app.config.setdefault("audit", {"enabled": True, "privacy_mode": False})
+        audit_cfg = self.app.config.setdefault(
+            "audit", {"enabled": True, "privacy_mode": False}
+        )
 
         enabled_row = Adw.SwitchRow()
         enabled_row.set_title("Enable Audit Logging")
-        enabled_row.set_subtitle("Log command executions to ~/.local/share/cmdbar/audit.log")
+        enabled_row.set_subtitle(
+            "Log command executions to ~/.local/share/cmdbar/audit.log"
+        )
         enabled_row.set_active(audit_cfg.get("enabled", True))
         enabled_row.connect("notify::active", self._on_audit_enabled_toggled)
         audit_group.add(enabled_row)
 
         privacy_row = Adw.SwitchRow()
         privacy_row.set_title("Privacy Mode")
-        privacy_row.set_subtitle("Exclude sensitive commands (passwords, tokens) from audit log")
+        privacy_row.set_subtitle(
+            "Exclude sensitive commands (passwords, tokens) from audit log"
+        )
         privacy_row.set_active(audit_cfg.get("privacy_mode", False))
         privacy_row.connect("notify::active", self._on_privacy_mode_toggled)
         audit_group.add(privacy_row)
@@ -1080,7 +1100,9 @@ class CmdBarWindow(Adw.ApplicationWindow):
                     code = entry.get("exit_code", 0)
                     dur = entry.get("duration", f"{entry.get('duration_ms', 0)}ms")
                     row.set_title(cmd)
-                    row.set_subtitle(f"Time: {ts} | User: {usr} | Exit: {code} | Duration: {dur}")
+                    row.set_subtitle(
+                        f"Time: {ts} | User: {usr} | Exit: {code} | Duration: {dur}"
+                    )
                 entries_group.add(row)
 
     def _on_audit_enabled_toggled(self, row, pspec):
@@ -1131,19 +1153,22 @@ class TemplateImportWizardWindow(Adw.Window):
         # Source Selection (Library vs File/URL)
         source_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         source_box.append(Gtk.Label(label="Source:", xalign=0))
-        
-        self.source_dropdown = Gtk.DropDown.new_from_strings([
-            "Pre-built Template Library",
-            "Custom File / URL (Community Template)"
-        ])
+
+        self.source_dropdown = Gtk.DropDown.new_from_strings(
+            ["Pre-built Template Library", "Custom File / URL (Community Template)"]
+        )
         self.source_dropdown.connect("notify::selected", self._on_source_changed)
         source_box.append(self.source_dropdown)
         content_box.append(source_box)
 
         # File/URL Custom Input Box (hidden initially)
-        self.custom_input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.custom_input_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=8
+        )
         self.custom_input_box.set_visible(False)
-        self.custom_path_entry = Gtk.Entry(placeholder_text="Enter file path or HTTPS URL...")
+        self.custom_path_entry = Gtk.Entry(
+            placeholder_text="Enter file path or HTTPS URL..."
+        )
         self.custom_path_entry.set_hexpand(True)
         self.custom_input_box.append(self.custom_path_entry)
 
@@ -1195,25 +1220,29 @@ class TemplateImportWizardWindow(Adw.Window):
             row._check = chk
             hbox.append(chk)
 
-            icon = Gtk.Image.new_from_icon_name(tmpl.get("icon", "utilities-terminal-symbolic"))
+            icon = Gtk.Image.new_from_icon_name(
+                tmpl.get("icon", "utilities-terminal-symbolic")
+            )
             hbox.append(icon)
 
             vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             vbox.set_hexpand(True)
 
             title_lbl = Gtk.Label()
-            cat = GLib.markup_escape_text(tmpl.get('category', 'General'))
-            name = GLib.markup_escape_text(tmpl.get('name', ''))
-            title_lbl.set_markup(f"<b>{name}</b> <span foreground='#888888'>[{cat}]</span>")
+            cat = GLib.markup_escape_text(tmpl.get("category", "General"))
+            name = GLib.markup_escape_text(tmpl.get("name", ""))
+            title_lbl.set_markup(
+                f"<b>{name}</b> <span foreground='#888888'>[{cat}]</span>"
+            )
             title_lbl.set_xalign(0)
             vbox.append(title_lbl)
 
-            cmd_lbl = Gtk.Label(label=tmpl.get('command', ''))
+            cmd_lbl = Gtk.Label(label=tmpl.get("command", ""))
             cmd_lbl.set_xalign(0)
             cmd_lbl.add_css_class("dim-label")
             vbox.append(cmd_lbl)
 
-            desc = tmpl.get('description')
+            desc = tmpl.get("description")
             if desc:
                 desc_lbl = Gtk.Label(label=desc)
                 desc_lbl.set_xalign(0)
@@ -1247,7 +1276,7 @@ class TemplateImportWizardWindow(Adw.Window):
                 modal=True,
                 message_type=Gtk.MessageType.ERROR,
                 buttons=Gtk.ButtonsType.OK,
-                text=f"Failed to load templates: {e}"
+                text=f"Failed to load templates: {e}",
             )
             dialog.connect("response", lambda d, r: d.destroy())
             dialog.present()
@@ -1259,7 +1288,8 @@ class TemplateImportWizardWindow(Adw.Window):
             return
 
         filtered = [
-            t for t in self.all_templates
+            t
+            for t in self.all_templates
             if q in t.get("name", "").lower()
             or q in t.get("command", "").lower()
             or q in t.get("description", "").lower()
@@ -1282,9 +1312,10 @@ class TemplateImportWizardWindow(Adw.Window):
         save_config(config)
         self.parent_win.app.config = config
         self.parent_win._refresh_sidebar()
-        self.parent_win._show_toast(f"Imported {count} command template(s) successfully!")
+        self.parent_win._show_toast(
+            f"Imported {count} command template(s) successfully!"
+        )
         self.close()
-
 
 
 if __name__ == "__main__":
