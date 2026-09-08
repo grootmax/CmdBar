@@ -11,6 +11,10 @@ import {
   rankCommands,
   detectFormat,
   formatOutput,
+  matchPattern,
+  evaluateCommandPolicy,
+  createApprovalToken,
+  validateApprovalToken,
   detectGitRepo,
   getGitStateSync,
   substituteGitPlaceholders,
@@ -228,7 +232,38 @@ try {
     "Written data should match source data (async)",
   );
 
-  // 7. YubiKey 2FA Verification Tests
+  // 8. Command Whitelist & Blacklist Policy Engine Tests
+  assert.strictEqual(
+    matchPattern("rm -rf /tmp", "rm -rf *", "glob"),
+    true,
+    "Glob pattern matching should work",
+  );
+
+  const policy = { enabled: true, blacklist: ["rm -rf *"] };
+  const blEval = evaluateCommandPolicy("rm -rf /tmp", null, policy);
+  assert.strictEqual(
+    blEval.allowed,
+    false,
+    "Blacklisted command should be blocked",
+  );
+
+  const appToken = createApprovalToken("rm -rf /tmp", "admin", 3600000);
+  const valRes = validateApprovalToken(appToken, "rm -rf /tmp");
+  assert.strictEqual(valRes.valid, true, "Approval token should be valid");
+
+  const overrideEval = evaluateCommandPolicy(
+    "rm -rf /tmp",
+    null,
+    policy,
+    appToken,
+  );
+  assert.strictEqual(
+    overrideEval.allowed,
+    true,
+    "Approval token override should allow command execution",
+  );
+
+  // 9. YubiKey 2FA Verification Tests
   const otpRes = validateYubicoOTP(
     "ccccccbedvcebcgdehbcfnhfhkfvvtrgeubfnfgnrtgr",
     "ccccccbedvce",
