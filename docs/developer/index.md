@@ -95,3 +95,11 @@ The policy enforcement engine (`extension/policyEngine.js` and `app/policy_engin
 - **Data Loss Prevention (DLP)**: Scans commands, parameters, and outputs for sensitive patterns (AWS keys, private keys, SSNs, credit cards, tokens) with block, redact, and warn actions.
 - **Geographic Restrictions**: Restricts command execution by country code or IP CIDR ranges.
 - **Time-Based Access Controls**: Limits command execution to designated days and time windows.
+
+### CI/CD Integration Pipeline Module
+
+The CI/CD module (`extension/cicdPipeline.js`) provides unified pipeline management for GitHub Actions, GitLab CI, and Jenkins:
+- **Pipeline Triggers**: Triggers deployments, workflow dispatches, or parameter builds across providers.
+- **Status Monitoring**: Queries real-time pipeline, job, or build status and normalizes statuses into standard states (`success`, `failed`, `running`, `queued`, `cancelled`, `unknown`).
+- **Rollback Commands**: Executes rollback workflows or re-runs prior successful release builds.
+- **Secrets Management & Redaction**: Resolves tokens from configuration or environment variables (`GITHUB_TOKEN`, `GITLAB_TOKEN`, `JENKINS_TOKEN`) and redacts tokens and passwords from strings, previews, and objects (`[REDACTED]`).

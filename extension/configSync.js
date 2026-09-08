@@ -145,6 +145,21 @@ export const DEFAULT_CONFIG = {
   ],
   active_profile: "Development",
   policy: DEFAULT_POLICY_CONFIG,
+  cicd: {
+    github: {
+      baseUrl: "https://api.github.com",
+      token: "",
+    },
+    gitlab: {
+      baseUrl: "https://gitlab.com",
+      token: "",
+    },
+    jenkins: {
+      baseUrl: "http://localhost:8080",
+      user: "",
+      token: "",
+    },
+  },
   categories: [
     {
       name: "AI Assistant",
@@ -153,6 +168,16 @@ export const DEFAULT_CONFIG = {
           name: "AI Command Assistant",
           command: "/ai {prompt}",
           placeholder: "e.g. deploy latest build to staging",
+        },
+      ],
+    },
+    {
+      name: "CI/CD Automation",
+      commands: [
+        {
+          name: "CI/CD Pipeline Manager",
+          command: "/cicd {action} {provider} {target}",
+          placeholder: "e.g. status github owner/repo or trigger gitlab project_id",
         },
       ],
     },
