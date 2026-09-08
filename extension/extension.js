@@ -38,6 +38,10 @@ import {
   formatBytes,
   formatRate,
 } from "./systemResourceMonitor.js";
+import {
+  isScreenshotCommand,
+  handleScreenshotCommandExecution,
+} from "./screenshotManager.js";
 
 export const globalCacheStore = new CommandCacheStore();
 globalCacheStore.init().catch(() => {});
@@ -945,11 +949,23 @@ const CommandInputMenuItem = GObject.registerClass(
                 let argv = substituteTokens(tokens, placeholderMap);
                 let fullCmdStr = argv.join(" ");
 
-                if (
-                  isAICommand(fullCmdStr) ||
-                  isAICommand(this._commandTemplate) ||
-                  isAICommand(text)
-                ) {
+                if (isScreenshotCommand(fullCmdStr) || isScreenshotCommand(this._commandTemplate) || isScreenshotCommand(text)) {
+                  let cmdText = isScreenshotCommand(text) ? text : fullCmdStr;
+                  handleScreenshotCommandExecution(
+                    cmdText,
+                    this._indicator ? this._indicator._cachedConfig : {}
+                  );
+                  if (
+                    this._indicator &&
+                    this._indicator.menu &&
+                    typeof this._indicator.menu.close === "function"
+                  ) {
+                    this._indicator.menu.close();
+                  }
+                  return;
+                }
+
+                if (isAICommand(fullCmdStr) || isAICommand(this._commandTemplate) || isAICommand(text)) {
                   let promptText = isAICommand(text) ? text : fullCmdStr;
                   handleAICommandExecution(
                     promptText,
