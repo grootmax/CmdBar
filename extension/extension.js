@@ -1691,7 +1691,7 @@ const CmdBarIndicator = GObject.registerClass(
 
         if (config && config._isInvalid) {
           this._showNotification(
-            `${branding.enabled ? branding.app_name : "CmdBar"} Configuration Error`,
+            `${branding && branding.enabled ? branding.app_name : "CmdBar"} Configuration Error`,
             "Invalid configuration file detected. Using in-memory default settings without overwriting your file.",
           );
         }
