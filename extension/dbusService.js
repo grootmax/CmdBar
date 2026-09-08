@@ -95,6 +95,16 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="code" type="s" direction="in"/>
       <arg name="success" type="b" direction="out"/>
     </method>
+    <method name="ExportEnvironmentSnapshot">
+      <arg name="file_path" type="s" direction="in"/>
+      <arg name="description" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="ImportEnvironmentSnapshot">
+      <arg name="file_path" type="s" direction="in"/>
+      <arg name="merge" type="b" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
     <method name="StartTerminalSharing">
       <arg name="session_id" type="s" direction="in"/>
       <arg name="title" type="s" direction="in"/>
@@ -483,6 +493,17 @@ export class CmdBarDBusService {
     }
   }
 
+  async ExportEnvironmentSnapshot(filePath, description) {
+    try {
+      const { exportSnapshotToFile } = await import("./environmentSnapshot.js");
+      await exportSnapshotToFile(filePath, { description: description || "Exported via D-Bus" });
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ExportEnvironmentSnapshot error: ${e.message}`);
+      return false;
+    }
+  }
+
   async AuthenticateYubiKey(name, mode, credential) {
     try {
       const configPath =
@@ -603,6 +624,20 @@ export class CmdBarDBusService {
       return true;
     } catch (e) {
       console.error(`CmdBar D-Bus ImportCommandFromUrl error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async ImportEnvironmentSnapshot(filePath, merge) {
+    try {
+      const { importSnapshotFromFile } = await import("./environmentSnapshot.js");
+      await importSnapshotFromFile(filePath, { mode: merge ? "merge" : "overwrite" });
+      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        this._indicator._reloadMenu();
+      }
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ImportEnvironmentSnapshot error: ${e.message}`);
       return false;
     }
   }
@@ -974,6 +1009,36 @@ export class CmdBarDBusService {
       console.error(`CmdBar D-Bus RemoveTrigger error: ${e.message}`);
       return false;
     }
+  }
+
+  async StartTerminalSharing(sessionId, title) {
+    try {
+      const session = new TerminalSharingSession({
+        sessionId: sessionId || undefined,
+        title: title || "CmdBar Shared Terminal",
+      });
+      session.start();
+      this._terminalSessions.set(session.sessionId, session);
+      return JSON.stringify(session.getMetrics());
+    } catch (e) {
+      console.error(`CmdBar D-Bus StartTerminalSharing error: ${e.message}`);
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async StopTerminalSharing(sessionId) {
+    if (this._terminalSessions.has(sessionId)) {
+      const session = this._terminalSessions.get(sessionId);
+      session.endSession();
+      this._terminalSessions.delete(sessionId);
+      return true;
+    }
+    return false;
+  }
+
+  async GetTerminalSharingSessions() {
+    const sessionsInfo = Array.from(this._terminalSessions.values()).map((s) => s.getMetrics());
+    return JSON.stringify(sessionsInfo);
   }
 
   emitEventTriggered(triggerId, eventType, command, success) {

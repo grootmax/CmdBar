@@ -460,6 +460,22 @@ class CmdBarDBusService:
     def get_workspace_templates(self) -> dict:
         return PROJECT_TEMPLATES
 
+    def export_environment_snapshot(self, file_path: str, description: str = "Exported via D-Bus") -> bool:
+        try:
+            from companion.environment_snapshot import export_snapshot_to_file
+            export_snapshot_to_file(file_path, description=description)
+            return True
+        except Exception:
+            return False
+
+    def import_environment_snapshot(self, file_path: str, merge: bool = False) -> bool:
+        try:
+            from companion.environment_snapshot import import_snapshot_from_file
+            import_snapshot_from_file(file_path, mode="merge" if merge else "overwrite")
+            return True
+        except Exception:
+            return False
+
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
         if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:

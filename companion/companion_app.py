@@ -128,11 +128,11 @@ def get_config_path():
     return os.path.expanduser("~/.config/cmdbar/config.json")
 
 
-def init_config():
+def init_config(path=None):
     """
     Initializes the configuration directory and file with default values if it doesn't exist.
     """
-    config_path = get_config_path()
+    config_path = path if path else get_config_path()
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
     if not os.path.exists(config_path):
         default_config = {
@@ -161,7 +161,7 @@ def init_config():
                 }
             ]
         }
-        save_config(default_config)
+        save_config(default_config, config_path)
     return config_path
 
 
@@ -169,7 +169,7 @@ def load_config(path=None):
     """
     Loads and parses the configuration file, verifying its signature.
     """
-    config_path = path if path else init_config()
+    config_path = init_config(path)
     key_path = get_key_path(config_path)
     key = get_or_create_signing_key(key_path)
     try:
@@ -480,9 +480,11 @@ def run_cli_mode():
         print("9. Custom Branding & White Label")
         print("10. View Command Audit Log")
         print("11. Workspace Config Management")
-        print("12. Exit")
+        print("12. Export Environment Snapshot")
+        print("13. Import Environment Snapshot")
+        print("14. Exit")
         
-        choice = input("\nEnter choice [1-12]: ").strip()
+        choice = input("\nEnter choice [1-14]: ").strip()
         if choice == "1":
             list_categories_and_commands(config_data)
         elif choice == "2":
@@ -506,6 +508,19 @@ def run_cli_mode():
         elif choice == "11":
             manage_workspace_configs()
         elif choice == "12":
+            out_path = input("Enter output snapshot file path: ").strip()
+            if out_path:
+                from companion.environment_snapshot import export_snapshot_to_file
+                export_snapshot_to_file(out_path)
+                print(f"Exported snapshot to {out_path}")
+        elif choice == "13":
+            in_path = input("Enter input snapshot file path: ").strip()
+            mode = input("Enter mode [overwrite/merge] (default: overwrite): ").strip().lower() or "overwrite"
+            if in_path:
+                from companion.environment_snapshot import import_snapshot_from_file
+                import_snapshot_from_file(in_path, mode=mode)
+                print(f"Imported snapshot from {in_path}")
+        elif choice == "14":
             print("Goodbye!")
             break
         else:
@@ -1491,10 +1506,56 @@ def main():
     parser.add_argument("--enable-white-label", action="store_true", help="Enable enterprise white labeling")
     parser.add_argument("--disable-white-label", action="store_true", help="Disable enterprise white labeling")
     parser.add_argument("--set-app-name", type=str, help="Set white label application name")
+    parser.add_argument("--export-snapshot", type=str, help="Export environment snapshot to JSON file")
+    parser.add_argument("--import-snapshot", type=str, help="Import environment snapshot from JSON file")
+    parser.add_argument("--snapshot-mode", type=str, choices=["overwrite", "merge"], default="overwrite", help="Snapshot import mode")
+    parser.add_argument("--create-backup", type=str, nargs="?", const="default", help="Create environment backup snapshot")
+    parser.add_argument("--restore-backup", type=str, help="Restore environment from backup snapshot file")
+    parser.add_argument("--cloud-share", action="store_true", help="Share environment snapshot to cloud")
+    parser.add_argument("--cloud-fetch", type=str, help="Fetch and import environment snapshot from cloud ID/URL")
     args = parser.parse_args()
 
     # Initialize config directory/file
     init_config()
+
+    if args.export_snapshot:
+        from companion.environment_snapshot import export_snapshot_to_file
+        export_snapshot_to_file(args.export_snapshot)
+        print(f"Exported environment snapshot to {args.export_snapshot}")
+        sys.exit(0)
+
+    if args.import_snapshot:
+        from companion.environment_snapshot import import_snapshot_from_file
+        import_snapshot_from_file(args.import_snapshot, mode=args.snapshot_mode)
+        print(f"Imported environment snapshot from {args.import_snapshot} (mode: {args.snapshot_mode})")
+        sys.exit(0)
+
+    if args.create_backup is not None:
+        from companion.environment_snapshot import create_backup
+        b_dir = None if args.create_backup == "default" else args.create_backup
+        b_path = create_backup(backup_dir=b_dir)
+        print(f"Created environment backup snapshot at {b_path}")
+        sys.exit(0)
+
+    if args.restore_backup:
+        from companion.environment_snapshot import restore_backup
+        restore_backup(args.restore_backup)
+        print(f"Restored environment from backup snapshot {args.restore_backup}")
+        sys.exit(0)
+
+    if args.cloud_share:
+        from companion.environment_snapshot import create_snapshot, share_snapshot_to_cloud
+        snap = create_snapshot()
+        res = share_snapshot_to_cloud(snap)
+        print(f"Shared snapshot to cloud: {res['url']} (ID: {res['share_id']})")
+        sys.exit(0)
+
+    if args.cloud_fetch:
+        from companion.environment_snapshot import fetch_snapshot_from_cloud
+        fetch_snapshot_from_cloud(args.cloud_fetch, auto_import=True)
+        print(f"Fetched and imported cloud snapshot {args.cloud_fetch}")
+        sys.exit(0)
+    
     if args.branding or args.enable_white_label or args.disable_white_label or args.set_app_name:
         from app.config_schema import get_effective_branding
         config = load_config()
