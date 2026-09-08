@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import subprocess
+import time
 from companion.companion_app import load_config, save_config, run_command_in_shell
 from app.config_schema import validate_branding_config, get_effective_branding
 from companion.sso_manager import SSOManager, SSOProviderConfig
@@ -21,15 +22,17 @@ from app.workspace_config import (
     detect_project_type,
     PROJECT_TEMPLATES,
 )
-from companion.stream_deck import get_stream_deck_manager
+from companion.numpad_manager import NumpadManager
 
 
 class CmdBarDBusService:
     """
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
-    TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
+    Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
+    TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger, TriggerNumpadKey, SwitchNumpadLayer,
+    ToggleNumpadOverlay, GetNumpadConfig, SetNumpadConfig, SSO authentication methods,
+    YubiKey 2FA Methods, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
     CommandOutput, and EventTriggered.
     :visibility: public
     """
@@ -39,6 +42,7 @@ class CmdBarDBusService:
         self._executed_listeners = []
         self._output_listeners = []
         self._sso_session_listeners = []
+        self._numpad_listeners = []
         config = load_config(self.config_path) if self.config_path else load_config()
         self._sso_manager = SSOManager(config)
         self.auth_manager = YubiKeyAuthManager()
@@ -120,11 +124,13 @@ class CmdBarDBusService:
     is_yubi_key_required = is_yubikey_required
     authenticate_yubi_key = authenticate_yubikey
 
-    def add_listener(self, on_executed=None, on_output=None):
+    def add_listener(self, on_executed=None, on_output=None, on_numpad=None):
         if on_executed:
             self._executed_listeners.append(on_executed)
         if on_output:
             self._output_listeners.append(on_output)
+        if on_numpad:
+            self._numpad_listeners.append(on_numpad)
 
     def add_command(self, name: str, command: str, category: str = "External") -> bool:
         if not name or not str(name).strip():
@@ -218,7 +224,6 @@ class CmdBarDBusService:
             else clean_name
         )
 
-        import time
 
         start_time = time.perf_counter()
         code, stdout, stderr = run_command_in_shell(cmd_str)
@@ -460,6 +465,49 @@ class CmdBarDBusService:
     def get_workspace_templates(self) -> dict:
         return PROJECT_TEMPLATES
 
+    def trigger_numpad_key(self, key: int) -> tuple[bool, str]:
+        config = load_config()
+        mgr = NumpadManager(config)
+        res = mgr.trigger_key(key, executor=lambda name, cmd, b: run_command_in_shell(cmd))
+        if res.get("success"):
+            for listener in self._numpad_listeners:
+                try:
+                    listener(key, res.get("name"), res.get("command"))
+                except Exception:
+                    pass
+            return True, res.get("name", "")
+        return False, res.get("reason", "Unbound key")
+
+    def switch_numpad_layer(self, layer: str) -> tuple[bool, int]:
+        config = load_config()
+        mgr = NumpadManager(config)
+        active_idx = mgr.switch_layer(layer)
+        save_config(config)
+        return True, active_idx
+
+    def toggle_numpad_overlay(self) -> bool:
+        config = load_config()
+        mgr = NumpadManager(config)
+        vis = mgr.toggle_overlay()
+        save_config(config)
+        return vis
+
+    def get_numpad_config(self) -> dict:
+        config = load_config()
+        mgr = NumpadManager(config)
+        return mgr.get_numpad_config()
+
+    def get_numpad_config_json(self) -> str:
+        return json.dumps(self.get_numpad_config())
+
+    def set_numpad_config(self, json_config: str) -> bool:
+        try:
+            parsed = json.loads(json_config)
+            config = load_config()
+            config["numpad"] = parsed
+            return save_config(config)
+        except Exception:
+            return False
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
         if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:

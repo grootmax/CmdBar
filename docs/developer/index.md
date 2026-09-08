@@ -108,3 +108,11 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 
 The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
 For full details, see [Team Command Sharing Specification](team_command_sharing.md).
+
+### Numpad Macro Pad Module (`numpadManager`)
+
+The Numpad Macro Pad module (`extension/numpadManager.js` and `companion/numpad_manager.py`) provides:
+- **Instant Macro Pad Execution**: Direct keybindings (`KP_0` to `KP_9`) mapped to 10 instant commands per layer.
+- **Configurable Macro Layers**: Multiple named layers (Default, Gaming, Developer, etc.) with quick hotkey switching (`Super+KP_Add`).
+- **On-screen Visual HUD Overlay**: Dynamic floating Clutter box showing active layer, enabled state, and 10-key grid bindings (`Super+KP_Subtract`).
+- **D-Bus Integration**: Methods (`TriggerNumpadKey`, `SwitchNumpadLayer`, `ToggleNumpadOverlay`, `GetNumpadConfig`, `SetNumpadConfig`) and signals (`NumpadLayerChanged`, `NumpadCommandTriggered`).
