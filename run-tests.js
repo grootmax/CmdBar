@@ -262,7 +262,7 @@ try {
   );
   assert.strictEqual(
     merged.categories[0].name,
-    "Python",
+    "Python Commands",
     "Workspace categories should come first",
   );
 
