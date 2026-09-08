@@ -96,11 +96,10 @@ The policy enforcement engine (`extension/policyEngine.js` and `app/policy_engin
 - **Geographic Restrictions**: Restricts command execution by country code or IP CIDR ranges.
 - **Time-Based Access Controls**: Limits command execution to designated days and time windows.
 
-### Enterprise Role-Based Access Control (RBAC)
+### Workspace-Specific Configuration Module
 
-The RBAC system (`extension/rbacManager.js` and `companion/rbac.py`) manages security and permissions:
-- **Granular Permissions & Roles**: Wildcard permission matching (`*`, `command:*`, `command:execute:*`) and role assignments (`admin`, `user`, `operator`, `approver`, `auditor`).
-- **Command Visibility Filtering**: Filters categories and commands based on role restrictions, permissions, and minimum role levels.
-- **Approval Chains**: Multi-step request approval workflow for critical command executions.
-- **Delegation**: Temporary role/permission delegation with automatic expiry and manual revocation.
-- **Audit Trail**: Structured logging of authorization events with JSON and CSV compliance export options.
+The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`) manages project-level configuration discovery and switching:
+- **CWD & Git Auto-Detection**: Searches upward from current working directory to Git repository root for `.cmdbar.json` or `.cmdbar/config.json`.
+- **Project Templates**: Initializes project configurations using built-in templates (`node`, `python`, `rust`, `go`, `generic`).
+- **Smooth Merging**: Merges workspace categories with global configuration, prepending project commands while avoiding command duplicates.
+- **WorkspaceManager**: High-performance active workspace manager with caching to guarantee sub-5ms lookup performance.

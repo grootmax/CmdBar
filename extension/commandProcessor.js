@@ -19,6 +19,21 @@ if (!GLib) {
   } catch (e) {}
 }
 
+const isNode =
+  typeof process !== "undefined" && process.versions && process.versions.node;
+
+let nodeFs = null;
+let nodeCp = null;
+let nodePath = null;
+
+if (isNode) {
+  try {
+    nodeFs = (await import("fs")).default || (await import("fs"));
+    nodeCp = (await import("child_process")).default || (await import("child_process"));
+    nodePath = (await import("path")).default || (await import("path"));
+  } catch (e) {}
+}
+
 /**
  * Checks if the entered text is non-empty and contains non-whitespace characters.
  * @param {string} text
@@ -1382,23 +1397,6 @@ export function evaluateMathExpression(expr) {
       error: err.message,
     };
   }
-}
-
-const isNode =
-  typeof process !== "undefined" &&
-  process.versions &&
-  process.versions.node;
-
-let nodeFs = null;
-let nodeCp = null;
-let nodePath = null;
-
-if (isNode) {
-  try {
-    nodeFs = (await import("fs")).default || (await import("fs"));
-    nodeCp = (await import("child_process")).default || (await import("child_process"));
-    nodePath = (await import("path")).default || (await import("path"));
-  } catch (e) {}
 }
 
 /**
