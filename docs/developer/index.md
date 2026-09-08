@@ -108,3 +108,13 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 
 The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
 For full details, see [Team Command Sharing Specification](team_command_sharing.md).
+
+### Organization Workspaces Manager (`app/workspace_manager.py` & `extension/workspaceManager.js`)
+
+The Organization Workspaces architecture provides cross-platform management of team workspaces:
+- **RBAC Matrix**: Enforces `admin`, `member`, and `viewer` permissions across workspace management, shared command editing, private registry access, and analytics viewing.
+- **Category Merging**: Merges local categories with active workspace shared commands in under 2.5ms.
+- **Usage Analytics Engine**: Records execution metrics, success/failure counts, top commands, and recent event logs.
+- **Billing Quota Management**: Enforces quota limits per billing plan (`free`, `pro`, `enterprise`).
+- **Private Command Registries**: Manages versioned command package bundles for internal distribution.
+- **Slack Incoming Webhooks**: Formats and dispatches Slack Block Kit notifications for workspace execution and administration events.

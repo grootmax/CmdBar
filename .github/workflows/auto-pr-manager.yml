@@ -48,7 +48,7 @@ jobs:
 
           echo "Checking for open pull requests..."
 
-          gh pr list \
+          (gh pr list \
             --repo "$GH_REPO" \
             --state open \
             --json number,title,headRefName,headRefOid,baseRefName,isDraft,createdAt \
@@ -401,7 +401,7 @@ jobs:
                 REMAINING_CONFLICTS=$(git diff \
                   --name-only \
                   --diff-filter=U |
-                  wc -l)
+                  wc -l | tr -d ' ')
 
                 if [ "$REMAINING_CONFLICTS" -ne 0 ]; then
 

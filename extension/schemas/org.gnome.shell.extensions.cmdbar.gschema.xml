@@ -86,5 +86,10 @@
       <summary>Default Cache TTL</summary>
       <description>Default time-to-live in seconds for cacheable commands.</description>
     </key>
+    <key name="active-workspace-id" type="s">
+      <default>''</default>
+      <summary>Active Workspace ID</summary>
+      <description>ID of the active organization workspace for shared team commands.</description>
+    </key>
   </schema>
 </schemalist>

@@ -319,6 +319,8 @@ DEFAULT_CONFIG = {
         "sensor_triggers": [],
     },
     "triggers": [],
+    "workspaces": [],
+    "active_workspace_id": None,
 }
 
 
