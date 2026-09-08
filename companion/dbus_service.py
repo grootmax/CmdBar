@@ -20,6 +20,8 @@ from app.workspace_config import (
     find_workspace_config_path,
     detect_project_type,
     PROJECT_TEMPLATES,
+    get_effective_config,
+    create_workspace_config,
 )
 from companion.stream_deck import get_stream_deck_manager
 
@@ -434,23 +436,6 @@ class CmdBarDBusService:
         has_ws = path is not None
         return has_ws, path or ""
 
-    def init_workspace(self, cwd: str, template_name: str = None) -> tuple:
-        try:
-            cfg, path = init_workspace_config(cwd, template_name)
-            self.workspace_manager.register_workspace(cwd)
-            return True, path
-        except Exception:
-            return False, ""
-
-    def switch_workspace(self, cwd: str) -> bool:
-        try:
-            global_cfg = load_config()
-            self.workspace_manager.set_global_config(global_cfg)
-            ws_cfg = self.workspace_manager.switch_workspace(cwd)
-            return ws_cfg is not None
-        except Exception:
-            return False
-
     def list_workspaces(self) -> list:
         return self.workspace_manager.list_workspaces()
 
@@ -459,6 +444,29 @@ class CmdBarDBusService:
 
     def get_workspace_templates(self) -> dict:
         return PROJECT_TEMPLATES
+
+    def get_effective_config(self, cwd: str = None) -> dict:
+        return get_effective_config(cwd=cwd, global_config_path=self.config_path)
+
+    def get_effective_config_json(self, cwd: str = None) -> str:
+        return json.dumps(self.get_effective_config(cwd=cwd))
+
+    def switch_workspace(self, new_cwd: str) -> dict:
+        try:
+            global_cfg = load_config(self.config_path) if self.config_path else load_config()
+            self.workspace_manager.set_global_config(global_cfg)
+            ws_cfg = self.workspace_manager.switch_workspace(new_cwd)
+            if ws_cfg:
+                return ws_cfg
+        except Exception:
+            pass
+        return self.get_effective_config(cwd=new_cwd)
+
+    def init_workspace(self, dir_path: str = None, template_name: str = "generic") -> str:
+        res = create_workspace_config(target_dir=dir_path, template_name=template_name)
+        if dir_path:
+            self.workspace_manager.register_workspace(dir_path)
+        return res.get("config_path", "")
 
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""

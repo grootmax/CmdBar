@@ -282,3 +282,41 @@ class WorkspaceManager:
 
     def clear_cache(self):
         self.cache.clear()
+def find_git_root(start_dir=None):
+    from companion.workspace_config import find_git_root as _f
+    return _f(start_dir)
+
+def find_workspace_config(start_dir=None):
+    from companion.workspace_config import find_workspace_config as _f
+    return _f(start_dir)
+
+def create_workspace_config(target_dir=None, template_name="generic", custom_config=None):
+    from companion.workspace_config import create_workspace_config as _f
+    return _f(target_dir=target_dir, template_name=template_name, custom_config=custom_config)
+
+def get_effective_config(cwd=None, global_config_path=None):
+    from companion.workspace_config import get_effective_config as _f
+    return _f(cwd=cwd, global_config_path=global_config_path)
+
+def companion_switch_workspace(new_cwd, global_config_path=None):
+    from companion.workspace_config import switch_workspace as _f
+    return _f(new_cwd, global_config_path=global_config_path)
+
+WORKSPACE_FILE_NAMES = [".cmdbar.json", os.path.join(".cmdbar", "config.json")]
+
+__all__ = [
+    "PROJECT_TEMPLATES",
+    "find_git_repository_root",
+    "find_workspace_config_path",
+    "detect_project_type",
+    "init_workspace_config",
+    "load_workspace_config",
+    "merge_configs",
+    "WorkspaceManager",
+    "find_git_root",
+    "find_workspace_config",
+    "create_workspace_config",
+    "get_effective_config",
+    "companion_switch_workspace",
+    "WORKSPACE_FILE_NAMES",
+]

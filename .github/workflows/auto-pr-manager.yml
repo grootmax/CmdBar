@@ -601,6 +601,8 @@ jobs:
                         (((.name? // "") | ascii_downcase | contains("accessibility")) | not)
                         and (((.name? // "") | ascii_downcase | contains("a11y")) | not)
                         and (((.name? // "") | ascii_downcase | contains("process jules prs")) | not)
+                        and (((.name? // "") | ascii_downcase | contains("auto jules pr manager")) | not)
+                        and (((.workflow? // "") | ascii_downcase | contains("auto jules pr manager")) | not)
                       )
                     | select((.bucket? // "") == "fail" or (.bucket? // "") == "cancel")
                   ]
@@ -618,6 +620,8 @@ jobs:
                         (((.name? // "") | ascii_downcase | contains("accessibility")) | not)
                         and (((.name? // "") | ascii_downcase | contains("a11y")) | not)
                         and (((.name? // "") | ascii_downcase | contains("process jules prs")) | not)
+                        and (((.name? // "") | ascii_downcase | contains("auto jules pr manager")) | not)
+                        and (((.workflow? // "") | ascii_downcase | contains("auto jules pr manager")) | not)
                       )
                     | select((.bucket? // "") == "pending")
                   ]

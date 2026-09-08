@@ -1,4 +1,4 @@
-import { loadConfig, saveConfig, getDefaultConfigPath, validateBrandingConfig, getEffectiveBranding } from "./configSync.js";
+import { loadConfig, saveConfig, getDefaultConfigPath, validateBrandingConfig, getEffectiveBranding, getEffectiveConfig, createWorkspaceConfig } from "./configSync.js";
 import { tokenizeCommand } from "./commandProcessor.js";
 import { SSOManager, PROVIDER_PRESETS } from "./ssoManager.js";
 import {
@@ -95,48 +95,18 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="code" type="s" direction="in"/>
       <arg name="success" type="b" direction="out"/>
     </method>
-    <method name="StartTerminalSharing">
-      <arg name="session_id" type="s" direction="in"/>
-      <arg name="title" type="s" direction="in"/>
-      <arg name="json_session_info" type="s" direction="out"/>
+    <method name="GetEffectiveConfig">
+      <arg name="cwd" type="s" direction="in"/>
+      <arg name="json_config" type="s" direction="out"/>
     </method>
-    <method name="StopTerminalSharing">
-      <arg name="session_id" type="s" direction="in"/>
-      <arg name="success" type="b" direction="out"/>
+    <method name="SwitchWorkspace">
+      <arg name="cwd" type="s" direction="in"/>
+      <arg name="json_config" type="s" direction="out"/>
     </method>
-    <method name="GetTerminalSharingSessions">
-      <arg name="json_sessions" type="s" direction="out"/>
-    </method>
-    <method name="ShareCommandUrl">
-      <arg name="command_json" type="s" direction="in"/>
-      <arg name="url" type="s" direction="out"/>
-    </method>
-    <method name="ImportCommandFromUrl">
-      <arg name="url" type="s" direction="in"/>
-      <arg name="role" type="s" direction="in"/>
-      <arg name="success" type="b" direction="out"/>
-    </method>
-    <method name="GetPendingApprovals">
-      <arg name="json_approvals" type="s" direction="out"/>
-    </method>
-    <method name="ApproveCommand">
-      <arg name="submission_id" type="s" direction="in"/>
-      <arg name="reviewer_role" type="s" direction="in"/>
-      <arg name="notes" type="s" direction="in"/>
-      <arg name="success" type="b" direction="out"/>
-    </method>
-    <method name="RejectCommand">
-      <arg name="submission_id" type="s" direction="in"/>
-      <arg name="reviewer_role" type="s" direction="in"/>
-      <arg name="reason" type="s" direction="in"/>
-      <arg name="success" type="b" direction="out"/>
-    </method>
-    <method name="GetActivityFeed">
-      <arg name="limit" type="i" direction="in"/>
-      <arg name="json_feed" type="s" direction="out"/>
-    </method>
-    <method name="GetConfigHistory">
-      <arg name="json_history" type="s" direction="out"/>
+    <method name="InitWorkspace">
+      <arg name="dir_path" type="s" direction="in"/>
+      <arg name="template_name" type="s" direction="in"/>
+      <arg name="config_path" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -766,13 +736,16 @@ export class CmdBarDBusService {
     }
   }
 
-  async InitWorkspace(cwd, templateName) {
+  async GetEffectiveConfig(cwd) {
     try {
-      const res = initWorkspaceConfig(cwd, templateName);
-      this.workspaceManager.registerWorkspace(cwd);
-      return [true, res.configPath];
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const cfg = await getEffectiveConfig(cwd, configPath);
+      return JSON.stringify(cfg);
     } catch (e) {
-      return [false, ""];
+      console.error(`CmdBar D-Bus GetEffectiveConfig error: ${e.message}`);
+      return JSON.stringify({});
     }
   }
 
@@ -781,12 +754,27 @@ export class CmdBarDBusService {
       const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
         ? this._indicator._getConfigPath()
         : await getDefaultConfigPath();
-      const globalCfg = await loadConfig(configPath);
-      this.workspaceManager.setGlobalConfig(globalCfg);
-      const wsCfg = this.workspaceManager.switchWorkspace(cwd);
-      return Boolean(wsCfg);
+      const cfg = await getEffectiveConfig(cwd, configPath);
+      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        this._indicator._reloadMenu(cfg);
+      }
+      return JSON.stringify(cfg);
     } catch (e) {
-      return false;
+      console.error(`CmdBar D-Bus SwitchWorkspace error: ${e.message}`);
+      return JSON.stringify({});
+    }
+  }
+
+  async InitWorkspace(dirPath, templateName) {
+    try {
+      const result = await createWorkspaceConfig(dirPath, templateName || "generic");
+      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        this._indicator._reloadMenu();
+      }
+      return result.configPath || "";
+    } catch (e) {
+      console.error(`CmdBar D-Bus InitWorkspace error: ${e.message}`);
+      return "";
     }
   }
 
@@ -881,14 +869,6 @@ export class CmdBarDBusService {
     const sessionsInfo = Array.from(this._terminalSessions.values()).map((s) => s.getMetrics());
     return JSON.stringify(sessionsInfo);
   }
-
-  /**
-   * Emits CommandExecuted signal.
-   * @param {string} name - Command name.
-   * @param {number} exitCode - Exit code.
-   * @param {boolean} success - Success flag.
-   * @public
-   */
   emitCommandExecuted(name, exitCode, success) {
     if (this._dbusImpl && GLib) {
       try {

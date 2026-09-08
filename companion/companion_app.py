@@ -35,7 +35,10 @@ from app.workspace_config import (
     find_workspace_config_path,
     detect_project_type,
     load_workspace_config,
-    PROJECT_TEMPLATES
+    find_workspace_config,
+    create_workspace_config,
+    get_effective_config,
+    PROJECT_TEMPLATES,
 )
 
 def canonical_json(obj):
@@ -219,7 +222,7 @@ def load_config(path=None):
                     }
                 ]
             }
-            save_config(config_data)
+            save_config(config_data, config_path)
             return config_data
     except (json.JSONDecodeError, OSError) as e:
         print(f"Error loading configuration: {e}", file=sys.stderr)
@@ -257,7 +260,7 @@ def load_config(path=None):
                     migrated = True
 
     if migrated:
-        save_config(config_data)
+        save_config(config_data, config_path)
 
     return config_data
 
@@ -1491,6 +1494,10 @@ def main():
     parser.add_argument("--enable-white-label", action="store_true", help="Enable enterprise white labeling")
     parser.add_argument("--disable-white-label", action="store_true", help="Disable enterprise white labeling")
     parser.add_argument("--set-app-name", type=str, help="Set white label application name")
+    parser.add_argument("--init-workspace", type=str, metavar="DIR", help="Initialize workspace config in specified directory")
+    parser.add_argument("--template", type=str, default="generic", help="Template name (node, python, rust, go, docker, generic)")
+    parser.add_argument("--cwd", type=str, help="Directory to detect workspace config from")
+    parser.add_argument("--show-effective", action="store_true", help="Print effective merged configuration for cwd")
     args = parser.parse_args()
 
     # Initialize config directory/file
@@ -1526,6 +1533,16 @@ def main():
         except KeyboardInterrupt:
             server.server_close()
             sys.exit(0)
+    elif args.init_workspace:
+        target_dir = args.init_workspace
+        tmpl = args.template or "generic"
+        res = create_workspace_config(target_dir=target_dir, template_name=tmpl)
+        print(f"Initialized workspace config at: {res['config_path']}")
+        return
+    elif args.show_effective or args.cwd:
+        effective_cfg = get_effective_config(cwd=args.cwd)
+        print(json.dumps(effective_cfg, indent=2))
+        return
     elif args.cli or not GUI_AVAILABLE:
         if not GUI_AVAILABLE and not args.cli:
             print(
