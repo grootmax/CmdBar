@@ -307,7 +307,8 @@ DEFAULT_CONFIG = {
       ]
     }
   ],
-  "triggers": []
+  "triggers": [],
+  "notes": []
 }
 
 

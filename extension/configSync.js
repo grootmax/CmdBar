@@ -205,6 +205,7 @@ export const DEFAULT_CONFIG = {
     },
   ],
   triggers: [],
+  notes: [],
 };
 
 const isNode =
