@@ -498,9 +498,19 @@ jobs:
               echo "Checking status checks for PR #$PR_NUMBER..."
 
               CHECK_OUTPUT=$(
-                gh api "repos/$GH_REPO/commits/$HEAD_SHA/check-runs" \
-                  --jq '[.check_runs[]? | {name: (.name? // ""), status: (.status? // ""), conclusion: (.conclusion? // ""), workflow: (.app?.name? // ""), bucket: (if (.status? // "") != "completed" then "pending" elif ((.conclusion? // "") == "failure" or (.conclusion? // "") == "cancelled" or (.conclusion? // "") == "timed_out" or (.conclusion? // "") == "action_required") then "fail" else "pass" end)}]' \
-                  2>/dev/null || echo "[]"
+                gh api "repos/$GH_REPO/commits/$HEAD_BRANCH/check-runs" \
+                  --jq '[.check_runs[] | {
+                    name: .name,
+                    status: .status,
+                    conclusion: .conclusion,
+                    bucket: (
+                      if .status != "completed" then "pending"
+                      elif .conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped" then "pass"
+                      else "fail"
+                      end
+                    ),
+                    workflow: .name
+                  }]' 2>/dev/null || true
               )
 
               if ! echo "$CHECK_OUTPUT" | jq -e 'type == "array"' >/dev/null 2>&1; then
@@ -594,38 +604,36 @@ jobs:
               # CHECK OTHER CHECKS FOR FAILURE / PENDING
               # --------------------------------------------------
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
-                if type == "array" then
-                  [
-                    .[]?
-                    | select(
-                        (((.name? // "") | ascii_downcase | contains("accessibility")) | not)
-                        and (((.name? // "") | ascii_downcase | contains("a11y")) | not)
-                        and (((.name? // "") | ascii_downcase | contains("process jules prs")) | not)
-                      )
-                    | select((.bucket? // "") == "fail" or (.bucket? // "") == "cancel")
-                  ]
-                  | length
-                else
-                  0
-                end
-              ' 2>/dev/null || echo "0")
+                [
+                  .[]
+                  | select(
+                      ((.name | ascii_downcase | contains("accessibility")) | not)
+                      and ((.name | ascii_downcase | contains("a11y")) | not)
+                      and ((.name | ascii_downcase | contains("process jules prs")) | not)
+                      and ((.name | ascii_downcase | contains("auto jules pr manager")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("process jules prs")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("auto jules pr manager")) | not)
+                    )
+                  | select(.bucket == "fail" or .bucket == "cancel")
+                ]
+                | length
+              ')
 
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
-                if type == "array" then
-                  [
-                    .[]?
-                    | select(
-                        (((.name? // "") | ascii_downcase | contains("accessibility")) | not)
-                        and (((.name? // "") | ascii_downcase | contains("a11y")) | not)
-                        and (((.name? // "") | ascii_downcase | contains("process jules prs")) | not)
-                      )
-                    | select((.bucket? // "") == "pending")
-                  ]
-                  | length
-                else
-                  0
-                end
-              ' 2>/dev/null || echo "0")
+                [
+                  .[]
+                  | select(
+                      ((.name | ascii_downcase | contains("accessibility")) | not)
+                      and ((.name | ascii_downcase | contains("a11y")) | not)
+                      and ((.name | ascii_downcase | contains("process jules prs")) | not)
+                      and ((.name | ascii_downcase | contains("auto jules pr manager")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("process jules prs")) | not)
+                      and (((.workflow // "") | ascii_downcase | contains("auto jules pr manager")) | not)
+                    )
+                  | select(.bucket == "pending")
+                ]
+                | length
+              ')
 
               if [ "$OTHER_FAILED" -gt 0 ]; then
                 echo ""

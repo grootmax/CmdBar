@@ -1399,6 +1399,7 @@ export function evaluateMathExpression(expr) {
   }
 }
 
+
 /**
  * Detects if a directory is a Git repository by checking for .git file/directory or git status.
  * @param {string} [dirPath]
