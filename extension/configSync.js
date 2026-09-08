@@ -4,6 +4,7 @@
  */
 
 import { sanitizeHistoryItem, MAX_HISTORY_ITEMS } from "./commandProcessor.js";
+import { DEFAULT_POLICY_CONFIG } from "./policyEngine.js";
 
 export const DEFAULT_CONFIG = {
   sso: {
@@ -143,42 +144,7 @@ export const DEFAULT_CONFIG = {
     },
   ],
   active_profile: "Development",
-  policy: {
-    enabled: true,
-    mode: "blacklist",
-    blacklist: [
-      "rm -rf *",
-      "rm -rf /",
-      "mkfs*",
-      "dd if=*",
-      ":(){ :|:& };:",
-      "chmod -R 777 *",
-      "shutdown*",
-      "reboot*",
-      "> /dev/sd*",
-      "wget * | sh",
-      "curl * | sh",
-      "wget * | bash",
-      "curl * | bash",
-    ],
-    whitelist: [
-      "echo *",
-      "make *",
-      "git *",
-      "aws *",
-      "ping *",
-      "docker *",
-      "python*",
-      "node *",
-      "npm *",
-      "notify-send *",
-      "deploy *",
-      "pkill *",
-      "zenity *",
-    ],
-    rules: [],
-    overrides: [],
-  },
+  policy: DEFAULT_POLICY_CONFIG,
   categories: [
     {
       name: "AI Assistant",

@@ -14,24 +14,24 @@ import { escapeMarkup } from "./commandProcessor.js";
  */
 export function detectFormat(rawOutput) {
   if (rawOutput === null || rawOutput === undefined) {
-    return 'text';
+    return "text";
   }
 
   const str = String(rawOutput);
   const trimmed = str.trim();
 
   if (!trimmed) {
-    return 'text';
+    return "text";
   }
 
   // 1. JSON Detection
   if (
-    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+    (trimmed.startsWith("[") && trimmed.endsWith("]"))
   ) {
     try {
       JSON.parse(trimmed);
-      return 'json';
+      return "json";
     } catch (e) {
       // Not valid JSON
     }
@@ -42,7 +42,7 @@ export function detectFormat(rawOutput) {
   if (jsonBlockMatch) {
     try {
       JSON.parse(jsonBlockMatch[1].trim());
-      return 'json';
+      return "json";
     } catch (e) {}
   }
 
@@ -57,31 +57,35 @@ export function detectFormat(rawOutput) {
         const tabs = (line.match(/\t/g) || []).length;
         return tabs === line0Tabs;
       });
-      if (isTsv) return 'tsv';
+      if (isTsv) return "tsv";
     }
 
     // Check CSV
-    const line0Cells = parseCsvLine(lines[0], ',');
+    const line0Cells = parseCsvLine(lines[0], ",");
     if (line0Cells.length >= 2) {
       const isCsv = lines.every((line) => {
-        const cells = parseCsvLine(line, ',');
+        const cells = parseCsvLine(line, ",");
         return cells.length === line0Cells.length;
       });
-      if (isCsv) return 'csv';
+      if (isCsv) return "csv";
     }
   }
 
   // 3. Code Detection
   if (
-    trimmed.startsWith('```') ||
-    /^(?:function|class|def|const|let|var|import|export|if|for|while)\b/m.test(trimmed) ||
-    /^\s*<[a-zA-Z1-6]+(?:\s+[^>]*)?>[\s\S]*<\/[a-zA-Z1-6]+>\s*$/m.test(trimmed) ||
+    trimmed.startsWith("```") ||
+    /^(?:function|class|def|const|let|var|import|export|if|for|while)\b/m.test(
+      trimmed,
+    ) ||
+    /^\s*<[a-zA-Z1-6]+(?:\s+[^>]*)?>[\s\S]*<\/[a-zA-Z1-6]+>\s*$/m.test(
+      trimmed,
+    ) ||
     /^(?:[\w.-]+:\s*.*\n){3,}/.test(trimmed)
   ) {
-    return 'code';
+    return "code";
   }
 
-  return 'text';
+  return "text";
 }
 
 /**
@@ -90,10 +94,10 @@ export function detectFormat(rawOutput) {
  * @param {string} [delimiter=',']
  * @returns {string[]}
  */
-export function parseCsvLine(line, delimiter = ',') {
+export function parseCsvLine(line, delimiter = ",") {
   if (!line) return [];
   const cells = [];
-  let current = '';
+  let current = "";
   let inQuotes = false;
 
   for (let i = 0; i < line.length; i++) {
@@ -107,7 +111,7 @@ export function parseCsvLine(line, delimiter = ',') {
       }
     } else if (char === delimiter && !inQuotes) {
       cells.push(current.trim());
-      current = '';
+      current = "";
     } else {
       current += char;
     }
@@ -122,7 +126,7 @@ export function parseCsvLine(line, delimiter = ',') {
  * @param {string} [delimiter=',']
  * @returns {string[][]}
  */
-export function parseCsvOrTsv(rawText, delimiter = ',') {
+export function parseCsvOrTsv(rawText, delimiter = ",") {
   if (!rawText) return [];
   const lines = String(rawText)
     .split(/\r?\n/)
@@ -137,10 +141,10 @@ export function parseCsvOrTsv(rawText, delimiter = ',') {
  * @returns {string}
  */
 export function formatTable(input, options = {}) {
-  const delimiter = options.delimiter || ',';
+  const delimiter = options.delimiter || ",";
   let rows = Array.isArray(input) ? input : parseCsvOrTsv(input, delimiter);
 
-  if (!rows || rows.length === 0) return '';
+  if (!rows || rows.length === 0) return "";
 
   // Calculate max column widths
   const numCols = Math.max(...rows.map((r) => r.length));
@@ -148,7 +152,8 @@ export function formatTable(input, options = {}) {
 
   for (const row of rows) {
     for (let c = 0; c < numCols; c++) {
-      const cellStr = row[c] !== undefined && row[c] !== null ? String(row[c]) : '';
+      const cellStr =
+        row[c] !== undefined && row[c] !== null ? String(row[c]) : "";
       if (cellStr.length > colWidths[c]) {
         colWidths[c] = cellStr.length;
       }
@@ -160,26 +165,27 @@ export function formatTable(input, options = {}) {
     colWidths[c] = Math.max(colWidths[c], 1);
   }
 
-  const divider = '+' + colWidths.map((w) => '-'.repeat(w + 2)).join('+') + '+';
+  const divider = "+" + colWidths.map((w) => "-".repeat(w + 2)).join("+") + "+";
 
   const formattedRows = rows.map((row) => {
     const cells = [];
     for (let c = 0; c < numCols; c++) {
-      const cellStr = row[c] !== undefined && row[c] !== null ? String(row[c]) : '';
+      const cellStr =
+        row[c] !== undefined && row[c] !== null ? String(row[c]) : "";
       cells.push(cellStr.padEnd(colWidths[c]));
     }
-    return '| ' + cells.join(' | ') + ' |';
+    return "| " + cells.join(" | ") + " |";
   });
 
-  if (formattedRows.length === 0) return '';
+  if (formattedRows.length === 0) return "";
 
   const header = formattedRows[0];
   const body = formattedRows.slice(1);
 
   if (body.length > 0) {
-    return [divider, header, divider, ...body, divider].join('\n');
+    return [divider, header, divider, ...body, divider].join("\n");
   } else {
-    return [divider, header, divider].join('\n');
+    return [divider, header, divider].join("\n");
   }
 }
 
@@ -192,12 +198,14 @@ export function formatTable(input, options = {}) {
 export function formatJson(input, options = {}) {
   const indent = options.indent || 2;
   let parsedObj;
-  let rawJsonStr = '';
+  let rawJsonStr = "";
 
-  if (typeof input === 'string') {
+  if (typeof input === "string") {
     const trimmed = input.trim();
     // Strip markdown code fence if present
-    const cleanStr = trimmed.replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i, '$1').trim();
+    const cleanStr = trimmed
+      .replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i, "$1")
+      .trim();
     try {
       parsedObj = JSON.parse(cleanStr);
       rawJsonStr = JSON.stringify(parsedObj, null, indent);
@@ -216,17 +224,32 @@ export function formatJson(input, options = {}) {
 
   // Generate Pango markup for GNOME Shell labels
   let markup = escapeMarkup(rawJsonStr);
-  markup = markup.replace(/(&quot;[\w_.\-\s]+&quot;)(\s*:)/g, '<span foreground="#3584e4">$1</span>$2'); // Keys: blue
-  markup = markup.replace(/:\s*(&quot;.*?&quot;)/g, ': <span foreground="#2ec27e">$1</span>'); // String values: green
-  markup = markup.replace(/:\s*(\b\d+(?:\.\d+)?\b)/g, ': <span foreground="#e66100">$1</span>'); // Number values: orange
-  markup = markup.replace(/:\s*(\btrue\b|\bfalse\b|\bnull\b)/g, ': <span foreground="#9141ac">$1</span>'); // Booleans/null: purple
+  markup = markup.replace(
+    /(&quot;[\w_.\-\s]+&quot;)(\s*:)/g,
+    '<span foreground="#3584e4">$1</span>$2',
+  ); // Keys: blue
+  markup = markup.replace(
+    /:\s*(&quot;.*?&quot;)/g,
+    ': <span foreground="#2ec27e">$1</span>',
+  ); // String values: green
+  markup = markup.replace(
+    /:\s*(\b\d+(?:\.\d+)?\b)/g,
+    ': <span foreground="#e66100">$1</span>',
+  ); // Number values: orange
+  markup = markup.replace(
+    /:\s*(\btrue\b|\bfalse\b|\bnull\b)/g,
+    ': <span foreground="#9141ac">$1</span>',
+  ); // Booleans/null: purple
 
   // Generate ANSI colorized string for CLI/terminal
   let ansi = rawJsonStr;
-  ansi = ansi.replace(/("[\w_.\-\s]+")(\s*:)/g, '\x1b[34m$1\x1b[0m$2'); // Blue keys
-  ansi = ansi.replace(/:\s*(".*?")/g, ': \x1b[32m$1\x1b[0m'); // Green string values
-  ansi = ansi.replace(/:\s*(\b\d+(?:\.\d+)?\b)/g, ': \x1b[33m$1\x1b[0m'); // Yellow/orange numbers
-  ansi = ansi.replace(/:\s*(\btrue\b|\bfalse\b|\bnull\b)/g, ': \x1b[35m$1\x1b[0m'); // Magenta booleans/null
+  ansi = ansi.replace(/("[\w_.\-\s]+")(\s*:)/g, "\x1b[34m$1\x1b[0m$2"); // Blue keys
+  ansi = ansi.replace(/:\s*(".*?")/g, ": \x1b[32m$1\x1b[0m"); // Green string values
+  ansi = ansi.replace(/:\s*(\b\d+(?:\.\d+)?\b)/g, ": \x1b[33m$1\x1b[0m"); // Yellow/orange numbers
+  ansi = ansi.replace(
+    /:\s*(\btrue\b|\bfalse\b|\bnull\b)/g,
+    ": \x1b[35m$1\x1b[0m",
+  ); // Magenta booleans/null
 
   return {
     text: rawJsonStr,
@@ -243,16 +266,17 @@ export function formatJson(input, options = {}) {
  * @returns {{ text: string, markup: string }}
  */
 export function formatCodeBlock(codeString, options = {}) {
-  const str = codeString !== null && codeString !== undefined ? String(codeString) : '';
-  const clean = str.replace(/^```[a-zA-Z0-9]*\n([\s\S]*?)\n```$/, '$1');
+  const str =
+    codeString !== null && codeString !== undefined ? String(codeString) : "";
+  const clean = str.replace(/^```[a-zA-Z0-9]*\n([\s\S]*?)\n```$/, "$1");
   const lines = clean.split(/\r?\n/);
   const maxLen = Math.max(...lines.map((l) => l.length), 20);
 
-  const topBorder = '┌' + '─'.repeat(maxLen + 2) + '┐';
-  const bottomBorder = '└' + '─'.repeat(maxLen + 2) + '┘';
-  const boxedLines = lines.map((line) => '│ ' + line.padEnd(maxLen) + ' │');
+  const topBorder = "┌" + "─".repeat(maxLen + 2) + "┐";
+  const bottomBorder = "└" + "─".repeat(maxLen + 2) + "┘";
+  const boxedLines = lines.map((line) => "│ " + line.padEnd(maxLen) + " │");
 
-  const plainBoxed = [topBorder, ...boxedLines, bottomBorder].join('\n');
+  const plainBoxed = [topBorder, ...boxedLines, bottomBorder].join("\n");
   const escaped = escapeMarkup(clean);
   const markup = `<font face="monospace">${escaped}</font>`;
 
@@ -270,19 +294,20 @@ export function formatCodeBlock(codeString, options = {}) {
  */
 export function formatOutput(rawOutput, options = {}) {
   if (rawOutput === null || rawOutput === undefined) {
-    rawOutput = '';
+    rawOutput = "";
   }
 
-  const requestedFormat = options.format || 'auto';
-  const format = requestedFormat === 'auto' ? detectFormat(rawOutput) : requestedFormat;
+  const requestedFormat = options.format || "auto";
+  const format =
+    requestedFormat === "auto" ? detectFormat(rawOutput) : requestedFormat;
 
-  let text = '';
-  let markup = '';
-  let ansi = '';
+  let text = "";
+  let markup = "";
+  let ansi = "";
   let data = null;
 
   switch (format) {
-    case 'json': {
+    case "json": {
       const res = formatJson(rawOutput, options);
       text = res.text;
       markup = res.markup;
@@ -290,21 +315,21 @@ export function formatOutput(rawOutput, options = {}) {
       data = res.data;
       break;
     }
-    case 'csv': {
-      data = parseCsvOrTsv(rawOutput, ',');
-      text = formatTable(data, { delimiter: ',' });
+    case "csv": {
+      data = parseCsvOrTsv(rawOutput, ",");
+      text = formatTable(data, { delimiter: "," });
       markup = `<font face="monospace">${escapeMarkup(text)}</font>`;
       ansi = text;
       break;
     }
-    case 'tsv': {
-      data = parseCsvOrTsv(rawOutput, '\t');
-      text = formatTable(data, { delimiter: '\t' });
+    case "tsv": {
+      data = parseCsvOrTsv(rawOutput, "\t");
+      text = formatTable(data, { delimiter: "\t" });
       markup = `<font face="monospace">${escapeMarkup(text)}</font>`;
       ansi = text;
       break;
     }
-    case 'code': {
+    case "code": {
       const res = formatCodeBlock(rawOutput, options);
       text = res.text;
       markup = res.markup;
@@ -312,7 +337,7 @@ export function formatOutput(rawOutput, options = {}) {
       data = rawOutput;
       break;
     }
-    case 'text':
+    case "text":
     default: {
       const str = String(rawOutput).trim();
       text = str;
