@@ -3,6 +3,8 @@ import json
 import os
 import sys
 import subprocess
+import time
+from typing import Optional, Dict, Any, List
 from companion.companion_app import load_config, save_config, run_command_in_shell
 from app.config_schema import validate_branding_config, get_effective_branding
 from companion.sso_manager import SSOManager, SSOProviderConfig
@@ -21,7 +23,7 @@ from app.workspace_config import (
     detect_project_type,
     PROJECT_TEMPLATES,
 )
-from companion.stream_deck import get_stream_deck_manager
+from companion.rate_limiter import ApiRateLimiter
 
 
 class CmdBarDBusService:
@@ -33,9 +35,9 @@ class CmdBarDBusService:
     CommandOutput, and EventTriggered.
     :visibility: public
     """
-
-    def __init__(self, config_path=None):
+    def __init__(self, config_path=None, rate_limiter: Optional[ApiRateLimiter] = None):
         self.config_path = config_path
+        self.rate_limiter = rate_limiter
         self._executed_listeners = []
         self._output_listeners = []
         self._sso_session_listeners = []
@@ -120,6 +122,16 @@ class CmdBarDBusService:
     is_yubi_key_required = is_yubikey_required
     authenticate_yubi_key = authenticate_yubikey
 
+    def set_rate_limiter(self, rate_limiter: ApiRateLimiter):
+        """Sets or updates rate limiter instance."""
+        self.rate_limiter = rate_limiter
+
+    def _check_rate_limit(self, endpoint: str, client_id: str = "dbus-client") -> bool:
+        if not self.rate_limiter:
+            return True
+        res = self.rate_limiter.check_rate_limit(client_id, endpoint=endpoint)
+        return res["allowed"]
+
     def add_listener(self, on_executed=None, on_output=None):
         if on_executed:
             self._executed_listeners.append(on_executed)
@@ -127,6 +139,8 @@ class CmdBarDBusService:
             self._output_listeners.append(on_output)
 
     def add_command(self, name: str, command: str, category: str = "External") -> bool:
+        if not self._check_rate_limit("add_command"):
+            return False
         if not name or not str(name).strip():
             return False
         if not command or not str(command).strip():
@@ -172,6 +186,8 @@ class CmdBarDBusService:
         return saved
 
     def remove_command(self, name: str) -> bool:
+        if not self._check_rate_limit("remove_command"):
+            return False
         if not name or not str(name).strip():
             return False
         clean_name = str(name).strip()
@@ -193,9 +209,12 @@ class CmdBarDBusService:
         return removed
 
     def execute_command(self, name: str) -> bool:
+        if not self._check_rate_limit("execute_command"):
+            return False
         if not name or not str(name).strip():
             return False
         clean_name = str(name).strip()
+
         config = load_config()
 
         found_cmd = None
@@ -218,7 +237,6 @@ class CmdBarDBusService:
             else clean_name
         )
 
-        import time
 
         start_time = time.perf_counter()
         code, stdout, stderr = run_command_in_shell(cmd_str)
@@ -245,6 +263,8 @@ class CmdBarDBusService:
         return True
 
     def get_commands(self) -> list:
+        if not self._check_rate_limit("get_commands"):
+            return []
         config = load_config()
         all_cmds = []
         for cat in config.get("categories", []):
@@ -428,7 +448,6 @@ class CmdBarDBusService:
         :visibility: public
         """
         return self.trigger_engine.remove_trigger(trigger_id)
-
     def detect_workspace(self, cwd: str) -> tuple:
         path = find_workspace_config_path(cwd)
         has_ws = path is not None
@@ -459,7 +478,6 @@ class CmdBarDBusService:
 
     def get_workspace_templates(self) -> dict:
         return PROJECT_TEMPLATES
-
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
         if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
