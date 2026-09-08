@@ -6,6 +6,7 @@ import subprocess
 import hmac
 import hashlib
 import secrets
+from app.policy_engine import PolicyEngine
 
 
 def canonical_json(obj):
@@ -294,7 +295,82 @@ DEFAULT_CONFIG = {
         ],
         "rules": [],
         "overrides": [],
+        "mfa": {
+            "enabled": False,
+            "sensitive_commands": ["*deploy*", "*rm -rf*", "*sudo*", "*aws ecs*"],
+            "session_duration_sec": 300,
+        },
+        "dlp": {
+            "enabled": True,
+            "action": "redact",
+        },
+        "geo": {
+            "enabled": False,
+            "allowed_countries": [],
+            "blocked_countries": [],
+            "allowed_ip_ranges": [],
+            "blocked_ip_ranges": [],
+        },
+        "time": {
+            "enabled": False,
+            "allowed_days": ["Mon", "Tue", "Wed", "Thu", "Fri"],
+            "allowed_hours": {"start": "00:00", "end": "23:59"},
+        },
     },
+  "categories": [
+    {
+      "name": "System Utilities",
+      "commands": [
+        {
+          "name": "Ping Host",
+          "command": "ping -c 3 <host>",
+          "mode": "shell-quoted",
+          "parameters": {
+            "host": {
+              "regex": "^[a-zA-Z0-9.-]+$",
+              "error_message": "Invalid host format! Must contain only alphanumeric, dots, and dashes."
+            }
+          }
+        },
+        {
+          "name": "Direct Exec",
+          "command": "/usr/bin/echo \"Hello\" <arg>",
+          "mode": "direct-array",
+          "parameters": {
+            "arg": {
+              "regex": "^[a-zA-Z0-9_]+$",
+              "error_message": "Invalid argument format! Must be alphanumeric or underscore."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Git",
+      "commands": [
+        {
+          "name": "Git Status",
+          "command": "git status",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Pull",
+          "command": "git pull origin {git-branch}",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Push",
+          "command": "git push origin {git-branch}",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Commit",
+          "command": "git commit -m \"<commit-message>\"",
+          "mode": "shell-quoted"
+        }
+      ]
+    }
+  ],
     "iot": {
         "enabled": False,
         "mqtt": {
