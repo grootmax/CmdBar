@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import subprocess
+import time
 from companion.companion_app import load_config, save_config, run_command_in_shell
 from app.config_schema import validate_branding_config, get_effective_branding
 from companion.sso_manager import SSOManager, SSOProviderConfig
@@ -217,8 +218,6 @@ class CmdBarDBusService:
             if found_cmd
             else clean_name
         )
-
-        import time
 
         start_time = time.perf_counter()
         code, stdout, stderr = run_command_in_shell(cmd_str)
