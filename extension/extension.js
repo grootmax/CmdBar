@@ -1494,6 +1494,8 @@ const CmdBarIndicator = GObject.registerClass(
       if (!branding || !this._icon) return;
       this._effectiveBranding = branding;
 
+      if (!this._icon) return;
+
       // Custom icon / logo
       if (this._icon) {
         if (branding.enabled && branding.logo_path && branding.logo_path.trim()) {
@@ -1627,15 +1629,17 @@ const CmdBarIndicator = GObject.registerClass(
 
         // 1. Gather all favorite commands across all categories
         let favoriteCommands = [];
-        config.categories.forEach((category) => {
-          if (category.commands && Array.isArray(category.commands)) {
-            category.commands.forEach((cmd) => {
-              if (cmd && (cmd.favorite || cmd.pinned)) {
-                favoriteCommands.push(cmd);
-              }
-            });
-          }
-        });
+        if (config && config.categories && Array.isArray(config.categories)) {
+          config.categories.forEach((category) => {
+            if (category.commands && Array.isArray(category.commands)) {
+              category.commands.forEach((cmd) => {
+                if (cmd && (cmd.favorite || cmd.pinned)) {
+                  favoriteCommands.push(cmd);
+                }
+              });
+            }
+          });
+        }
 
         // 2. Add "Favorites" category section at top if any favorites exist
         if (favoriteCommands.length > 0) {
