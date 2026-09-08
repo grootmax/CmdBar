@@ -109,23 +109,27 @@ class SSOProviderConfig:
 
         # Format endpoints using preset template variables if present
         preset = self.PRESETS.get(self.type, {})
-        
+
         def _fmt(url):
             if not url or not isinstance(url, str):
                 return ""
             if "{tenant_id}" in url or "{domain}" in url:
-                return url.format(tenant_id=self.tenant_id or "common", domain=self.domain or "")
+                return url.format(
+                    tenant_id=self.tenant_id or "common", domain=self.domain or ""
+                )
             return url
 
         self.issuer = _fmt(self.raw_config.get("issuer") or preset.get("issuer", ""))
         self.authorization_endpoint = _fmt(
-            self.raw_config.get("authorization_endpoint") or preset.get("authorization_endpoint", "")
+            self.raw_config.get("authorization_endpoint")
+            or preset.get("authorization_endpoint", "")
         )
         self.token_endpoint = _fmt(
             self.raw_config.get("token_endpoint") or preset.get("token_endpoint", "")
         )
         self.userinfo_endpoint = _fmt(
-            self.raw_config.get("userinfo_endpoint") or preset.get("userinfo_endpoint", "")
+            self.raw_config.get("userinfo_endpoint")
+            or preset.get("userinfo_endpoint", "")
         )
         self.saml_sso_url = _fmt(
             self.raw_config.get("saml_sso_url") or preset.get("saml_sso_url", "")
@@ -133,11 +137,17 @@ class SSOProviderConfig:
         self.saml_entity_id = _fmt(
             self.raw_config.get("saml_entity_id") or preset.get("saml_entity_id", "")
         )
-        self.scope = self.raw_config.get("scope") or preset.get("scope", "openid profile email")
-        self.group_claim = self.raw_config.get("group_claim") or preset.get("group_claim", "groups")
+        self.scope = self.raw_config.get("scope") or preset.get(
+            "scope", "openid profile email"
+        )
+        self.group_claim = self.raw_config.get("group_claim") or preset.get(
+            "group_claim", "groups"
+        )
 
     @classmethod
-    def create_preset(cls, provider_id: str, custom_overrides: dict = None) -> "SSOProviderConfig":
+    def create_preset(
+        cls, provider_id: str, custom_overrides: dict = None
+    ) -> "SSOProviderConfig":
         """
         Creates an SSOProviderConfig initialized with default preset configurations.
         """
@@ -154,7 +164,11 @@ class SAMLHandler:
     :visibility: public
     """
 
-    def __init__(self, sp_entity_id: str = "https://cmdbar.gnome.org/saml/metadata", acs_url: str = "http://localhost:8080/saml/acs"):
+    def __init__(
+        self,
+        sp_entity_id: str = "https://cmdbar.gnome.org/saml/metadata",
+        acs_url: str = "http://localhost:8080/saml/acs",
+    ):
         self.sp_entity_id = sp_entity_id
         self.acs_url = acs_url
 
@@ -177,14 +191,14 @@ class SAMLHandler:
         """
         request_id = f"id_{uuid.uuid4().hex}"
         issue_instant = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        
+
         xml_request = f"""<samlp:AuthnRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="{request_id}" Version="2.0" IssueInstant="{issue_instant}" Destination="{destination}" AssertionConsumerServiceURL="{self.acs_url}" ProtocolBinding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST">
   <saml:Issuer>{self.sp_entity_id}</saml:Issuer>
   <samlp:NameIDPolicy Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress" AllowCreate="true"/>
 </samlp:AuthnRequest>"""
 
         saml_request_b64 = base64.b64encode(xml_request.encode("utf-8")).decode("utf-8")
-        
+
         params = {"SAMLRequest": saml_request_b64}
         if relay_state:
             params["RelayState"] = relay_state
@@ -199,14 +213,16 @@ class SAMLHandler:
             "xml": xml_request,
         }
 
-    def parse_saml_response(self, saml_response_b64: str, expected_audience: str = None) -> dict:
+    def parse_saml_response(
+        self, saml_response_b64: str, expected_audience: str = None
+    ) -> dict:
         """
         Parses and validates a base64 SAML 2.0 Response XML, extracting Subject NameID, Attributes, and Issuer.
         """
         try:
             raw_xml = base64.b64decode(saml_response_b64).decode("utf-8")
             root = ET.fromstring(raw_xml)
-            
+
             # Simple namespace stripping for robust parsing across IdPs
             for elem in root.iter():
                 if "}" in elem.tag:
@@ -217,15 +233,26 @@ class SAMLHandler:
             if status_code is not None:
                 value = status_code.attrib.get("Value", "")
                 if "Success" not in value:
-                    return {"success": False, "error": f"SAML response failed with status: {value}"}
+                    return {
+                        "success": False,
+                        "error": f"SAML response failed with status: {value}",
+                    }
 
             # Check Issuer
             issuer_elem = root.find(".//Issuer")
-            issuer = issuer_elem.text.strip() if issuer_elem is not None and issuer_elem.text else ""
+            issuer = (
+                issuer_elem.text.strip()
+                if issuer_elem is not None and issuer_elem.text
+                else ""
+            )
 
             # Check NameID / Subject
             name_id_elem = root.find(".//NameID")
-            name_id = name_id_elem.text.strip() if name_id_elem is not None and name_id_elem.text else ""
+            name_id = (
+                name_id_elem.text.strip()
+                if name_id_elem is not None and name_id_elem.text
+                else ""
+            )
 
             # Parse Attributes
             attributes = {}
@@ -233,15 +260,29 @@ class SAMLHandler:
                 name = attr.attrib.get("Name") or attr.attrib.get("FriendlyName")
                 if not name:
                     continue
-                vals = [v.text.strip() for v in attr.findall(".//AttributeValue") if v.text]
+                vals = [
+                    v.text.strip() for v in attr.findall(".//AttributeValue") if v.text
+                ]
                 if len(vals) == 1:
                     attributes[name] = vals[0]
                 else:
                     attributes[name] = vals
 
             # Normalize common email and group attributes
-            email = attributes.get("email") or attributes.get("mail") or attributes.get("User.email") or name_id
-            groups = attributes.get("groups") or attributes.get("http://schemas.microsoft.com/ws/2008/06/identity/claims/groups") or attributes.get("memberOf") or []
+            email = (
+                attributes.get("email")
+                or attributes.get("mail")
+                or attributes.get("User.email")
+                or name_id
+            )
+            groups = (
+                attributes.get("groups")
+                or attributes.get(
+                    "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups"
+                )
+                or attributes.get("memberOf")
+                or []
+            )
             if isinstance(groups, str):
                 groups = [g.strip() for g in groups.split(",") if g.strip()]
 
@@ -255,7 +296,10 @@ class SAMLHandler:
                 "raw_xml": raw_xml,
             }
         except Exception as e:
-            return {"success": False, "error": f"Failed to parse SAML response: {str(e)}"}
+            return {
+                "success": False,
+                "error": f"Failed to parse SAML response: {str(e)}",
+            }
 
     def generate_logout_request(self, name_id: str, destination: str) -> dict:
         """
@@ -281,7 +325,9 @@ class OIDCHandler:
     """
 
     @staticmethod
-    def generate_authorization_url(provider_config: SSOProviderConfig, state: str = None, nonce: str = None) -> dict:
+    def generate_authorization_url(
+        provider_config: SSOProviderConfig, state: str = None, nonce: str = None
+    ) -> dict:
         """
         Generates OIDC authorization URL with PKCE parameters.
         """
@@ -327,7 +373,9 @@ class OIDCHandler:
             return {}
 
     @classmethod
-    def verify_id_token_claims(cls, id_token: str, expected_client_id: str, expected_issuer: str = None) -> dict:
+    def verify_id_token_claims(
+        cls, id_token: str, expected_client_id: str, expected_issuer: str = None
+    ) -> dict:
         """
         Verifies ID token expiration, audience, and issuer claims.
         """
@@ -392,7 +440,10 @@ class JITProvisioner:
         )
 
         if not email:
-            return {"success": False, "error": "No valid email or user identity in SSO claims"}
+            return {
+                "success": False,
+                "error": "No valid email or user identity in SSO claims",
+            }
 
         if not self.is_domain_allowed(email):
             return {
@@ -409,7 +460,11 @@ class JITProvisioner:
 
         # Extract groups
         group_claim_key = self.sso_config.get("group_claim", "groups")
-        groups = claims_or_attributes.get(group_claim_key) or claims_or_attributes.get("groups") or []
+        groups = (
+            claims_or_attributes.get(group_claim_key)
+            or claims_or_attributes.get("groups")
+            or []
+        )
         if isinstance(groups, str):
             groups = [g.strip() for g in groups.split(",") if g.strip()]
 
@@ -669,7 +724,9 @@ class SSOManager:
 
         return {"success": True, "session": session, "user": user_profile}
 
-    def login_oidc_claims(self, provider_id: str, claims: dict, tokens: dict = None) -> dict:
+    def login_oidc_claims(
+        self, provider_id: str, claims: dict, tokens: dict = None
+    ) -> dict:
         """
         Executes OIDC login flow using verified claims, JIT provisioning, Group mapping, and session creation.
         """

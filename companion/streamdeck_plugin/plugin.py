@@ -21,13 +21,19 @@ def main():
     parser.add_argument("-pluginUUID", type=str, help="Stream Deck plugin UUID")
     parser.add_argument("-registerEvent", type=str, help="Register event name")
     parser.add_argument("-info", type=str, help="Stream Deck application info JSON")
-    
+
     args = parser.parse_args()
-    
+
     if args.port and args.pluginUUID:
-        asyncio.run(run_plugin(args.port, args.pluginUUID, args.registerEvent or "", args.info or ""))
+        asyncio.run(
+            run_plugin(
+                args.port, args.pluginUUID, args.registerEvent or "", args.info or ""
+            )
+        )
     else:
-        print("CmdBar Stream Deck Plugin expects -port and -pluginUUID parameters from Stream Deck application.")
+        print(
+            "CmdBar Stream Deck Plugin expects -port and -pluginUUID parameters from Stream Deck application."
+        )
 
 
 if __name__ == "__main__":

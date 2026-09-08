@@ -105,7 +105,9 @@ def test_team_repository_lifecycle():
 
 def test_config_version_control():
     base_config = {
-        "categories": [{"name": "CI", "commands": [{"name": "Test", "command": "pytest"}]}]
+        "categories": [
+            {"name": "CI", "commands": [{"name": "Test", "command": "pytest"}]}
+        ]
     }
 
     config = create_config_revision(base_config, author="alice", message="Rev 1")
@@ -129,13 +131,27 @@ def test_proposal_approval_workflow():
     cmd = {"name": "Flips Switch", "command": "echo switch"}
 
     # Create
-    prop_res = create_proposal(config, "ops", cmd, author="charlie", description="New switch", user_role="editor")
+    prop_res = create_proposal(
+        config,
+        "ops",
+        cmd,
+        author="charlie",
+        description="New switch",
+        user_role="editor",
+    )
     config = prop_res["config"]
     prop_id = prop_res["proposal"]["id"]
     assert prop_res["proposal"]["status"] == "pending"
 
     # Review approve
-    rev_res = review_proposal(config, prop_id, "approved", reviewer="diana", comment="LGTM", reviewer_role="approver")
+    rev_res = review_proposal(
+        config,
+        prop_id,
+        "approved",
+        reviewer="diana",
+        comment="LGTM",
+        reviewer_role="approver",
+    )
     config = rev_res["config"]
     assert rev_res["proposal"]["status"] == "approved"
 
@@ -148,8 +164,22 @@ def test_proposal_approval_workflow():
 def test_activity_feed():
     config = {"activityFeed": []}
 
-    log_activity(config, actor="Alice", actor_role="admin", action="TEST_ACT", target="Target1", repo_id="r1")
-    log_activity(config, actor="Bob", actor_role="viewer", action="TEST_ACT2", target="Target2", repo_id="r2")
+    log_activity(
+        config,
+        actor="Alice",
+        actor_role="admin",
+        action="TEST_ACT",
+        target="Target1",
+        repo_id="r1",
+    )
+    log_activity(
+        config,
+        actor="Bob",
+        actor_role="viewer",
+        action="TEST_ACT2",
+        target="Target2",
+        repo_id="r2",
+    )
 
     feed = get_activity_feed(config)
     assert feed["total"] == 2
