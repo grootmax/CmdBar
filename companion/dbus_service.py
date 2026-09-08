@@ -508,3 +508,50 @@ class CmdBarDBusService:
     def get_terminal_sharing_sessions(self) -> str:
         sessions_info = [s.get_metrics() for s in self.active_terminal_sessions.values()]
         return json.dumps(sessions_info)
+
+    def process_midi_event(self, bytes_data, device_id="dbus", midi_manager=None) -> str:
+        if midi_manager:
+            res = midi_manager.process_midi_event(bytes_data, device_id=device_id)
+            return json.dumps(res)
+        return json.dumps({"executed": False, "error": "MIDI Manager not provided"})
+
+    def set_midi_bank(self, bank: str, midi_manager=None) -> bool:
+        if midi_manager:
+            midi_manager.set_active_bank(bank)
+            return True
+        return False
+
+    def toggle_performance_mode(self, enabled: bool, midi_manager=None) -> bool:
+        if midi_manager:
+            midi_manager.set_performance_mode(enabled)
+            return midi_manager.is_performance_mode()
+        return False
+
+    def get_stream_deck_profiles(self) -> str:
+        """Returns JSON string containing available Stream Deck profiles and active profile."""
+        if self.stream_deck_manager:
+            summary = self.stream_deck_manager.get_status_summary()
+            return json.dumps({
+                "active_profile": summary["active_profile"],
+                "profiles": summary["available_profiles"]
+            })
+        return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Switches the active Stream Deck profile."""
+        if self.stream_deck_manager:
+            return self.stream_deck_manager.switch_profile(profile_name)
+        return False
+
+    def get_stream_deck_status(self) -> str:
+        """Returns diagnostic status JSON summary for Stream Deck integration."""
+        if self.stream_deck_manager:
+            return json.dumps(self.stream_deck_manager.get_status_summary())
+        return json.dumps({})
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Simulates key press on active Stream Deck grid."""
+        if self.stream_deck_manager:
+            res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
+            return res.get("status") in ("executed", "profile_switched")
+        return False

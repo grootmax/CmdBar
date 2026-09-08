@@ -137,7 +137,18 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetConfigHistory">
       <arg name="json_history" type="s" direction="out"/>
+    <method name="ProcessMidiEvent">
+      <arg name="bytes" type="ay" direction="in"/>
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
     </method>
+    <method name="SetMidiBank">
+      <arg name="bank" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="TogglePerformanceMode">
+      <arg name="enabled" type="b" direction="in"/>
+      <arg name="current_state" type="b" direction="out"/>    </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
       <arg name="exit_code" type="i"/>
@@ -607,6 +618,32 @@ export class CmdBarDBusService {
     }
   }
 
+  async ProcessMidiEvent(bytes, deviceId) {
+    try {
+      if (this._indicator && this._indicator._midiManager) {
+        const res = await this._indicator._midiManager.processMidiEvent(bytes, deviceId || 'dbus');
+        return JSON.stringify(res);
+      }
+      return JSON.stringify({ executed: false, error: 'MIDI Manager not initialized' });
+    } catch (e) {
+      console.error(`CmdBar D-Bus ProcessMidiEvent error: ${e.message}`);
+      return JSON.stringify({ executed: false, error: e.message });
+    }
+  }
+
+  async SetMidiBank(bank) {
+    try {
+      if (this._indicator && this._indicator._midiManager) {
+        this._indicator._midiManager.setActiveBank(bank);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error(`CmdBar D-Bus SetMidiBank error: ${e.message}`);
+      return false;
+    }
+  }
+
   async GetEffectiveAppName() {
     try {
       const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
@@ -786,6 +823,19 @@ export class CmdBarDBusService {
       const wsCfg = this.workspaceManager.switchWorkspace(cwd);
       return Boolean(wsCfg);
     } catch (e) {
+      return false;
+    }
+  }
+
+  async TogglePerformanceMode(enabled) {
+    try {
+      if (this._indicator && this._indicator._midiManager) {
+        this._indicator._midiManager.setPerformanceMode(enabled);
+        return this._indicator._midiManager.isPerformanceMode();
+      }
+      return false;
+    } catch (e) {
+      console.error(`CmdBar D-Bus TogglePerformanceMode error: ${e.message}`);
       return false;
     }
   }
