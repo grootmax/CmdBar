@@ -39,6 +39,13 @@ CmdBar supports isolated sandboxed execution on a per-command basis:
   - JavaScript wrapper (`extension/sandboxWrapper.js`) integrates into GJS execution paths (`runCommandAsync`, `_executeCommandAsync`, `executeCommand`).
   - Python wrapper (`app/sandbox_wrapper.py`) integrates into `app/config_schema.py` (`resolve_command_preview`) and `app/main.py` Libadwaita companion editor.
 
+### Quick Calculator & Eval Mode Engine
+
+The calculator engine (`extension/calculator.js` & `companion/calculator.py`) evaluates mathematical expressions, unit conversions, and currency conversions safely offline:
+- **Safe Recursive Descent Math Parser**: Parses arithmetic operators, precedence, parentheses, math functions (`sin`, `cos`, `sqrt`, `log`, `abs`, `floor`, `ceil`, `pow`, `min`, `max`, `factorial`), and constants (`pi`, `e`, `tau`, `phi`) without using `eval()` or `Function()`.
+- **Offline Unit & Currency Conversions**: Converts length, mass, volume, temperature, data storage, time, speed, and currency using static exchange tables without network access.
+- **UI & Right-Click Copy Integration**: Displays calculation results dynamically in `CalculatorResultMenuItem` with click and right-click to copy result to clipboard.
+
 ### Output Parser & Formatter Module
 
 The output parser module (`extension/outputFormatter.js`) automatically detects and formats command outputs:

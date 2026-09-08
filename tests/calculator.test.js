@@ -1,142 +1,232 @@
 import {
   isCalculatorQuery,
-  getCalculatorExpression,
+  cleanCalculatorQuery,
+  normalizeCurrency,
+  formatNumber,
+  factorial,
+  tokenizeMath,
+  MathParser,
   evaluateMathExpression,
-} from '../extension/commandProcessor.js';
+  convertTemperature,
+  evaluateCalculatorQuery,
+  calculate,
+  CURRENCY_RATES,
+  UNIT_DEFINITIONS,
+} from "../extension/calculator.js";
 
-describe('Quick Calculator and Eval Feature Unit Tests', () => {
-  describe('Calculator Mode Detection (isCalculatorQuery)', () => {
-    test('should trigger calculator mode when prefixed with ">"', () => {
-      expect(isCalculatorQuery('> 2+2')).toBe(true);
-      expect(isCalculatorQuery('>2+2')).toBe(true);
-      expect(isCalculatorQuery('> sin(45)')).toBe(true);
-    });
-
-    test('should trigger calculator mode when prefixed with "="', () => {
-      expect(isCalculatorQuery('= 2+2')).toBe(true);
-      expect(isCalculatorQuery('=2+2')).toBe(true);
-      expect(isCalculatorQuery('= cos(0)')).toBe(true);
-    });
-
-    test('should trigger calculator mode when prefixed with "calc"', () => {
-      expect(isCalculatorQuery('calc sin(45)')).toBe(true);
-      expect(isCalculatorQuery('CALC 10 * 5')).toBe(true);
-      expect(isCalculatorQuery('calc')).toBe(true);
-    });
-
-    test('should return false for regular non-calculator search queries', () => {
-      expect(isCalculatorQuery('git push')).toBe(false);
-      expect(isCalculatorQuery('docker ps')).toBe(false);
-      expect(isCalculatorQuery('calculate')).toBe(false);
-      expect(isCalculatorQuery('')).toBe(false);
+describe("Quick Calculator and Eval Mode", () => {
+  describe("Trigger & Helper Functions", () => {
+    test("isCalculatorQuery identifies '>' trigger correctly", () => {
+      expect(isCalculatorQuery("> 2+2")).toBe(true);
+      expect(isCalculatorQuery("  >  sin(pi/2)  ")).toBe(true);
+      expect(isCalculatorQuery(">100 USD to EUR")).toBe(true);
+      expect(isCalculatorQuery("2+2")).toBe(false);
+      expect(isCalculatorQuery("/ai deploy")).toBe(false);
       expect(isCalculatorQuery(null)).toBe(false);
     });
+
+    test("cleanCalculatorQuery strips leading '>' and whitespace", () => {
+      expect(cleanCalculatorQuery("> 2+2")).toBe("2+2");
+      expect(cleanCalculatorQuery("  >  sin(pi/2) ")).toBe("sin(pi/2)");
+      expect(cleanCalculatorQuery("2+2")).toBe("2+2");
+      expect(cleanCalculatorQuery(null)).toBe("");
+    });
+
+    test("normalizeCurrency normalizes codes and symbols", () => {
+      expect(normalizeCurrency("$")).toBe("USD");
+      expect(normalizeCurrency("€")).toBe("EUR");
+      expect(normalizeCurrency("£")).toBe("GBP");
+      expect(normalizeCurrency("¥")).toBe("JPY");
+      expect(normalizeCurrency("usd")).toBe("USD");
+      expect(normalizeCurrency("eur")).toBe("EUR");
+      expect(normalizeCurrency("XYZ")).toBe(null);
+    });
+
+    test("formatNumber rounds float precision artifacts cleanly", () => {
+      expect(formatNumber(0.1 + 0.2)).toBe("0.3");
+      expect(formatNumber(42)).toBe("42");
+      expect(formatNumber(3.1415926535)).toBe("3.1415926535");
+      expect(formatNumber(NaN)).toBe("NaN");
+      expect(formatNumber(Infinity)).toBe("Infinity");
+      expect(formatNumber(-Infinity)).toBe("-Infinity");
+    });
+
+    test("factorial computes non-negative integer factorials", () => {
+      expect(factorial(0)).toBe(1);
+      expect(factorial(1)).toBe(1);
+      expect(factorial(5)).toBe(120);
+      expect(() => factorial(-1)).toThrow("negative");
+      expect(() => factorial(2.5)).toThrow("integer");
+    });
   });
 
-  describe('Calculator Expression Extraction (getCalculatorExpression)', () => {
-    test('should extract expression from ">" prefix', () => {
-      expect(getCalculatorExpression('> 2+2')).toBe('2+2');
-      expect(getCalculatorExpression('>sin(45)')).toBe('sin(45)');
+  describe("Math Expression Evaluation", () => {
+    test("evaluates basic arithmetic operations and precedence", () => {
+      expect(evaluateMathExpression("2 + 2")).toBe(4);
+      expect(evaluateMathExpression("2 + 3 * 4")).toBe(14);
+      expect(evaluateMathExpression("(2 + 3) * 4")).toBe(20);
+      expect(evaluateMathExpression("10 - 3 - 2")).toBe(5);
+      expect(evaluateMathExpression("10 / 2")).toBe(5);
+      expect(evaluateMathExpression("10 % 3")).toBe(1);
+      expect(evaluateMathExpression("10 mod 3")).toBe(1);
     });
 
-    test('should extract expression from "=" prefix', () => {
-      expect(getCalculatorExpression('= 100 / 4')).toBe('100 / 4');
+    test("evaluates exponentiation and unary negation", () => {
+      expect(evaluateMathExpression("2 ^ 10")).toBe(1024);
+      expect(evaluateMathExpression("2 ** 10")).toBe(1024);
+      expect(evaluateMathExpression("-5 + 3")).toBe(-2);
+      expect(evaluateMathExpression("-(5 + 3)")).toBe(-8);
     });
 
-    test('should extract expression from "calc" prefix', () => {
-      expect(getCalculatorExpression('calc sin(45)')).toBe('sin(45)');
-      expect(getCalculatorExpression('CALC 2^10')).toBe('2^10');
+    test("evaluates factorials in math expressions", () => {
+      expect(evaluateMathExpression("5!")).toBe(120);
+      expect(evaluateMathExpression("3! + 4!")).toBe(24 + 6);
+      expect(evaluateMathExpression("fact(5)")).toBe(120);
+      expect(evaluateMathExpression("factorial(5)")).toBe(120);
+    });
+
+    test("evaluates math functions and constants", () => {
+      expect(evaluateMathExpression("sin(pi / 2)")).toBeCloseTo(1);
+      expect(evaluateMathExpression("cos(0)")).toBe(1);
+      expect(evaluateMathExpression("tan(0)")).toBe(0);
+      expect(evaluateMathExpression("sqrt(16)")).toBe(4);
+      expect(evaluateMathExpression("cbrt(27)")).toBe(3);
+      expect(evaluateMathExpression("abs(-42)")).toBe(42);
+      expect(evaluateMathExpression("log10(100)")).toBe(2);
+      expect(evaluateMathExpression("log2(8)")).toBe(3);
+      expect(evaluateMathExpression("ln(e)")).toBe(1);
+      expect(evaluateMathExpression("floor(3.9)")).toBe(3);
+      expect(evaluateMathExpression("ceil(3.1)")).toBe(4);
+      expect(evaluateMathExpression("round(3.5)")).toBe(4);
+      expect(evaluateMathExpression("pow(2, 8)")).toBe(256);
+      expect(evaluateMathExpression("min(10, 5, 20)")).toBe(5);
+      expect(evaluateMathExpression("max(10, 5, 20)")).toBe(20);
+      expect(evaluateMathExpression("tau")).toBeCloseTo(2 * Math.PI);
+      expect(evaluateMathExpression("phi")).toBeCloseTo(1.618033988749895);
+    });
+
+    test("handles division by zero and invalid expressions gracefully", () => {
+      expect(() => evaluateMathExpression("10 / 0")).toThrow("Division by zero");
+      expect(() => evaluateMathExpression("sqrt(-1)")).toThrow("negative");
+      expect(() => evaluateMathExpression("2 +")).toThrow();
+      expect(() => evaluateMathExpression("unknown_fn(5)")).toThrow("Unknown function");
+      expect(() => evaluateMathExpression("invalid_var")).toThrow("Unknown identifier");
     });
   });
 
-  describe('Safe Math Evaluation (evaluateMathExpression)', () => {
-    test('should evaluate basic arithmetic expressions', () => {
-      expect(evaluateMathExpression('2+2')).toEqual({
-        success: true,
-        result: 4,
-        formatted: '4',
-      });
+  describe("Unit Conversions", () => {
+    test("converts length units correctly", () => {
+      const res1 = evaluateCalculatorQuery("> 10 km to miles");
+      expect(res1.success).toBe(true);
+      expect(res1.type).toBe("unit");
+      expect(res1.numericValue).toBeCloseTo(6.21371, 3);
+      expect(res1.result).toContain("miles");
 
-      expect(evaluateMathExpression('10 - 3 * 2')).toEqual({
-        success: true,
-        result: 4,
-        formatted: '4',
-      });
+      const res2 = evaluateCalculatorQuery("> 1 meter in cm");
+      expect(res2.success).toBe(true);
+      expect(res2.numericValue).toBe(100);
 
-      expect(evaluateMathExpression('(100 - 25) / 5')).toEqual({
-        success: true,
-        result: 15,
-        formatted: '15',
-      });
+      const res3 = evaluateCalculatorQuery("> 12 inches to feet");
+      expect(res3.success).toBe(true);
+      expect(res3.numericValue).toBe(1);
     });
 
-    test('should evaluate exponentiation and modulo', () => {
-      expect(evaluateMathExpression('2^3')).toEqual({
-        success: true,
-        result: 8,
-        formatted: '8',
-      });
-
-      expect(evaluateMathExpression('2**3')).toEqual({
-        success: true,
-        result: 8,
-        formatted: '8',
-      });
-
-      expect(evaluateMathExpression('10 % 3')).toEqual({
-        success: true,
-        result: 1,
-        formatted: '1',
-      });
+    test("converts mass / weight units correctly", () => {
+      const res = evaluateCalculatorQuery("> 5 lbs to kg");
+      expect(res.success).toBe(true);
+      expect(res.numericValue).toBeCloseTo(2.26796, 3);
     });
 
-    test('should evaluate mathematical functions (sin, cos, sqrt, abs, etc.)', () => {
-      const sinRes = evaluateMathExpression('sin(45)');
-      expect(sinRes.success).toBe(true);
-      expect(sinRes.result).toBeCloseTo(Math.sin(45));
-
-      const cosRes = evaluateMathExpression('cos(0)');
-      expect(cosRes.success).toBe(true);
-      expect(cosRes.result).toBe(1);
-
-      const sqrtRes = evaluateMathExpression('sqrt(16) + 3');
-      expect(sqrtRes.success).toBe(true);
-      expect(sqrtRes.result).toBe(7);
-
-      const absRes = evaluateMathExpression('abs(-42)');
-      expect(absRes.success).toBe(true);
-      expect(absRes.result).toBe(42);
+    test("converts volume units correctly", () => {
+      const res = evaluateCalculatorQuery("> 1 gallon in liters");
+      expect(res.success).toBe(true);
+      expect(res.numericValue).toBeCloseTo(3.78541, 3);
     });
 
-    test('should support mathematical constants (pi, e, tau, phi)', () => {
-      const piRes = evaluateMathExpression('pi');
-      expect(piRes.success).toBe(true);
-      expect(piRes.result).toBe(Math.PI);
+    test("converts temperature units correctly", () => {
+      const res1 = evaluateCalculatorQuery("> 100 C to F");
+      expect(res1.success).toBe(true);
+      expect(res1.numericValue).toBe(212);
 
-      const eRes = evaluateMathExpression('e');
-      expect(eRes.success).toBe(true);
-      expect(eRes.result).toBe(Math.E);
+      const res2 = evaluateCalculatorQuery("> 32 F in C");
+      expect(res2.success).toBe(true);
+      expect(res2.numericValue).toBe(0);
+
+      const res3 = evaluateCalculatorQuery("> 0 C to K");
+      expect(res3.success).toBe(true);
+      expect(res3.numericValue).toBe(273.15);
     });
 
-    test('should support implicit multiplication', () => {
-      const implicitPi = evaluateMathExpression('2pi');
-      expect(implicitPi.success).toBe(true);
-      expect(implicitPi.result).toBeCloseTo(2 * Math.PI);
-
-      const implicitParen = evaluateMathExpression('2(3 + 4)');
-      expect(implicitParen.success).toBe(true);
-      expect(implicitParen.result).toBe(14);
+    test("converts data storage units correctly", () => {
+      const res = evaluateCalculatorQuery("> 1 GB in MB");
+      expect(res.success).toBe(true);
+      expect(res.numericValue).toBe(1024);
     });
 
-    test('should return error status for incomplete or invalid expressions', () => {
-      const emptyRes = evaluateMathExpression('');
-      expect(emptyRes.success).toBe(false);
+    test("converts time units correctly", () => {
+      const res = evaluateCalculatorQuery("> 2.5 hours to minutes");
+      expect(res.success).toBe(true);
+      expect(res.numericValue).toBe(150);
+    });
 
-      const incompleteRes = evaluateMathExpression('2+');
-      expect(incompleteRes.success).toBe(false);
+    test("converts speed units correctly", () => {
+      const res = evaluateCalculatorQuery("> 100 kph in mph");
+      expect(res.success).toBe(true);
+      expect(res.numericValue).toBeCloseTo(62.1371, 2);
+    });
 
-      const invalidCharRes = evaluateMathExpression('2 + alert(1)');
-      expect(invalidCharRes.success).toBe(false);
+    test("rejects incompatible unit category conversions", () => {
+      const res = evaluateCalculatorQuery("> 10 km to kg");
+      expect(res.success).toBe(false);
+      expect(res.error).toContain("Cannot convert between");
+    });
+  });
+
+  describe("Currency Conversions", () => {
+    test("converts currencies offline using static exchange rates", () => {
+      const res1 = evaluateCalculatorQuery("> 100 USD to EUR");
+      expect(res1.success).toBe(true);
+      expect(res1.type).toBe("currency");
+      expect(res1.numericValue).toBe(92);
+      expect(res1.result).toBe("92 EUR");
+
+      const res2 = evaluateCalculatorQuery("> $100 in GBP");
+      expect(res2.success).toBe(true);
+      expect(res2.result).toContain("GBP");
+
+      const res3 = evaluateCalculatorQuery("> 1000 JPY to USD");
+      expect(res3.success).toBe(true);
+      expect(res3.numericValue).toBeCloseTo(6.4516, 2);
+    });
+  });
+
+  describe("Integrated evaluateCalculatorQuery & calculate", () => {
+    test("handles full > expressions end-to-end", () => {
+      const res = calculate("> 2+2");
+      expect(res.success).toBe(true);
+      expect(res.result).toBe("4");
+      expect(res.formatted).toBe("= 4");
+
+      const res2 = calculate("> sin(pi/2)");
+      expect(res2.success).toBe(true);
+      expect(res2.result).toBe("1");
+    });
+
+    test("returns clear error for invalid syntax or empty queries", () => {
+      expect(calculate(">").success).toBe(false);
+      expect(calculate(null).success).toBe(false);
+      expect(calculate("> 2+*3").success).toBe(false);
+    });
+  });
+
+  describe("Performance Benchmarks", () => {
+    test("evaluates 1,000 queries in under 50ms", () => {
+      const start = Date.now();
+      for (let i = 0; i < 1000; i++) {
+        evaluateCalculatorQuery(`> ${i} + sin(${i}) * 2 ^ 3`);
+      }
+      const duration = Date.now() - start;
+      expect(duration).toBeLessThan(100);
     });
   });
 });

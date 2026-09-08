@@ -20,6 +20,7 @@ Welcome to CmdBar! CmdBar is a modern GNOME Shell extension and companion app th
 - **Command Result Caching**: Cache output of read-only commands (e.g., `git status`, `df -h`) with configurable TTL and manual refresh button in menu items.
 - **Workspace-Specific Configs**: Auto-detects project configurations (`.cmdbar.json`) from current working directory or Git repository root. Supports project templates (`node`, `python`, `rust`, `go`, `generic`) and smooth switching.
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
+- **Quick Calculator & Eval Mode**: Type `>` (e.g., `> 2+2`, `> sin(pi/2)`, `> 10 km to miles`, `> 100 USD to EUR`) in search to instantly calculate. Support math functions, unit conversions, and offline currency conversions. Click or right-click to copy results.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
 - **Command Audit Logging**: Log command executions to `~/.local/share/cmdbar/audit.log` with ISO timestamp, user, exit code, and execution duration. Includes Privacy Mode to automatically exclude sensitive commands and parameters, daily log rotation, and an in-app Audit Log Viewer.
 - **YubiKey 2FA Authentication**: Hardware-backed touch to confirm, Yubico OTP, FIDO2/U2F assertion, and emergency access codes for sensitive commands.
