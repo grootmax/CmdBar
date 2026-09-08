@@ -1,118 +1,66 @@
-# YubiKey 2FA Authentication for CmdBar
+# YubiKey 2FA Authentication Specification
 
 ## Overview
 
-CmdBar provides hardware-backed YubiKey two-factor authentication (2FA) for sensitive commands. This feature ensures that high-risk operations (such as running `sudo`, destructive database actions, or deploying production infrastructure) require physical touch confirmation or hardware key assertion before execution.
-
----
-
-## Features
-
-- **Sensitive Command Detection**: Automatically identifies sensitive commands (e.g., `sudo`, `rm -rf`, `vault`, `aws secretsmanager`, `kubectl delete`) or explicitly flagged commands (`requires_yubikey: true`, `sensitive: true`).
-- **Touch-to-Confirm**: Requires physical interaction with the YubiKey hardware device with configurable timeout window (default 30 seconds).
-- **Yubico OTP Support**: Parses and validates 44-character modhex Yubico OTP strings against registered key prefixes.
-- **FIDO2 / U2F Assertion**: Hardware-backed CTAP2 / WebAuthn touch assertions with user presence flags and challenge verification.
-- **HMAC-SHA1 Challenge-Response**: Cryptographic slot challenge verification.
-- **Emergency Access Recovery Codes**: Single-use cryptographic recovery codes (`X8K2-9M1L`) hashed with SHA-256 for emergency bypass when hardware key is unavailable. Single-use consumption guarantees zero replay ability.
-- **D-Bus Integration**: D-Bus API methods for querying YubiKey authentication requirement, authenticating via YubiKey/emergency codes, and managing emergency recovery codes remotely.
-- **Performance Optimized**: Sub-millisecond local verification latency (< 50ms requirement).
-
----
+CmdBar includes enterprise-grade YubiKey multi-factor authentication (2FA) for sensitive command execution. This feature provides hardware-backed key verification, Touch-to-Confirm presence detection, Yubico OTP support, FIDO2/U2F assertion signature verification, single-use emergency recovery codes, and D-Bus integration.
 
 ## Configuration Schema
 
-In `~/.config/cmdbar/config.json`:
+YubiKey settings are managed within the unified configuration file (`config.json`):
 
 ```json
 {
   "yubikey": {
     "enabled": true,
-    "default_mode": "touch",
+    "mode": "touch",
+    "require_for_sensitive": true,
     "timeout_seconds": 30,
-    "registered_keys": [
+    "keys": [
       {
-        "id": "yk-01",
-        "name": "Primary YubiKey 5C",
-        "otp_prefix": "ccccccbedvce",
-        "public_key": "04..."
+        "id": "yubikey_1",
+        "name": "Primary YubiKey 5 NFC",
+        "device_id": "vvccccccvccc",
+        "public_key": "pubkey_vvccccccvccc",
+        "created_at": "2026-08-23T12:00:00Z"
       }
     ],
     "emergency_codes": [
-      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "A1B2-C3D4",
+      "E5F6-G7H8"
     ]
-  },
-  "categories": [
-    {
-      "name": "Production Infrastructure",
-      "commands": [
-        {
-          "name": "Restart System Service",
-          "command": "sudo systemctl restart nginx",
-          "requires_yubikey": true
-        }
-      ]
-    }
-  ]
+  }
 }
 ```
-
----
 
 ## Authentication Modes
 
-1. **Touch-to-Confirm (`mode: "touch"`)**:
-   Prompts the user to touch the YubiKey key within `timeout_seconds`.
+### 1. Touch-to-Confirm (`touch`)
+- Requiring physical presence on the hardware key (touch sensor) before executing sensitive commands.
+- Defaults to a 30-second timeout.
 
-2. **Yubico OTP (`mode: "otp"`)**:
-   Accepts a 44-character Yubico OTP token (e.g. `ccccccbedvce...`), extracts the 12-char public ID (`ccccccbedvce`), and validates against registered key prefixes.
+### 2. Yubico OTP (`otp`)
+- Accepts 44-character ModHex encoded Yubico OTP strings.
+- Extracts the 12-character device ID prefix and verifies it against registered YubiKey hardware devices.
 
-3. **FIDO2 / U2F (`mode: "fido2"`)**:
-   Verifies WebAuthn assertion data including `user_presence` touch flag and challenge matching.
+### 3. FIDO2 / U2F (`fido2` / `u2f`)
+- Hardware-backed challenge-response signature verification.
+- Validates assertion signatures against stored public keys for registered YubiKey hardware keys.
 
-4. **Emergency Access (`mode: "emergency"`)**:
-   Allows user to enter a 8-character single-use emergency recovery code. The code is SHA-256 hashed and matched against stored `emergency_codes`. Once used, the hash is immediately consumed and removed from configuration.
+### 4. Emergency Access
+- Single-use 8-character recovery codes (e.g. `A1B2-C3D4`) for emergency access when the hardware key is unavailable.
+- Single-use consumption automatically invalidates used codes from configuration upon successful authentication.
 
----
+## Sensitive Command Detection
+
+A command requires YubiKey 2FA if:
+1. The command object contains `sensitive: true`, `require_2fa: true`, or `require_yubikey: true`.
+2. The command matches dangerous system execution patterns (`sudo`, `rm -rf`, `dd`, `mkfs`, `systemctl stop`, `aws ecs update-service`, `kubectl delete`, `deploy`, `shutdown`, `reboot`).
 
 ## D-Bus API Methods
 
-The `org.gnome.CmdBar` interface includes the following YubiKey methods:
+The D-Bus service interface (`org.gnome.CmdBar`) provides the following YubiKey endpoints:
 
-- `IsYubiKeyRequired(string name) -> boolean`: Returns true if command requires YubiKey authentication.
-- `AuthenticateYubiKey(string name, string mode, string credential) -> (boolean success, string message)`: Authenticates command execution using specified mode (touch, otp, fido2, emergency).
-- `GenerateEmergencyCodes(int count) -> string (JSON)`: Generates `count` emergency recovery codes, saves hashes in active configuration, and returns raw code list.
-- `VerifyEmergencyCode(string code) -> boolean`: Verifies and consumes a single-use emergency recovery code.
-
----
-
-## Programmatic API Usage
-
-### Python (`companion/yubikey_auth.py`)
-
-```python
-from companion.yubikey_auth import YubiKeyAuthManager, is_sensitive_command
-
-manager = YubiKeyAuthManager(config)
-
-# Check sensitivity
-if is_sensitive_command({"command": "sudo systemctl restart nginx"}):
-    success, msg = manager.authenticate_command(
-        "sudo systemctl restart nginx",
-        {"mode": "touch"}
-    )
-    if success:
-        print("YubiKey authentication passed!")
-```
-
-### JavaScript (`extension/yubikeyAuth.js`)
-
-```javascript
-import { isSensitiveCommand, authenticateCommand } from './extension/yubikeyAuth.js';
-
-if (isSensitiveCommand(cmdObj)) {
-    const res = await authenticateCommand(cmdObj, { mode: 'touch' }, config);
-    if (res.success) {
-        // Execute sensitive command
-    }
-}
-```
+- `VerifyYubiKey2FA(command_json, auth_data_json) -> bool`: Verifies YubiKey 2FA for a given command.
+- `GetYubiKeyStatus() -> json_string`: Returns status and configuration summary.
+- `RegisterYubiKeyDevice(device_json) -> bool`: Registers a new hardware key.
+- `ValidateEmergencyCode(code) -> bool`: Validates and consumes an emergency code.

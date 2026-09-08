@@ -138,6 +138,34 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="GetConfigHistory">
       <arg name="json_history" type="s" direction="out"/>
     </method>
+    <method name="VerifyYubiKey2FA">
+      <arg name="command_json" type="s" direction="in"/>
+      <arg name="auth_data_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetYubiKeyStatus">
+      <arg name="status_json" type="s" direction="out"/>
+    </method>
+    <method name="RegisterYubiKeyDevice">
+      <arg name="device_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="ValidateEmergencyCode">
+      <arg name="code" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="StartTerminalSharing">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="title" type="s" direction="in"/>
+      <arg name="json_session_info" type="s" direction="out"/>
+    </method>
+    <method name="StopTerminalSharing">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetTerminalSharingSessions">
+      <arg name="json_sessions" type="s" direction="out"/>
+    </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
       <arg name="exit_code" type="i"/>
@@ -399,6 +427,7 @@ export class CmdBarDBusService {
                 category: cat.name,
                 placeholder: c.placeholder || "",
                 parameters: c.parameters || {},
+                sensitive: Boolean(c.sensitive || c.require_2fa || c.require_yubikey),
               });
             });
           }
@@ -880,6 +909,99 @@ export class CmdBarDBusService {
   async GetTerminalSharingSessions() {
     const sessionsInfo = Array.from(this._terminalSessions.values()).map((s) => s.getMetrics());
     return JSON.stringify(sessionsInfo);
+  }
+
+  async VerifyYubiKey2FA(commandJson, authDataJson) {
+    try {
+      const { YubiKeyAuthManager } = await import("./yubikeyAuth.js");
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const manager = new YubiKeyAuthManager(config);
+
+      let cmdObj = {};
+      try { cmdObj = JSON.parse(commandJson); } catch (e) { cmdObj = { command: commandJson }; }
+
+      let authData = {};
+      try { authData = JSON.parse(authDataJson); } catch (e) { authData = {}; }
+
+      const res = await manager.authenticateCommand(cmdObj, authData);
+      if (res.success && res.remainingEmergencyCodes) {
+        config.yubikey = config.yubikey || {};
+        config.yubikey.emergency_codes = res.remainingEmergencyCodes;
+        await saveConfig(config, configPath);
+      }
+      return res.success;
+    } catch (e) {
+      console.error(`CmdBar D-Bus VerifyYubiKey2FA error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async GetYubiKeyStatus() {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const yubikeyCfg = config.yubikey || { enabled: false, mode: "touch", keys: [], emergency_codes: [] };
+      return JSON.stringify({
+        enabled: Boolean(yubikeyCfg.enabled),
+        mode: yubikeyCfg.mode || "touch",
+        key_count: Array.isArray(yubikeyCfg.keys) ? yubikeyCfg.keys.length : 0,
+        emergency_code_count: Array.isArray(yubikeyCfg.emergency_codes) ? yubikeyCfg.emergency_codes.length : 0,
+        require_for_sensitive: yubikeyCfg.require_for_sensitive !== false,
+      });
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetYubiKeyStatus error: ${e.message}`);
+      return JSON.stringify({ enabled: false, mode: "touch", key_count: 0, emergency_code_count: 0 });
+    }
+  }
+
+  async RegisterYubiKeyDevice(deviceJson) {
+    try {
+      const { registerDevice } = await import("./yubikeyAuth.js");
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      config.yubikey = config.yubikey || {};
+
+      let devInfo = {};
+      try { devInfo = JSON.parse(deviceJson); } catch (e) { return false; }
+
+      const res = registerDevice(devInfo, config.yubikey.keys || []);
+      if (res.success) {
+        config.yubikey.keys = res.keys;
+        await saveConfig(config, configPath);
+      }
+      return res.success;
+    } catch (e) {
+      console.error(`CmdBar D-Bus RegisterYubiKeyDevice error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async ValidateEmergencyCode(code) {
+    try {
+      const { verifyEmergencyCode } = await import("./yubikeyAuth.js");
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      config.yubikey = config.yubikey || {};
+
+      const res = await verifyEmergencyCode(code, config.yubikey.emergency_codes || []);
+      if (res.success) {
+        config.yubikey.emergency_codes = res.remainingCodes;
+        await saveConfig(config, configPath);
+      }
+      return res.success;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ValidateEmergencyCode error: ${e.message}`);
+      return false;
+    }
   }
 
   /**

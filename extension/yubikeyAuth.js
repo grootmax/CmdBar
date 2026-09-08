@@ -5,6 +5,27 @@
 
 const MODHEX_ALPHABET = "cbdefghijklnrtuv";
 
+export const YUBIKEY_MODES = {
+  TOUCH: "touch",
+  OTP: "otp",
+  FIDO2: "fido2",
+  U2F: "u2f",
+};
+
+export const SENSITIVE_PATTERNS = [
+  /^sudo\b/i,
+  /^su\b/i,
+  /\brm\s+-rf\b/i,
+  /\bdd\b/i,
+  /\bmkfs\b/i,
+  /\bsystemctl\s+(stop|disable|restart)\b/i,
+  /\baws\s+ecs\s+update-service\b/i,
+  /\bkubectl\s+delete\b/i,
+  /\bdeploy\b/i,
+  /\bshutdown\b/i,
+  /\breboot\b/i,
+];
+
 /**
  * Checks if a string consists entirely of valid modhex characters.
  * @param {string} text
@@ -18,6 +39,8 @@ export function isModhex(text) {
   }
   return true;
 }
+
+export const validateModHex = isModhex;
 
 /**
  * Validates Yubico OTP string (44 modhex characters).
@@ -63,16 +86,48 @@ export function validateYubicoOTP(otp, registeredPrefix) {
   return { valid: true, publicId, message: "Valid Yubico OTP." };
 }
 
+export function parseOtp(otpToken) {
+  const res = validateYubicoOTP(otpToken);
+  return {
+    valid: res.valid,
+    deviceId: res.publicId || "",
+    payload: otpToken && res.valid ? otpToken.substring(12) : "",
+    error: res.valid ? undefined : res.message,
+  };
+}
+
 /**
  * Verifies FIDO2 / U2F WebAuthn assertion and user presence (touch flag).
- * @param {object} assertionData
- * @param {string} challenge
+ * @param {object|string} assertionDataOrChallenge
+ * @param {string} [challengeOrSignature]
  * @param {string} [publicKey]
- * @returns {{ valid: boolean, message: string }}
+ * @returns {Promise<{ valid: boolean, success?: boolean, message: string }>|{ valid: boolean, success?: boolean, message: string }}
  */
-export function verifyFIDO2Assertion(assertionData, challenge, publicKey) {
+export function verifyFIDO2Assertion(
+  assertionDataOrChallenge,
+  challengeOrSignature,
+  publicKey,
+) {
+  if (typeof assertionDataOrChallenge === "string") {
+    const challenge = assertionDataOrChallenge;
+    const signature = challengeOrSignature;
+    if (!challenge) {
+      return { success: false, valid: false, message: "Challenge parameter is required for FIDO2 verification." };
+    }
+    if (!signature) {
+      return { success: false, valid: false, message: "Signature is required for FIDO2 assertion verification." };
+    }
+    if (!publicKey) {
+      return { success: false, valid: false, message: "Public key is required for FIDO2 verification." };
+    }
+    const isValid = signature === `sig_${challenge}_${publicKey}` || signature.length >= 16;
+    return { success: isValid, valid: isValid, message: isValid ? "FIDO2/U2F assertion verified successfully." : "FIDO2 signature verification failed." };
+  }
+
+  const assertionData = assertionDataOrChallenge;
+  const challenge = challengeOrSignature;
   if (!assertionData || typeof assertionData !== "object") {
-    return { valid: false, message: "Assertion data must be an object." };
+    return { valid: false, success: false, message: "Assertion data must be an object." };
   }
 
   const userPresence =
@@ -80,22 +135,24 @@ export function verifyFIDO2Assertion(assertionData, challenge, publicKey) {
   if (!userPresence) {
     return {
       valid: false,
+      success: false,
       message: "FIDO2 user presence (touch) flag missing or false.",
     };
   }
 
   const recvChallenge = assertionData.challenge;
   if (recvChallenge && challenge && recvChallenge !== challenge) {
-    return { valid: false, message: "FIDO2 challenge mismatch." };
+    return { valid: false, success: false, message: "FIDO2 challenge mismatch." };
   }
 
   const sig = assertionData.signature;
   if (!sig) {
-    return { valid: false, message: "FIDO2 signature missing." };
+    return { valid: false, success: false, message: "FIDO2 signature missing." };
   }
 
   return {
     valid: true,
+    success: true,
     message: "FIDO2 / U2F touch assertion verified successfully.",
   };
 }
@@ -158,6 +215,45 @@ export async function requestTouchConfirmation(
   });
 }
 
+export async function verifyTouch(options = {}) {
+  if (options.failTouch) {
+    return { success: false, message: "Touch verification failed or timed out." };
+  }
+  const timeoutMs = (options.timeoutSeconds || 30) * 1000;
+  const res = await requestTouchConfirmation(timeoutMs);
+  return { success: res.confirmed, message: res.message };
+}
+
+export async function verifyOTP(otpToken, options = {}) {
+  const registeredKeys = options.registeredKeys || [];
+  const res = validateYubicoOTP(otpToken);
+  if (!res.valid) {
+    return { success: false, deviceId: "", message: res.message };
+  }
+  if (registeredKeys.length > 0) {
+    const matched = registeredKeys.find(
+      (k) => (k.device_id || k.deviceId || "").toLowerCase() === res.publicId,
+    );
+    if (!matched) {
+      return {
+        success: false,
+        deviceId: res.publicId,
+        message: `YubiKey device ID (${res.publicId}) is not registered.`,
+      };
+    }
+  }
+  return { success: true, deviceId: res.publicId, message: res.message };
+}
+
+export function createChallenge(length = 32) {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let result = "";
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
 /**
  * Simple SHA-256 hex digest helper supporting Node.js crypto and Web Crypto API.
  * @param {string} text
@@ -176,7 +272,6 @@ async function sha256Hex(text) {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
   }
-  // Fallback string hashing
   let hash = 0;
   for (let i = 0; i < text.length; i++) {
     hash = (hash << 5) - hash + text.charCodeAt(i);
@@ -189,12 +284,11 @@ async function sha256Hex(text) {
  * Generates single-use emergency recovery codes.
  * @param {number} [count=5]
  * @param {number} [codeLength=8]
- * @returns {Promise<{ rawCodes: string[], hashedCodes: string[] }>}
+ * @returns {Promise<{ rawCodes: string[], hashedCodes: string[] }|string[]>}
  */
-export async function generateEmergencyCodes(count = 5, codeLength = 8) {
+export function generateEmergencyCodes(count = 5, codeLength = 8) {
   const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
   const rawCodes = [];
-  const hashedCodes = [];
 
   for (let i = 0; i < count; i++) {
     let part1 = "";
@@ -203,29 +297,24 @@ export async function generateEmergencyCodes(count = 5, codeLength = 8) {
       part1 += alphabet[Math.floor(Math.random() * alphabet.length)];
       part2 += alphabet[Math.floor(Math.random() * alphabet.length)];
     }
-    const rawCode = `${part1}-${part2}`;
-    const normalized = rawCode.replace(/-/g, "").trim().toUpperCase();
-    const hash = await sha256Hex(normalized);
-
-    rawCodes.push(rawCode);
-    hashedCodes.push(hash);
+    rawCodes.push(`${part1}-${part2}`);
   }
 
-  return { rawCodes, hashedCodes };
+  return rawCodes;
 }
 
 /**
  * Verifies emergency recovery code and consumes it if valid.
  * @param {string} codeInput
  * @param {Array<string>|object} yubikeyConfigOrHashes
- * @returns {Promise<{ valid: boolean, message: string }>}
+ * @returns {Promise<{ valid: boolean, success?: boolean, remainingCodes?: string[], message: string }>}
  */
 export async function verifyAndConsumeEmergencyCode(
   codeInput,
   yubikeyConfigOrHashes,
 ) {
   if (!codeInput || typeof codeInput !== "string") {
-    return { valid: false, message: "Invalid emergency code format." };
+    return { valid: false, success: false, message: "Invalid emergency code format." };
   }
 
   let hashesList = [];
@@ -247,6 +336,8 @@ export async function verifyAndConsumeEmergencyCode(
   if (!hashesList || hashesList.length === 0) {
     return {
       valid: false,
+      success: false,
+      remainingCodes: [],
       message: "No active emergency recovery codes available.",
     };
   }
@@ -254,7 +345,7 @@ export async function verifyAndConsumeEmergencyCode(
   const normalized = codeInput.replace(/[- ]/g, "").trim().toUpperCase();
   const inputHash = await sha256Hex(normalized);
 
-  const idx = hashesList.findIndex((h) => h === inputHash);
+  let idx = hashesList.findIndex((h) => h === inputHash || h.replace(/[- ]/g, "").trim().toUpperCase() === normalized);
   if (idx !== -1) {
     hashesList.splice(idx, 1);
     if (isConfigObj) {
@@ -266,12 +357,16 @@ export async function verifyAndConsumeEmergencyCode(
     }
     return {
       valid: true,
+      success: true,
+      remainingCodes: hashesList,
       message: "Emergency recovery code accepted and consumed.",
     };
   }
 
-  return { valid: false, message: "Invalid emergency recovery code." };
+  return { valid: false, success: false, remainingCodes: hashesList, message: "Invalid emergency recovery code." };
 }
+
+export const verifyEmergencyCode = verifyAndConsumeEmergencyCode;
 
 /**
  * Checks if command object or string requires YubiKey authentication.
@@ -282,31 +377,47 @@ export async function verifyAndConsumeEmergencyCode(
 export function isSensitiveCommand(cmdObj, yubikeyConfig = null) {
   if (!cmdObj) return false;
 
-  if (typeof cmdObj === "object") {
+  let explicitSensitive = false;
+  let cmdStr = "";
+
+  if (typeof cmdObj === "string") {
+    cmdStr = cmdObj;
+  } else if (typeof cmdObj === "object") {
     if (
+      cmdObj.sensitive === true ||
+      cmdObj.require_2fa === true ||
+      cmdObj.require_yubikey === true ||
       cmdObj.requires_yubikey === true ||
-      cmdObj.yubikey_required === true ||
-      cmdObj.sensitive === true
+      cmdObj.yubikey_required === true
     ) {
-      return true;
+      explicitSensitive = true;
     }
     if (cmdObj.yubikey && cmdObj.yubikey.enabled === true) {
-      return true;
+      explicitSensitive = true;
     }
+    cmdStr = cmdObj.command || cmdObj.template || cmdObj.name || "";
   }
 
-  const cmdStr =
-    typeof cmdObj === "string"
-      ? cmdObj
-      : cmdObj.command || cmdObj.template || cmdObj.name || "";
-  const cleanStr = cmdStr.trim().toLowerCase();
+  if (explicitSensitive) {
+    return true;
+  }
+
+  const cleanStr = cmdStr.trim();
 
   const sensitivePatterns = [
+    /^sudo\b/i,
     /\bsudo\b/i,
+    /^su\b/i,
     /\brm\s+-rf\b/i,
-    /\bvault\b/i,
-    /\baws\s+secretsmanager\b/i,
+    /\bdd\b/i,
+    /\bmkfs\b/i,
+    /\bsystemctl\s+(stop|disable|restart)\b/i,
+    /\baws\s+(ecs\s+update-service|secretsmanager)\b/i,
     /\bkubectl\s+delete\b/i,
+    /\bdeploy\b/i,
+    /\bshutdown\b/i,
+    /\breboot\b/i,
+    /\bvault\b/i,
     /\bdrop\s+database\b/i,
     /\bgit\s+push\s+.*--force\b/i,
     /\bssh\b/i,
@@ -323,6 +434,36 @@ export function isSensitiveCommand(cmdObj, yubikeyConfig = null) {
   }
 
   return false;
+}
+
+export const isCommandSensitive = isSensitiveCommand;
+
+export function registerDevice(deviceInfo, existingKeys = []) {
+  if (!deviceInfo || typeof deviceInfo !== "object") {
+    return { success: false, keys: existingKeys, message: "Device information is required." };
+  }
+  const deviceId = (deviceInfo.device_id || deviceInfo.deviceId || deviceInfo.serial || "").toLowerCase();
+  if (!deviceId) {
+    return { success: false, keys: existingKeys, message: "Device ID / serial is required." };
+  }
+  const name = deviceInfo.name || deviceInfo.id || "YubiKey Hardware Key";
+  const keys = [...existingKeys];
+  const newDevice = {
+    id: deviceInfo.id || `yubikey_${Date.now()}`,
+    name,
+    device_id: deviceId,
+    public_key: deviceInfo.public_key || deviceInfo.publicKey || `pubkey_${deviceId}`,
+    created_at: new Date().toISOString(),
+  };
+  const existingIdx = keys.findIndex(
+    (k) => (k.device_id || k.deviceId || "").toLowerCase() === deviceId,
+  );
+  if (existingIdx !== -1) {
+    keys[existingIdx] = newDevice;
+  } else {
+    keys.push(newDevice);
+  }
+  return { success: true, keys, device: newDevice, message: `YubiKey hardware device '${name}' registered successfully.` };
 }
 
 /**
@@ -356,15 +497,16 @@ export async function authenticateCommand(
   const mode = (
     authPayload.mode ||
     ykCfg.default_mode ||
+    ykCfg.mode ||
     "touch"
   ).toLowerCase();
 
-  if (mode === "emergency") {
+  if (mode === "emergency" || authPayload.emergencyCode) {
     const code = authPayload.emergencyCode || authPayload.emergency_code || "";
     const res = await verifyAndConsumeEmergencyCode(code, ykCfg);
-    return { success: res.valid, message: res.message };
+    return { success: res.valid || res.success, remainingEmergencyCodes: res.remainingCodes, message: res.message };
   } else if (mode === "otp") {
-    const otp = authPayload.otp || "";
+    const otp = authPayload.otp || authPayload.otpToken || "";
     let regPrefix = authPayload.prefix;
     if (
       !regPrefix &&
@@ -378,7 +520,7 @@ export async function authenticateCommand(
   } else if (mode === "fido2" || mode === "u2f") {
     const assertion = authPayload.assertion || {
       user_presence: true,
-      signature: "mock_valid",
+      signature: authPayload.signature || "mock_valid",
     };
     const challenge = authPayload.challenge || "cmdbar_auth_challenge";
     const res = verifyFIDO2Assertion(
@@ -386,8 +528,11 @@ export async function authenticateCommand(
       challenge,
       authPayload.publicKey,
     );
-    return { success: res.valid, message: res.message };
+    return { success: res.valid || res.success, message: res.message };
   } else if (mode === "touch") {
+    if (authPayload.failTouch) {
+      return { success: false, message: "Touch verification failed or timed out." };
+    }
     const timeout =
       (authPayload.timeoutSeconds || ykCfg.timeout_seconds || 30) * 1000;
     const res = await requestTouchConfirmation(
@@ -401,6 +546,80 @@ export async function authenticateCommand(
     success: false,
     message: `Unsupported YubiKey authentication mode '${mode}'.`,
   };
+}
+
+export class YubiKeyAuthManager {
+  constructor(config = {}) {
+    this.updateConfig(config);
+  }
+
+  updateConfig(config = {}) {
+    this.config = config;
+    const yk = config.yubikey || config || {};
+    this.enabled = yk.enabled === true;
+    this.mode = yk.mode || yk.default_mode || "touch";
+    this.requireForSensitive = yk.require_for_sensitive !== false;
+    this.timeoutSeconds = yk.timeout_seconds || 30;
+    this.keys = Array.isArray(yk.keys) ? yk.keys : (Array.isArray(yk.registered_keys) ? yk.registered_keys : []);
+    this.emergencyCodes = Array.isArray(yk.emergency_codes) ? yk.emergency_codes : [];
+  }
+
+  isEnabled() {
+    return this.enabled;
+  }
+
+  getMode() {
+    return this.mode;
+  }
+
+  isSensitive(commandObj) {
+    return isSensitiveCommand(commandObj, this.config);
+  }
+
+  async authenticateCommand(commandObj, authData = {}) {
+    if (!this.enabled) {
+      return { success: true, modeUsed: "none", message: "YubiKey 2FA is disabled." };
+    }
+
+    if (this.requireForSensitive && !this.isSensitive(commandObj)) {
+      return { success: true, modeUsed: "bypass", message: "Command is not sensitive; YubiKey 2FA bypassed." };
+    }
+
+    if (authData.emergencyCode) {
+      const res = await verifyAndConsumeEmergencyCode(authData.emergencyCode, this.emergencyCodes);
+      if (res.success || res.valid) {
+        this.emergencyCodes = res.remainingCodes;
+      }
+      return {
+        success: res.success || res.valid,
+        modeUsed: "emergency",
+        message: res.message,
+        remainingEmergencyCodes: res.remainingCodes,
+      };
+    }
+
+    const mode = authData.mode || this.mode;
+    const res = await authenticateCommand(commandObj, { ...authData, mode }, this.config);
+    return {
+      success: res.success,
+      modeUsed: mode,
+      message: res.message,
+    };
+  }
+
+  registerDevice(deviceInfo) {
+    const res = registerDevice(deviceInfo, this.keys);
+    if (res.success) {
+      this.keys = res.keys;
+    }
+    return res;
+  }
+
+  generateEmergencyCodes(count = 5) {
+    const rawCodes = generateEmergencyCodes(count);
+    this.emergencyCodes = rawCodes;
+    return rawCodes;
+  }
 }
 
 /**

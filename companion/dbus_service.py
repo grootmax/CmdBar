@@ -257,6 +257,7 @@ class CmdBarDBusService:
                         "category": cat_name,
                         "placeholder": c.get("placeholder", ""),
                         "parameters": c.get("parameters", {}),
+                        "sensitive": bool(c.get("sensitive") or c.get("require_2fa") or c.get("require_yubikey")),
                     }
                 )
         return all_cmds
@@ -508,3 +509,107 @@ class CmdBarDBusService:
     def get_terminal_sharing_sessions(self) -> str:
         sessions_info = [s.get_metrics() for s in self.active_terminal_sessions.values()]
         return json.dumps(sessions_info)
+
+    def get_stream_deck_profiles(self) -> str:
+        """Returns JSON string containing available Stream Deck profiles and active profile."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            summary = self.stream_deck_manager.get_status_summary()
+            return json.dumps({
+                "active_profile": summary["active_profile"],
+                "profiles": summary["available_profiles"]
+            })
+        return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Switches the active Stream Deck profile."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            return self.stream_deck_manager.switch_profile(profile_name)
+        return False
+
+    def get_stream_deck_status(self) -> str:
+        """Returns diagnostic status JSON summary for Stream Deck integration."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            return json.dumps(self.stream_deck_manager.get_status_summary())
+        return json.dumps({})
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Simulates key press on active Stream Deck grid."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
+            return res.get("status") in ("executed", "profile_switched")
+        return False
+
+    def verify_yubikey_2fa(self, command_json: str, auth_data_json: str) -> bool:
+        try:
+            from companion.yubikey_auth import YubiKeyAuthManager
+            config = load_config()
+            manager = YubiKeyAuthManager(config)
+
+            try:
+                cmd_obj = json.loads(command_json) if command_json else {}
+            except Exception:
+                cmd_obj = {"command": command_json}
+
+            try:
+                auth_data = json.loads(auth_data_json) if auth_data_json else {}
+            except Exception:
+                auth_data = {}
+
+            res = manager.authenticate_command(cmd_obj, auth_data)
+            if res.get("success") and "remainingEmergencyCodes" in res:
+                config.setdefault("yubikey", {})["emergency_codes"] = res["remainingEmergencyCodes"]
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus verify_yubikey_2fa error: {e}\n")
+            return False
+
+    def get_yubikey_status(self) -> str:
+        try:
+            config = load_config()
+            yubikey_cfg = config.get("yubikey") or {}
+            return json.dumps({
+                "enabled": bool(yubikey_cfg.get("enabled")),
+                "mode": yubikey_cfg.get("mode", "touch"),
+                "key_count": len(yubikey_cfg.get("keys", [])) if isinstance(yubikey_cfg.get("keys"), list) else 0,
+                "emergency_code_count": len(yubikey_cfg.get("emergency_codes", [])) if isinstance(yubikey_cfg.get("emergency_codes"), list) else 0,
+                "require_for_sensitive": yubikey_cfg.get("require_for_sensitive") is not False
+            })
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus get_yubikey_status error: {e}\n")
+            return json.dumps({"enabled": False, "mode": "touch", "key_count": 0, "emergency_code_count": 0})
+
+    def register_yubikey_device(self, device_json: str) -> bool:
+        try:
+            from companion.yubikey_auth import register_device
+            config = load_config()
+            yubi_cfg = config.setdefault("yubikey", {})
+
+            try:
+                dev_info = json.loads(device_json)
+            except Exception:
+                return False
+
+            res = register_device(dev_info, yubi_cfg.get("keys", []))
+            if res.get("success"):
+                yubi_cfg["keys"] = res.get("keys", [])
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus register_yubikey_device error: {e}\n")
+            return False
+
+    def validate_emergency_code(self, code: str) -> bool:
+        try:
+            from companion.yubikey_auth import verify_emergency_code
+            config = load_config()
+            yubi_cfg = config.setdefault("yubikey", {})
+
+            res = verify_emergency_code(code, yubi_cfg.get("emergency_codes", []))
+            if res.get("success"):
+                yubi_cfg["emergency_codes"] = res.get("remainingCodes", [])
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus validate_emergency_code error: {e}\n")
+            return False

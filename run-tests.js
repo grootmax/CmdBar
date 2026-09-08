@@ -275,11 +275,10 @@ try {
     "echo command should not be detected as sensitive",
   );
 
-  const { rawCodes, hashedCodes } = await generateEmergencyCodes(3);
+  const rawCodes = generateEmergencyCodes(3);
   assert.strictEqual(rawCodes.length, 3, "Should generate 3 emergency codes");
-  assert.strictEqual(hashedCodes.length, 3, "Should generate 3 hashed codes");
 
-  const emergencyCfg = { emergency_codes: [...hashedCodes] };
+  const emergencyCfg = { emergency_codes: [...rawCodes] };
   const consumeRes = await verifyAndConsumeEmergencyCode(
     rawCodes[0],
     emergencyCfg,
