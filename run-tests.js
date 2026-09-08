@@ -239,6 +239,21 @@ try {
     "Valid 44-char modhex OTP should pass verification",
   );
 
+  // 8. Workspace-Specific Config Standalone Verification
+  const { initWorkspaceConfig, loadWorkspaceConfig, WorkspaceManager } = await import('./extension/workspaceConfig.js');
+  const wsTestDir = path.join(tempDir, 'ws-test-dir');
+  const { config: wsConfig, configPath: wsPath } = initWorkspaceConfig(wsTestDir, 'node');
+  assert.strictEqual(fs.existsSync(wsPath), true, 'Workspace config file should be created');
+  assert.strictEqual(wsConfig.workspace.template, 'node', 'Workspace template should be node');
+
+  const loadedWs = loadWorkspaceConfig(wsTestDir);
+  assert.notStrictEqual(loadedWs, null, 'Workspace config should load successfully');
+
+  const wsManager = new WorkspaceManager();
+  wsManager.setCurrentCwd(wsTestDir);
+  const activeWsCfg = wsManager.getActiveConfig();
+  assert.strictEqual(activeWsCfg.categories.some(c => c.name === 'Node.js Scripts'), true, 'Active config should contain Node.js category');
+
   const fidoRes = verifyFIDO2Assertion(
     { user_presence: true, signature: "mock_valid" },
     "test_challenge",

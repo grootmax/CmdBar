@@ -3,6 +3,7 @@
  */
 
 export { ChainRunner, ChainStatus, StepStatus } from "./chainRunner.js";
+import { RBACManager } from "./rbacManager.js";
 
 let GLib;
 try {
@@ -15,6 +16,21 @@ if (!GLib) {
   try {
     const giModule = await import("gi");
     GLib = giModule.GLib || (giModule.default && giModule.default.GLib);
+  } catch (e) {}
+}
+
+const isNode =
+  typeof process !== "undefined" && process.versions && process.versions.node;
+
+let nodeFs = null;
+let nodeCp = null;
+let nodePath = null;
+
+if (isNode) {
+  try {
+    nodeFs = (await import("fs")).default || (await import("fs"));
+    nodeCp = (await import("child_process")).default || (await import("child_process"));
+    nodePath = (await import("path")).default || (await import("path"));
   } catch (e) {}
 }
 
@@ -696,6 +712,31 @@ export function rankCommands(commands, pattern, usageMap = {}) {
   return results;
 }
 
+/**
+ * Filter categories and commands based on user RBAC permissions and visibility rules.
+ * @param {Array<Object>} categories
+ * @param {string} user
+ * @param {Object} [rbacConfig]
+ * @returns {Array<Object>}
+ */
+export function filterCommandsByRBAC(categories, user, rbacConfig) {
+  const manager = new RBACManager(rbacConfig);
+  return manager.filterVisibleCommands(categories, user);
+}
+
+/**
+ * Checks if a command can be executed under RBAC rules and approval requirements.
+ * @param {string} user
+ * @param {Object} command
+ * @param {Object} [rbacConfig]
+ * @param {Object} [options]
+ * @returns {Object}
+ */
+export function checkCommandExecutionRBAC(user, command, rbacConfig, options = {}) {
+  const manager = new RBACManager(rbacConfig);
+  return manager.canExecuteCommand(user, command, options);
+}
+
 export {
   evaluateCommandPolicy,
   CommandPolicyManager,
@@ -1358,23 +1399,6 @@ export function evaluateMathExpression(expr) {
   }
 }
 
-const isNode =
-  typeof process !== "undefined" &&
-  process.versions &&
-  process.versions.node;
-
-let nodeFs = null;
-let nodeCp = null;
-let nodePath = null;
-
-if (isNode) {
-  try {
-    nodeFs = (await import("fs")).default || (await import("fs"));
-    nodeCp = (await import("child_process")).default || (await import("child_process"));
-    nodePath = (await import("path")).default || (await import("path"));
-  } catch (e) {}
-}
-
 /**
  * Detects if a directory is a Git repository by checking for .git file/directory or git status.
  * @param {string} [dirPath]
@@ -1516,3 +1540,4 @@ export function hasNonGitPlaceholders(commandTemplate) {
 
   return hasPlaceholder(stripped);
 }
+

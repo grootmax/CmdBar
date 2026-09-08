@@ -1494,6 +1494,8 @@ const CmdBarIndicator = GObject.registerClass(
       if (!branding || !this._icon) return;
       this._effectiveBranding = branding;
 
+      if (!this._icon) return;
+
       // Custom icon / logo
       if (this._icon) {
         if (branding.enabled && branding.logo_path && branding.logo_path.trim()) {
@@ -1514,19 +1516,17 @@ const CmdBarIndicator = GObject.registerClass(
       }
 
       // Custom brand color styling
-      if (this._box) {
-        if (branding.enabled && branding.brand_colors) {
-          const primary = branding.brand_colors.primary || "#3584e4";
-          const text = branding.brand_colors.text || "#ffffff";
-          this._box.style = `color: ${text};`;
-          if (this.menu && this.menu.actor) {
-            this.menu.actor.style = `border-top: 2px solid ${primary};`;
-          }
-        } else {
-          this._box.style = null;
-          if (this.menu && this.menu.actor) {
-            this.menu.actor.style = null;
-          }
+      if (branding.enabled && branding.brand_colors) {
+        const primary = branding.brand_colors.primary || "#3584e4";
+        const text = branding.brand_colors.text || "#ffffff";
+        if (this._box) this._box.style = `color: ${text};`;
+        if (this.menu && this.menu.actor) {
+          this.menu.actor.style = `border-top: 2px solid ${primary};`;
+        }
+      } else {
+        if (this._box) this._box.style = null;
+        if (this.menu && this.menu.actor) {
+          this.menu.actor.style = null;
         }
       }
     }
@@ -1627,15 +1627,17 @@ const CmdBarIndicator = GObject.registerClass(
 
         // 1. Gather all favorite commands across all categories
         let favoriteCommands = [];
-        config.categories.forEach((category) => {
-          if (category.commands && Array.isArray(category.commands)) {
-            category.commands.forEach((cmd) => {
-              if (cmd && (cmd.favorite || cmd.pinned)) {
-                favoriteCommands.push(cmd);
-              }
-            });
-          }
-        });
+        if (config && config.categories && Array.isArray(config.categories)) {
+          config.categories.forEach((category) => {
+            if (category.commands && Array.isArray(category.commands)) {
+              category.commands.forEach((cmd) => {
+                if (cmd && (cmd.favorite || cmd.pinned)) {
+                  favoriteCommands.push(cmd);
+                }
+              });
+            }
+          });
+        }
 
         // 2. Add "Favorites" category section at top if any favorites exist
         if (favoriteCommands.length > 0) {
