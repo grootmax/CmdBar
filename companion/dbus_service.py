@@ -21,7 +21,7 @@ from app.workspace_config import (
     detect_project_type,
     PROJECT_TEMPLATES,
 )
-from companion.stream_deck import get_stream_deck_manager
+from companion.stream_deck import StreamDeckManager, get_stream_deck_manager
 
 
 class CmdBarDBusService:
@@ -47,6 +47,7 @@ class CmdBarDBusService:
         self.workspace_manager = WorkspaceManager()
         self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
         self.active_terminal_sessions = {}
+        self.stream_deck = self.stream_deck_manager
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:
@@ -508,3 +509,32 @@ class CmdBarDBusService:
     def get_terminal_sharing_sessions(self) -> str:
         sessions_info = [s.get_metrics() for s in self.active_terminal_sessions.values()]
         return json.dumps(sessions_info)
+
+    def stream_deck_press_key(self, key_index: int) -> bool:
+        if hasattr(self.stream_deck, "press_key"):
+            res = self.stream_deck.press_key(key_index)
+            return bool(res.get("success", False))
+        res = self.stream_deck.handle_key_down("dbus", key_index)
+        return bool(res.get("status") in ("executed", "profile_switched"))
+
+    def stream_deck_set_active_profile(self, profile_name: str) -> bool:
+        if hasattr(self.stream_deck, "set_active_profile"):
+            return self.stream_deck.set_active_profile(profile_name)
+        return self.stream_deck.switch_profile(profile_name)
+
+    def stream_deck_get_profile_grid(self) -> str:
+        if hasattr(self.stream_deck, "render_profile_grid"):
+            grid = self.stream_deck.render_profile_grid()
+            return json.dumps(grid)
+        grid = []
+        prof = self.stream_deck.get_active_profile()
+        for i in range(prof.max_keys):
+            title, img = self.stream_deck.render_key_visual(i)
+            btn = prof.get_button(i)
+            grid.append({
+                "key_index": i,
+                "label": title,
+                "svg_base64": img,
+                "led_state": btn.state if btn else "idle"
+            })
+        return json.dumps(grid)

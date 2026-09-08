@@ -20,6 +20,7 @@ import {
   parseShareUrl,
   ROLES,
 } from "./teamSharing.js";
+import { StreamDeckController } from "./streamDeck.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -75,6 +76,17 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetResourceMetrics">
       <arg name="json_metrics" type="s" direction="out"/>
+    </method>
+    <method name="StreamDeckPressKey">
+      <arg name="key_index" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="StreamDeckSetActiveProfile">
+      <arg name="profile_name" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="StreamDeckGetProfileGrid">
+      <arg name="json_grid" type="s" direction="out"/>
     </method>
     <method name="IsYubiKeyRequired">
       <arg name="name" type="s" direction="in"/>
@@ -201,6 +213,7 @@ export class CmdBarDBusService {
     this.workspaceManager = new WorkspaceManager();
     this._teamSharingService = new TeamSharingService({ baseDir: "/tmp/cmdbar-dbus-team" });
     this._terminalSessions = new Map();
+    this.streamDeck = new StreamDeckController(indicator);
   }
 
   /**
@@ -607,6 +620,19 @@ export class CmdBarDBusService {
     }
   }
 
+  async StreamDeckPressKey(keyIndex) {
+    try {
+      if (!this.streamDeck.profiles || this.streamDeck.profiles.size === 0) {
+        await this.streamDeck.loadProfiles();
+      }
+      const res = await this.streamDeck.pressKey(keyIndex);
+      return Boolean(res && res.success);
+    } catch (e) {
+      console.error(`CmdBar D-Bus StreamDeckPressKey error: ${e.message}`);
+      return false;
+    }
+  }
+
   async GetEffectiveAppName() {
     try {
       const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
@@ -790,6 +816,18 @@ export class CmdBarDBusService {
     }
   }
 
+  async StreamDeckSetActiveProfile(profileName) {
+    try {
+      if (!this.streamDeck.profiles || this.streamDeck.profiles.size === 0) {
+        await this.streamDeck.loadProfiles();
+      }
+      return await this.streamDeck.setActiveProfile(profileName);
+    } catch (e) {
+      console.error(`CmdBar D-Bus StreamDeckSetActiveProfile error: ${e.message}`);
+      return false;
+    }
+  }
+
   /**
    * Rejects a pending submission over D-Bus.
    * @param {string} submissionId - ID of submission to reject.
@@ -880,6 +918,19 @@ export class CmdBarDBusService {
   async GetTerminalSharingSessions() {
     const sessionsInfo = Array.from(this._terminalSessions.values()).map((s) => s.getMetrics());
     return JSON.stringify(sessionsInfo);
+  }
+
+  async StreamDeckGetProfileGrid() {
+    try {
+      if (!this.streamDeck.profiles || this.streamDeck.profiles.size === 0) {
+        await this.streamDeck.loadProfiles();
+      }
+      const grid = this.streamDeck.renderProfileGrid();
+      return JSON.stringify(grid);
+    } catch (e) {
+      console.error(`CmdBar D-Bus StreamDeckGetProfileGrid error: ${e.message}`);
+      return JSON.stringify([]);
+    }
   }
 
   /**
