@@ -1011,6 +1011,36 @@ export class CmdBarDBusService {
     }
   }
 
+  async StartTerminalSharing(sessionId, title) {
+    try {
+      const session = new TerminalSharingSession({
+        sessionId: sessionId || undefined,
+        title: title || "CmdBar Shared Terminal",
+      });
+      session.start();
+      this._terminalSessions.set(session.sessionId, session);
+      return JSON.stringify(session.getMetrics());
+    } catch (e) {
+      console.error(`CmdBar D-Bus StartTerminalSharing error: ${e.message}`);
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async StopTerminalSharing(sessionId) {
+    if (this._terminalSessions.has(sessionId)) {
+      const session = this._terminalSessions.get(sessionId);
+      session.endSession();
+      this._terminalSessions.delete(sessionId);
+      return true;
+    }
+    return false;
+  }
+
+  async GetTerminalSharingSessions() {
+    const sessionsInfo = Array.from(this._terminalSessions.values()).map((s) => s.getMetrics());
+    return JSON.stringify(sessionsInfo);
+  }
+
   emitEventTriggered(triggerId, eventType, command, success) {
     if (this._dbusImpl && GLib) {
       try {
