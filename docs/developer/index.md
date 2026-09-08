@@ -59,7 +59,6 @@ CmdBar provides a full enterprise white labeling option allowing organizations t
 - **Domain Alias & Network Routing**: Resolves custom server endpoints (`domain_alias`) for enterprise sync, command feeds, and remote management endpoints (`getEffectiveDomainUrl`).
 - **Custom SSL Security**: Supports custom enterprise SSL certificates (`cert_path`), private keys (`key_path`), and CA certificate bundles (`ca_path`) with configurable SSL verification options (`get_ssl_context`).
 - **D-Bus Management API**: Exposes `GetBranding`, `SetBranding`, and `GetEffectiveAppName` over D-Bus (`org.gnome.CmdBar`) for automated corporate software deployment tools.
-
 ### Command Result Caching Architecture
 
 CmdBar supports caching read-only command outputs with TTL logic to eliminate redundant process execution:
@@ -95,3 +94,12 @@ The policy enforcement engine (`extension/policyEngine.js` and `app/policy_engin
 - **Data Loss Prevention (DLP)**: Scans commands, parameters, and outputs for sensitive patterns (AWS keys, private keys, SSNs, credit cards, tokens) with block, redact, and warn actions.
 - **Geographic Restrictions**: Restricts command execution by country code or IP CIDR ranges.
 - **Time-Based Access Controls**: Limits command execution to designated days and time windows.
+
+### Enterprise API Rate Limiting Architecture
+
+The rate limiter module (`extension/rateLimiter.js` and `app/rate_limiter.py`) provides enterprise-grade traffic management and protection:
+- **Token Bucket Engine**: Implements token buckets with configurable capacity (burst limit) and refill rate (tokens/sec). Automatically refills tokens based on elapsed timestamps.
+- **Multi-Tenant & Tier Isolation**: Predefined subscription tiers (`free`, `pro`, `enterprise`) and custom client limits. Per-client and per-route isolated token bucket instances prevent resource hogging.
+- **Burst & Fair Usage Handling**: Allows burst requests up to capacity, smoothly throttling excess requests with `retryAfterSec` and `resetInMs` calculation.
+- **Analytics & Metrics**: Tracks aggregate system metrics (`totalRequests`, `allowedRequests`, `throttledRequests`, `throttleRatePercentage`) and per-client usage details (`getAnalytics()`, `getUsagePercentage()`).
+- **D-Bus Integration**: Exposes `CheckRateLimit`, `ConsumeRateLimit`, and `GetRateLimitAnalytics` methods over D-Bus (`org.gnome.CmdBar`).
