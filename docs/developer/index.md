@@ -96,6 +96,19 @@ The policy enforcement engine (`extension/policyEngine.js` and `app/policy_engin
 - **Geographic Restrictions**: Restricts command execution by country code or IP CIDR ranges.
 - **Time-Based Access Controls**: Limits command execution to designated days and time windows.
 
+### Workspace-Specific Configuration Module
+
+The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`) manages project-level configuration discovery and switching:
+- **CWD & Git Auto-Detection**: Searches upward from current working directory to Git repository root for `.cmdbar.json` or `.cmdbar/config.json`.
+- **Project Templates**: Initializes project configurations using built-in templates (`node`, `python`, `rust`, `go`, `generic`).
+- **Smooth Merging**: Merges workspace categories with global configuration, prepending project commands while avoiding command duplicates.
+- **WorkspaceManager**: High-performance active workspace manager with caching to guarantee sub-5ms lookup performance.
+
+### Team Command Sharing & Enterprise Collaboration
+
+The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
+For full details, see [Team Command Sharing Specification](team_command_sharing.md).
+
 ### Mobile Companion Architecture
 
 The Mobile Companion App module (`companion/mobile_companion.py` & `companion/mobileSync.js`) enables secure cross-platform synchronization between CmdBar host instances and iOS/Android companion devices:

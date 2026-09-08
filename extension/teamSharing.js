@@ -1,862 +1,982 @@
 /**
- * Team Command Sharing, Repository Management, Version Control, Role-Based Access Control (RBAC),
- * Approval Workflows, and Activity Feed Manager.
- *
- * Runs in GJS and Node.js environments.
+ * Team Command Sharing and Collaboration Module for CmdBar.
+ * Features:
+ * - URL sharing (export, parse, import via URL schema/HTTPS link)
+ * - Team repository management
+ * - Version control for configs (history, diff, rollback)
+ * - Role-based access control (RBAC)
+ * - Approval workflows for team command submissions
+ * - Activity feed logging and querying
  */
 
-import { canonicalJson } from "./configSync.js";
-
-const isNode = typeof process !== "undefined" && process.versions && process.versions.node;
-
-let cryptoModule;
-if (isNode) {
-  try {
-    cryptoModule = await import("crypto");
-  } catch (e) {
-    cryptoModule = null;
-  }
-}
-
-/**
- * Generates a SHA-256 hash string for the given text.
- * @param {string} text - Input text.
- * @returns {string} SHA-256 hex string.
- * :visibility: public
- */
-export function sha256Hex(text) {
-  if (cryptoModule && cryptoModule.createHash) {
-    return cryptoModule.createHash("sha256").update(text).digest("hex");
-  }
-  // Simple fallback hash for environments without crypto
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    const char = text.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
-  }
-  const hex = Math.abs(hash).toString(16);
-  return hex.padStart(64, "0");
-}
-
-/**
- * Defined user roles for Team Command Sharing.
- * :visibility: public
- */
 export const ROLES = {
-  VIEWER: "viewer",
-  EDITOR: "editor",
-  APPROVER: "approver",
   ADMIN: "admin",
+  APPROVER: "approver",
+  EDITOR: "editor",
+  VIEWER: "viewer",
 };
 
-/**
- * Hierarchy levels for RBAC roles.
- * :visibility: public
- */
-export const ROLE_LEVELS = {
-  viewer: 1,
-  editor: 2,
-  approver: 3,
-  admin: 4,
-};
-
-/**
- * Map of permissions required for specific actions.
- * :visibility: public
- */
 export const PERMISSIONS = {
-  VIEW: "viewer",
-  EXECUTE: "viewer",
-  SHARE_URL: "viewer",
-  IMPORT_URL: "viewer",
-  CREATE_COMMAND: "editor",
-  EDIT_COMMAND: "editor",
-  PROPOSE_CHANGE: "editor",
-  REVIEW_PROPOSAL: "approver",
-  APPROVE_PROPOSAL: "approver",
-  REJECT_PROPOSAL: "approver",
-  MANAGE_REPOS: "admin",
-  MANAGE_ROLES: "admin",
-  ROLLBACK_VERSION: "admin",
+  admin: [
+    "view",
+    "execute",
+    "share",
+    "create",
+    "edit",
+    "delete",
+    "publish_team",
+    "approve",
+    "manage_roles",
+    "rollback",
+    "import_command",
+  ],
+  approver: [
+    "view",
+    "execute",
+    "share",
+    "create",
+    "edit",
+    "delete",
+    "publish_team",
+    "approve",
+    "import_command",
+  ],
+  editor: [
+    "view",
+    "execute",
+    "share",
+    "create",
+    "edit",
+    "publish_team",
+    "import_command",
+  ],
+  viewer: ["view", "execute"],
 };
 
 /**
- * Checks if a given role has permission to perform an action.
- * @param {string} userRole - User's assigned role.
- * @param {string} action - Action identifier from PERMISSIONS.
- * @returns {boolean} True if permitted.
- * :visibility: public
+ * Checks whether a given role has permission for an action.
+ * @param {string} role - The role to check (admin, approver, editor, viewer).
+ * @param {string} action - The action identifier (e.g. 'share', 'approve', 'edit').
+ * @returns {boolean} True if authorized, false otherwise.
+ * @public
  */
-export function hasPermission(userRole = "viewer", action) {
-  const normalizedRole = (userRole || "viewer").toLowerCase();
-  const requiredRole = PERMISSIONS[action] || "admin";
-  const userLevel = ROLE_LEVELS[normalizedRole] || 1;
-  const requiredLevel = ROLE_LEVELS[requiredRole] || 4;
-
-  return userLevel >= requiredLevel;
+export function checkPermission(role, action) {
+  if (!role || typeof role !== "string") return false;
+  const normalizedRole = role.toLowerCase();
+  const allowed = PERMISSIONS[normalizedRole];
+  if (!allowed) return false;
+  return allowed.includes("*") || allowed.includes(action);
 }
 
 /**
- * Asserts permission or throws an Authorization Error.
- * @param {string} userRole - User's role.
- * @param {string} action - Requested action.
- * @returns {boolean} True if authorized.
- * :visibility: public
+ * Enforces permission for a given role and action, throwing an Error if denied.
+ * @param {string} role - The role to verify.
+ * @param {string} action - The action identifier to verify.
+ * @throws {Error} If permission is denied.
+ * @public
  */
-export function checkPermission(userRole, action) {
-  if (!hasPermission(userRole, action)) {
-    const req = PERMISSIONS[action] || "admin";
-    throw new Error(
-      `Permission denied: Action '${action}' requires '${req}' role or higher (provided: '${userRole}')`
-    );
+export function enforcePermission(role, action) {
+  if (!checkPermission(role, action)) {
+    throw new Error(`Permission denied: Role '${role}' is not authorized for '${action}'`);
   }
-  return true;
 }
 
 /**
- * Encodes command or category data into a shareable URL string.
- * @param {Object} data - Command object or category object to share.
- * @param {Object} [options] - Configuration options (scheme, secretKey, expiresInSeconds).
- * @returns {string} Formatted share URL string.
- * :visibility: public
+ * Encodes string to URL-safe base64.
+ * @param {string} str - String to encode.
+ * @returns {string} Encoded string.
  */
-export function encodeCommandShareUrl(data, options = {}) {
-  const scheme = options.scheme || "cmdbar://share";
-  const secretKey = options.secretKey || "";
-  const expiresInSeconds = options.expiresInSeconds || 0;
+function encodePayload(str) {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(str, "utf8").toString("base64url");
+  }
+  return encodeURIComponent(str);
+}
 
-  const timestamp = Date.now();
-  const expiresAt = expiresInSeconds !== 0 ? timestamp + expiresInSeconds * 1000 : 0;
+/**
+ * Decodes string from URL-safe base64.
+ * @param {string} str - Encoded payload.
+ * @returns {string} Decodes string.
+ */
+function decodePayload(str) {
+  if (typeof Buffer !== "undefined") {
+    try {
+      return Buffer.from(str, "base64url").toString("utf8");
+    } catch (e) {
+      return Buffer.from(str, "base64").toString("utf8");
+    }
+  }
+  return decodeURIComponent(str);
+}
+
+/**
+ * Exports a command object to a shareable URL string.
+ * @param {object} commandObj - The command object containing name and command string.
+ * @param {object} [options] - Export options including author, repositoryId, protocol, timestamp.
+ * @returns {string} The formatted share URL.
+ * @public
+ */
+export function exportCommandToUrl(commandObj, options = {}) {
+  if (!commandObj || typeof commandObj !== "object" || !commandObj.name || !commandObj.command) {
+    throw new Error("Invalid command object for export: name and command are required");
+  }
 
   const payload = {
-    version: 1,
-    type: data.commands ? "category" : "command",
-    data,
-    timestamp,
-    expiresAt,
+    v: 1,
+    type: "command",
+    data: {
+      name: String(commandObj.name).trim(),
+      command: String(commandObj.command).trim(),
+      placeholder: commandObj.placeholder || "",
+      category: commandObj.category || "Shared",
+      metadata: commandObj.metadata || {},
+    },
+    author: options.author || "anonymous",
+    repositoryId: options.repositoryId || "default",
+    timestamp: options.timestamp || Date.now(),
   };
 
-  const jsonStr = canonicalJson(payload);
-  const base64Data = isNode
-    ? Buffer.from(jsonStr, "utf-8").toString("base64url")
-    : globalThis.btoa ? globalThis.btoa(jsonStr) : Buffer.from(jsonStr).toString("base64");
-
-  const checksum = sha256Hex(jsonStr + secretKey);
-
-  if (scheme.startsWith("http://") || scheme.startsWith("https://")) {
-    const urlObj = new URL(scheme);
-    urlObj.searchParams.set("data", base64Data);
-    urlObj.searchParams.set("sig", checksum);
-    return urlObj.toString();
-  }
-
-  return `${scheme}?data=${encodeURIComponent(base64Data)}&sig=${checksum}`;
+  const jsonStr = JSON.stringify(payload);
+  const encoded = encodePayload(jsonStr);
+  const protocol = options.protocol || "cmdbar://share";
+  return `${protocol}?data=${encoded}`;
 }
 
 /**
- * Decodes and validates a shared command URL.
- * @param {string} shareUrl - The share URL to decode.
- * @param {Object} [options] - Verification options (secretKey).
- * @returns {Object} Decoded result object { valid, payload, error }.
- * :visibility: public
+ * Exports a team repository or collection of commands to a shareable URL string.
+ * @param {Array<object>|object} repository - The repository array or object payload.
+ * @param {object} [options] - Optional export options.
+ * @returns {string} The formatted share URL string.
+ * @public
  */
-export function decodeCommandShareUrl(shareUrl, options = {}) {
+export function exportRepositoryToUrl(repository, options = {}) {
+  if (!repository) {
+    throw new Error("Invalid repository payload for export");
+  }
+
+  const payload = {
+    v: 1,
+    type: "repository",
+    data: repository,
+    author: options.author || "anonymous",
+    repositoryId: options.repositoryId || "team-repo",
+    timestamp: options.timestamp || Date.now(),
+  };
+
+  const jsonStr = JSON.stringify(payload);
+  const encoded = encodePayload(jsonStr);
+  const protocol = options.protocol || "cmdbar://share";
+  return `${protocol}?data=${encoded}`;
+}
+
+/**
+ * Parses and validates a share URL string.
+ * @param {string} urlStr - The share URL string.
+ * @returns {object} The parsed and decoded payload object.
+ * @public
+ */
+export function parseShareUrl(urlStr) {
+  if (!urlStr || typeof urlStr !== "string") {
+    throw new Error("Invalid URL string");
+  }
+
+  let dataParam = "";
+  if (urlStr.includes("data=")) {
+    try {
+      const normalizedUrl = urlStr.startsWith("cmdbar://") 
+        ? urlStr.replace("cmdbar://", "http://cmdbar/") 
+        : urlStr;
+      const urlObj = new URL(normalizedUrl);
+      dataParam = urlObj.searchParams.get("data") || "";
+    } catch (e) {
+      const idx = urlStr.indexOf("data=");
+      dataParam = urlStr.substring(idx + 5).split("&")[0];
+    }
+  } else if (urlStr.startsWith("cmdbar://") || urlStr.startsWith("http://") || urlStr.startsWith("https://")) {
+    throw new Error("Missing data parameter in share URL");
+  } else {
+    dataParam = urlStr;
+  }
+
+  if (!dataParam) {
+    throw new Error("Missing data parameter in share URL");
+  }
+
+  let jsonStr;
   try {
-    if (!shareUrl || typeof shareUrl !== "string") {
-      return { valid: false, error: "Invalid or empty share URL string." };
-    }
+    jsonStr = decodePayload(dataParam);
+  } catch (e) {
+    throw new Error(`Failed to decode URL payload: ${e.message}`);
+  }
 
-    let base64Data = "";
-    let sig = "";
+  let payload;
+  try {
+    payload = JSON.parse(jsonStr);
+  } catch (e) {
+    throw new Error("Invalid JSON in URL payload");
+  }
 
-    if (shareUrl.includes("?")) {
-      const queryString = shareUrl.split("?")[1];
-      const params = new URLSearchParams(queryString);
-      base64Data = params.get("data") || "";
-      sig = params.get("sig") || "";
-    } else {
-      return { valid: false, error: "Missing query parameters in share URL." };
-    }
+  if (!payload || typeof payload !== "object" || !payload.type || !payload.data) {
+    throw new Error("Malformed payload structure");
+  }
 
-    if (!base64Data) {
-      return { valid: false, error: "Missing 'data' parameter in share URL." };
-    }
+  return payload;
+}
 
-    const decodedStr = isNode
-      ? Buffer.from(base64Data, "base64url").toString("utf-8")
-      : globalThis.atob ? globalThis.atob(decodeURIComponent(base64Data)) : Buffer.from(base64Data, "base64").toString("utf-8");
+/**
+ * Activity Feed Logger and Query Manager.
+ */
+export class ActivityFeedManager {
+  /**
+   * Constructs ActivityFeedManager instance.
+   * @param {string} [storagePath] - Optional path to file storage for activity events.
+   */
+  constructor(storagePath) {
+    this.storagePath = storagePath || null;
+    this._inMemoryFeed = [];
+  }
 
-    const payload = JSON.parse(decodedStr);
-
-    if (!payload || !payload.data) {
-      return { valid: false, error: "Malformed payload structure." };
-    }
-
-    if (payload.expiresAt && payload.expiresAt !== 0 && Date.now() > payload.expiresAt) {
-      return { valid: false, error: "Share URL has expired." };
-    }
-
-    const secretKey = options.secretKey || "";
-    const expectedSig = sha256Hex(canonicalJson(payload) + secretKey);
-
-    if (sig && sig !== expectedSig && options.requireSignature) {
-      return { valid: false, error: "Signature verification failed." };
-    }
-
-    return {
-      valid: true,
-      type: payload.type,
-      data: payload.data,
-      timestamp: payload.timestamp,
-      expiresAt: payload.expiresAt,
+  /**
+   * Logs an activity event.
+   * @param {string} action - Action type identifier.
+   * @param {string} actor - Name or ID of user or system performing the action.
+   * @param {object} [details] - Details object associated with event.
+   * @param {string} [repositoryId] - Target repository ID.
+   * @returns {Promise<object>} The created activity entry.
+   * @public
+   */
+  async logActivity(action, actor, details = {}, repositoryId = "default") {
+    const entry = {
+      id: `act_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      timestamp: Date.now(),
+      action,
+      actor: actor || "system",
+      details,
+      repositoryId,
     };
-  } catch (err) {
-    return { valid: false, error: `Failed to decode share URL: ${err.message}` };
+
+    this._inMemoryFeed.unshift(entry);
+
+    if (this.storagePath) {
+      await this._saveFeed();
+    }
+
+    return entry;
+  }
+
+  /**
+   * Retrieves filtered activity feed events.
+   * @param {object} [options] - Filter options (actor, action, repositoryId, since, limit).
+   * @returns {Promise<Array<object>>} List of matching activity entries.
+   * @public
+   */
+  async getActivityFeed(options = {}) {
+    if (this.storagePath) {
+      await this._loadFeed();
+    }
+
+    let feed = [...this._inMemoryFeed];
+
+    if (options.actor) {
+      feed = feed.filter((e) => e.actor === options.actor);
+    }
+    if (options.action) {
+      feed = feed.filter((e) => e.action === options.action);
+    }
+    if (options.repositoryId) {
+      feed = feed.filter((e) => e.repositoryId === options.repositoryId);
+    }
+    if (options.since) {
+      feed = feed.filter((e) => e.timestamp >= options.since);
+    }
+    if (options.limit && typeof options.limit === "number") {
+      feed = feed.slice(0, options.limit);
+    }
+
+    return feed;
+  }
+
+  /**
+   * Clears all activity feed entries.
+   * @returns {Promise<void>}
+   * @public
+   */
+  async clearFeed() {
+    this._inMemoryFeed = [];
+    if (this.storagePath) {
+      await this._saveFeed();
+    }
+  }
+
+  /**
+   * Loads activity feed from disk.
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _loadFeed() {
+    if (!this.storagePath) return;
+    try {
+      const fs = await import("fs");
+      if (fs.existsSync(this.storagePath)) {
+        const content = await fs.promises.readFile(this.storagePath, "utf8");
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed)) {
+          this._inMemoryFeed = parsed;
+        }
+      }
+    } catch (e) {}
+  }
+
+  /**
+   * Saves activity feed to disk.
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _saveFeed() {
+    if (!this.storagePath) return;
+    try {
+      const fs = await import("fs");
+      const pathModule = await import("path");
+      await fs.promises.mkdir(pathModule.dirname(this.storagePath), { recursive: true });
+      await fs.promises.writeFile(this.storagePath, JSON.stringify(this._inMemoryFeed, null, 2), "utf8");
+    } catch (e) {}
   }
 }
 
 /**
- * Imports a command or category payload from a share URL into local configuration.
- * @param {string} shareUrl - Shared command URL.
- * @param {string} [targetCategory] - Category name to place imported commands.
- * @param {Object} config - Active CmdBar configuration object.
- * @param {string} [userRole="viewer"] - Role of user performing import.
- * @returns {Object} Result object containing updated config and import summary.
- * :visibility: public
+ * Configuration Version Control and Snapshot History Manager.
  */
-export function importFromShareUrl(
-  shareUrl,
-  targetCategory = "Shared Commands",
-  config,
-  userRole = "viewer"
-) {
-  checkPermission(userRole, "IMPORT_URL");
-
-  const decodeResult = decodeCommandShareUrl(shareUrl);
-  if (!decodeResult.valid) {
-    throw new Error(decodeResult.error);
+export class ConfigVersionControl {
+  /**
+   * Constructs ConfigVersionControl instance.
+   * @param {string} [historyPath] - Optional path to file storage for revision history.
+   */
+  constructor(historyPath) {
+    this.historyPath = historyPath || null;
+    this._revisions = [];
   }
 
-  const updatedConfig = JSON.parse(JSON.stringify(config || { categories: [] }));
-  if (!Array.isArray(updatedConfig.categories)) {
-    updatedConfig.categories = [];
-  }
+  /**
+   * Records a new configuration revision snapshot.
+   * @param {object} config - The full configuration snapshot object.
+   * @param {string} [author] - User or system authoring the change.
+   * @param {string} [summary] - Brief description of the change.
+   * @returns {Promise<object>} The newly recorded revision entry.
+   * @public
+   */
+  async recordRevision(config, author = "system", summary = "Config update") {
+    await this._loadHistory();
 
-  const payloadData = decodeResult.data;
-  let importedCount = 0;
-
-  if (decodeResult.type === "category" && payloadData.commands) {
-    const catName = targetCategory || payloadData.name || "Shared Commands";
-    let cat = updatedConfig.categories.find((c) => c.name === catName);
-    if (!cat) {
-      cat = { name: catName, commands: [] };
-      updatedConfig.categories.push(cat);
-    }
-    for (const cmd of payloadData.commands) {
-      cat.commands.push(cmd);
-      importedCount++;
-    }
-  } else {
-    let cat = updatedConfig.categories.find((c) => c.name === targetCategory);
-    if (!cat) {
-      cat = { name: targetCategory, commands: [] };
-      updatedConfig.categories.push(cat);
-    }
-    cat.commands.push(payloadData);
-    importedCount = 1;
-  }
-
-  logActivity(updatedConfig, {
-    actor: "User",
-    actorRole: userRole,
-    action: "IMPORT_SHARE_URL",
-    target: targetCategory,
-    details: `Imported ${importedCount} command(s) via URL`,
-  });
-
-  return {
-    config: updatedConfig,
-    importedCount,
-    category: targetCategory,
-  };
-}
-
-/**
- * Registers a new team repository.
- * @param {Object} repoData - Repository specifications (id, name, url, branch, role).
- * @param {Object} config - Active configuration.
- * @param {string} [userRole="admin"] - User role performing action.
- * @returns {Object} Updated configuration.
- * :visibility: public
- */
-export function addTeamRepository(repoData, config, userRole = "admin") {
-  checkPermission(userRole, "MANAGE_REPOS");
-
-  const updatedConfig = JSON.parse(JSON.stringify(config || {}));
-  if (!Array.isArray(updatedConfig.teamRepositories)) {
-    updatedConfig.teamRepositories = [];
-  }
-
-  if (!repoData || !repoData.id || !repoData.name) {
-    throw new Error("Repository data must include 'id' and 'name'.");
-  }
-
-  const existingIdx = updatedConfig.teamRepositories.findIndex((r) => r.id === repoData.id);
-  const newRepo = {
-    id: repoData.id,
-    name: repoData.name,
-    url: repoData.url || "",
-    branch: repoData.branch || "main",
-    role: repoData.role || "viewer",
-    syncInterval: repoData.syncInterval || 3600,
-    enabled: repoData.enabled !== false,
-    autoApprove: repoData.autoApprove || false,
-    lastSynced: null,
-    commandsCount: 0,
-  };
-
-  if (existingIdx >= 0) {
-    updatedConfig.teamRepositories[existingIdx] = {
-      ...updatedConfig.teamRepositories[existingIdx],
-      ...newRepo,
+    const versionNum = this._revisions.length + 1;
+    const revision = {
+      revisionId: `rev_${versionNum}_${Date.now()}`,
+      version: versionNum,
+      timestamp: Date.now(),
+      author,
+      summary,
+      snapshot: JSON.parse(JSON.stringify(config)),
     };
-  } else {
-    updatedConfig.teamRepositories.push(newRepo);
+
+    this._revisions.push(revision);
+    await this._saveHistory();
+    return revision;
   }
 
-  logActivity(updatedConfig, {
-    actor: "User",
-    actorRole: userRole,
-    action: "ADD_TEAM_REPO",
-    target: repoData.name,
-    details: `Registered team repository '${repoData.name}' (${repoData.url})`,
-    repoId: repoData.id,
-  });
-
-  return updatedConfig;
-}
-
-/**
- * Unlinks / disconnects a team repository.
- * @param {string} repoId - Repository ID to remove.
- * @param {Object} config - Active configuration.
- * @param {string} [userRole="admin"] - User role performing removal.
- * @returns {Object} Updated configuration.
- * :visibility: public
- */
-export function removeTeamRepository(repoId, config, userRole = "admin") {
-  checkPermission(userRole, "MANAGE_REPOS");
-
-  const updatedConfig = JSON.parse(JSON.stringify(config || {}));
-  if (!Array.isArray(updatedConfig.teamRepositories)) {
-    return updatedConfig;
+  /**
+   * Retrieves summary list of revision history entries.
+   * @returns {Promise<Array<object>>} List of revision metadata summaries.
+   * @public
+   */
+  async getHistory() {
+    await this._loadHistory();
+    return this._revisions.map((r) => ({
+      revisionId: r.revisionId,
+      version: r.version,
+      timestamp: r.timestamp,
+      author: r.author,
+      summary: r.summary,
+    }));
   }
 
-  const repo = updatedConfig.teamRepositories.find((r) => r.id === repoId);
-  updatedConfig.teamRepositories = updatedConfig.teamRepositories.filter((r) => r.id !== repoId);
-
-  // Remove category for this team repo if present
-  if (repo && Array.isArray(updatedConfig.categories)) {
-    const teamCatName = `Team: ${repo.name}`;
-    updatedConfig.categories = updatedConfig.categories.filter((c) => c.name !== teamCatName);
+  /**
+   * Retrieves full revision data by ID.
+   * @param {string} revisionId - ID of revision to fetch.
+   * @returns {Promise<object|null>} Revision record or null if not found.
+   * @public
+   */
+  async getRevision(revisionId) {
+    await this._loadHistory();
+    const rev = this._revisions.find((r) => r.revisionId === revisionId);
+    return rev ? JSON.parse(JSON.stringify(rev)) : null;
   }
 
-  logActivity(updatedConfig, {
-    actor: "User",
-    actorRole: userRole,
-    action: "REMOVE_TEAM_REPO",
-    target: repoId,
-    details: `Removed team repository '${repoId}'`,
-    repoId,
-  });
+  /**
+   * Calculates command additions, modifications, and removals between two revisions.
+   * @param {string} revId1 - Older revision ID.
+   * @param {string} revId2 - Newer revision ID.
+   * @returns {Promise<object>} Object with { added: [], modified: [], removed: [] }.
+   * @public
+   */
+  async diffRevisions(revId1, revId2) {
+    const rev1 = await this.getRevision(revId1);
+    const rev2 = await this.getRevision(revId2);
 
-  return updatedConfig;
-}
-
-/**
- * Returns list of all configured team repositories.
- * @param {Object} config - Active configuration.
- * @returns {Array} List of team repository objects.
- * :visibility: public
- */
-export function listTeamRepositories(config) {
-  return (config && config.teamRepositories) || [];
-}
-
-/**
- * Syncs commands from a team repository into the active configuration.
- * @param {string} repoId - ID of repository to sync.
- * @param {Object} config - Active configuration.
- * @param {Function} [remoteFetcher] - Optional custom async fetcher function returning commands list or json.
- * @param {string} [userRole="viewer"] - Role of user executing sync.
- * @returns {Object} Result object containing updated config and syncedCount.
- * :visibility: public
- */
-export async function syncTeamRepository(
-  repoId,
-  config,
-  remoteFetcher = null,
-  userRole = "viewer"
-) {
-  checkPermission(userRole, "VIEW");
-
-  const updatedConfig = JSON.parse(JSON.stringify(config || {}));
-  const repos = listTeamRepositories(updatedConfig);
-  const repo = repos.find((r) => r.id === repoId);
-
-  if (!repo) {
-    throw new Error(`Team repository with ID '${repoId}' not found.`);
-  }
-
-  let remoteData = [];
-  if (typeof remoteFetcher === "function") {
-    remoteData = await remoteFetcher(repo);
-  } else {
-    // Default mock data for local/offline sync simulation
-    remoteData = [
-      {
-        name: `[${repo.name}] Health Check`,
-        command: "curl -s http://localhost:8080/health",
-        teamRepoId: repoId,
-      },
-      {
-        name: `[${repo.name}] Deploy Status`,
-        command: "git status",
-        teamRepoId: repoId,
-      },
-    ];
-  }
-
-  const teamCatName = `Team: ${repo.name}`;
-  if (!Array.isArray(updatedConfig.categories)) {
-    updatedConfig.categories = [];
-  }
-
-  let cat = updatedConfig.categories.find((c) => c.name === teamCatName);
-  if (!cat) {
-    cat = { name: teamCatName, commands: [] };
-    updatedConfig.categories.push(cat);
-  } else {
-    // Replace existing commands for this repo
-    cat.commands = cat.commands.filter((cmd) => cmd.teamRepoId !== repoId);
-  }
-
-  const commandsList = Array.isArray(remoteData)
-    ? remoteData
-    : remoteData.commands || [];
-
-  for (const cmd of commandsList) {
-    cat.commands.push({
-      ...cmd,
-      teamRepoId: repoId,
-      teamRepoName: repo.name,
-    });
-  }
-
-  repo.lastSynced = new Date().toISOString();
-  repo.commandsCount = cat.commands.length;
-
-  logActivity(updatedConfig, {
-    actor: "User",
-    actorRole: userRole,
-    action: "SYNC_TEAM_REPO",
-    target: repo.name,
-    details: `Synced ${cat.commands.length} command(s) from team repository '${repo.name}'`,
-    repoId,
-  });
-
-  return {
-    config: updatedConfig,
-    syncedCount: cat.commands.length,
-    repo,
-  };
-}
-
-/**
- * Creates a new configuration revision snapshot for version control.
- * @param {Object} config - Active configuration.
- * @param {string} author - Author identifier/email.
- * @param {string} message - Commit/revision description.
- * @returns {Object} Updated configuration containing new revision.
- * :visibility: public
- */
-export function createConfigRevision(config, author = "system", message = "Updated configuration") {
-  const updatedConfig = JSON.parse(JSON.stringify(config || {}));
-  if (!updatedConfig.versionControl) {
-    updatedConfig.versionControl = { currentRevision: 0, revisions: [] };
-  }
-
-  const revNum = updatedConfig.versionControl.currentRevision + 1;
-  const timestamp = new Date().toISOString();
-
-  // Snapshot categories & commands
-  const categoriesSnapshot = JSON.parse(JSON.stringify(updatedConfig.categories || []));
-  const commitHash = sha256Hex(canonicalJson(categoriesSnapshot) + timestamp + author);
-
-  const prevRev = updatedConfig.versionControl.revisions.length > 0
-    ? updatedConfig.versionControl.revisions[updatedConfig.versionControl.revisions.length - 1]
-    : null;
-
-  const diffSummary = prevRev
-    ? diffConfigRevisions(prevRev.categories, categoriesSnapshot)
-    : { addedCommands: categoriesSnapshot.flatMap((c) => c.commands || []).length, removedCommands: 0, modifiedCommands: 0 };
-
-  const newRevision = {
-    revision: revNum,
-    commitHash,
-    timestamp,
-    author,
-    message,
-    diffSummary,
-    categories: categoriesSnapshot,
-  };
-
-  updatedConfig.versionControl.currentRevision = revNum;
-  updatedConfig.versionControl.revisions.push(newRevision);
-
-  logActivity(updatedConfig, {
-    actor: author,
-    actorRole: "user",
-    action: "CREATE_REVISION",
-    target: `Rev #${revNum}`,
-    details: `Created revision #${revNum}: ${message}`,
-  });
-
-  return updatedConfig;
-}
-
-/**
- * Retrieves full history of configuration revisions.
- * @param {Object} config - Active configuration.
- * @returns {Array} List of revision objects.
- * :visibility: public
- */
-export function getRevisionHistory(config) {
-  return (config && config.versionControl && config.versionControl.revisions) || [];
-}
-
-/**
- * Compares two category/command snapshots and produces a diff summary.
- * @param {Array} snapshotA - Original categories list.
- * @param {Array} snapshotB - Target categories list.
- * @returns {Object} Diff summary object { addedCommands, removedCommands, modifiedCommands }.
- * :visibility: public
- */
-export function diffConfigRevisions(snapshotA = [], snapshotB = []) {
-  const mapA = new Map();
-  const mapB = new Map();
-
-  for (const cat of snapshotA) {
-    for (const cmd of cat.commands || []) {
-      mapA.set(`${cat.name}::${cmd.name}`, cmd);
+    if (!rev1 || !rev2) {
+      throw new Error("One or both revisions not found");
     }
-  }
 
-  for (const cat of snapshotB) {
-    for (const cmd of cat.commands || []) {
-      mapB.set(`${cat.name}::${cmd.name}`, cmd);
-    }
-  }
+    const extractCommands = (rev) => {
+      const cmds = [];
+      const cats = (rev.snapshot && rev.snapshot.categories) || [];
+      for (const cat of cats) {
+        for (const cmd of cat.commands || []) {
+          cmds.push({ ...cmd, category: cat.name });
+        }
+      }
+      return cmds;
+    };
 
-  let addedCommands = 0;
-  let removedCommands = 0;
-  let modifiedCommands = 0;
+    const cmds1 = extractCommands(rev1);
+    const cmds2 = extractCommands(rev2);
 
-  for (const [key, cmdB] of mapB.entries()) {
-    if (!mapA.has(key)) {
-      addedCommands++;
-    } else {
-      const cmdA = mapA.get(key);
-      if (cmdA.command !== cmdB.command || canonicalJson(cmdA) !== canonicalJson(cmdB)) {
-        modifiedCommands++;
+    const map1 = new Map(cmds1.map((c) => [c.name, c]));
+    const map2 = new Map(cmds2.map((c) => [c.name, c]));
+
+    const added = [];
+    const modified = [];
+    const removed = [];
+
+    for (const [name, c2] of map2.entries()) {
+      if (!map1.has(name)) {
+        added.push(c2);
+      } else {
+        const c1 = map1.get(name);
+        if (c1.command !== c2.command || c1.placeholder !== c2.placeholder || c1.category !== c2.category) {
+          modified.push({ before: c1, after: c2 });
+        }
       }
     }
-  }
 
-  for (const key of mapA.keys()) {
-    if (!mapB.has(key)) {
-      removedCommands++;
+    for (const [name, c1] of map1.entries()) {
+      if (!map2.has(name)) {
+        removed.push(c1);
+      }
     }
+
+    return { added, modified, removed };
   }
 
-  return { addedCommands, removedCommands, modifiedCommands };
+  /**
+   * Loads revision history from disk.
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _loadHistory() {
+    if (!this.historyPath) return;
+    try {
+      const fs = await import("fs");
+      if (fs.existsSync(this.historyPath)) {
+        const content = await fs.promises.readFile(this.historyPath, "utf8");
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed)) {
+          this._revisions = parsed;
+        }
+      }
+    } catch (e) {}
+  }
+
+  /**
+   * Saves revision history to disk.
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _saveHistory() {
+    if (!this.historyPath) return;
+    try {
+      const fs = await import("fs");
+      const pathModule = await import("path");
+      await fs.promises.mkdir(pathModule.dirname(this.historyPath), { recursive: true });
+      await fs.promises.writeFile(this.historyPath, JSON.stringify(this._revisions, null, 2), "utf8");
+    } catch (e) {}
+  }
 }
 
 /**
- * Restores configuration to a previous revision.
- * @param {Object} config - Active configuration.
- * @param {number} revisionId - Revision number to roll back to.
- * @param {string} [userRole="admin"] - User role executing rollback.
- * @returns {Object} Updated configuration restored to specified revision.
- * :visibility: public
+ * Approval Workflow Manager for team command proposals.
  */
-export function rollbackToRevision(config, revisionId, userRole = "admin") {
-  checkPermission(userRole, "ROLLBACK_VERSION");
-
-  const updatedConfig = JSON.parse(JSON.stringify(config || {}));
-  const history = getRevisionHistory(updatedConfig);
-  const targetRev = history.find((r) => r.revision === Number(revisionId));
-
-  if (!targetRev) {
-    throw new Error(`Revision #${revisionId} not found in history.`);
+export class ApprovalWorkflowManager {
+  /**
+   * Constructs ApprovalWorkflowManager instance.
+   * @param {string} [storagePath] - Optional path to file storage for submissions.
+   * @param {ActivityFeedManager} [activityFeedManager] - Activity feed instance.
+   */
+  constructor(storagePath, activityFeedManager) {
+    this.storagePath = storagePath || null;
+    this.activityFeedManager = activityFeedManager || null;
+    this._submissions = [];
   }
 
-  updatedConfig.categories = JSON.parse(JSON.stringify(targetRev.categories));
+  /**
+   * Submits a command or change proposal for team approval.
+   * @param {object} submissionData - Submission payload containing command, submitter, etc.
+   * @returns {Promise<object>} The created pending submission entry.
+   * @public
+   */
+  async submitForApproval(submissionData) {
+    await this._loadSubmissions();
 
-  return createConfigRevision(
-    updatedConfig,
-    "admin",
-    `Rollback to revision #${revisionId} (${targetRev.commitHash.substring(0, 7)})`
-  );
+    if (!submissionData || !submissionData.command) {
+      throw new Error("Invalid submission data: command is required");
+    }
+
+    const submission = {
+      submissionId: `sub_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      command: submissionData.command,
+      category: submissionData.category || "Team Commands",
+      repositoryId: submissionData.repositoryId || "default",
+      submitter: submissionData.submitter || "anonymous",
+      submitterRole: submissionData.submitterRole || ROLES.EDITOR,
+      notes: submissionData.notes || "",
+      status: "pending",
+      submittedAt: Date.now(),
+      reviewedBy: null,
+      reviewedAt: null,
+      reviewNotes: null,
+    };
+
+    this._submissions.push(submission);
+    await this._saveSubmissions();
+
+    if (this.activityFeedManager) {
+      await this.activityFeedManager.logActivity(
+        "PROPOSAL_SUBMITTED",
+        submission.submitter,
+        {
+          submissionId: submission.submissionId,
+          commandName: submission.command.name,
+        },
+        submission.repositoryId
+      );
+    }
+
+    return submission;
+  }
+
+  /**
+   * Gets list of pending command proposals awaiting review.
+   * @returns {Promise<Array<object>>} List of pending submission records.
+   * @public
+   */
+  async getPendingSubmissions() {
+    await this._loadSubmissions();
+    return this._submissions.filter((s) => s.status === "pending");
+  }
+
+  /**
+   * Approves a pending team submission.
+   * @param {string} submissionId - The submission ID.
+   * @param {string} reviewer - The reviewer user name or ID.
+   * @param {string} reviewerRole - The reviewer role (must have approve permission).
+   * @param {string} [notes] - Optional reviewer notes.
+   * @returns {Promise<object>} The updated submission object.
+   * @public
+   */
+  async approveSubmission(submissionId, reviewer, reviewerRole, notes = "") {
+    enforcePermission(reviewerRole, "approve");
+    await this._loadSubmissions();
+
+    const sub = this._submissions.find((s) => s.submissionId === submissionId);
+    if (!sub) {
+      throw new Error(`Submission '${submissionId}' not found`);
+    }
+
+    if (sub.status !== "pending") {
+      throw new Error(`Submission '${submissionId}' is already ${sub.status}`);
+    }
+
+    sub.status = "approved";
+    sub.reviewedBy = reviewer || "approver";
+    sub.reviewedAt = Date.now();
+    sub.reviewNotes = notes;
+
+    await this._saveSubmissions();
+
+    if (this.activityFeedManager) {
+      await this.activityFeedManager.logActivity(
+        "PROPOSAL_APPROVED",
+        reviewer,
+        {
+          submissionId: sub.submissionId,
+          commandName: sub.command.name,
+          notes,
+        },
+        sub.repositoryId
+      );
+    }
+
+    return sub;
+  }
+
+  /**
+   * Rejects a pending team submission.
+   * @param {string} submissionId - The submission ID.
+   * @param {string} reviewer - The reviewer user name or ID.
+   * @param {string} reviewerRole - The reviewer role (must have approve permission).
+   * @param {string} [reason] - Rejection reason explanation.
+   * @returns {Promise<object>} The updated submission object.
+   * @public
+   */
+  async rejectSubmission(submissionId, reviewer, reviewerRole, reason = "") {
+    enforcePermission(reviewerRole, "approve");
+    await this._loadSubmissions();
+
+    const sub = this._submissions.find((s) => s.submissionId === submissionId);
+    if (!sub) {
+      throw new Error(`Submission '${submissionId}' not found`);
+    }
+
+    if (sub.status !== "pending") {
+      throw new Error(`Submission '${submissionId}' is already ${sub.status}`);
+    }
+
+    sub.status = "rejected";
+    sub.reviewedBy = reviewer || "approver";
+    sub.reviewedAt = Date.now();
+    sub.reviewNotes = reason;
+
+    await this._saveSubmissions();
+
+    if (this.activityFeedManager) {
+      await this.activityFeedManager.logActivity(
+        "PROPOSAL_REJECTED",
+        reviewer,
+        {
+          submissionId: sub.submissionId,
+          commandName: sub.command.name,
+          reason,
+        },
+        sub.repositoryId
+      );
+    }
+
+    return sub;
+  }
+
+  /**
+   * Loads submissions from disk.
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _loadSubmissions() {
+    if (!this.storagePath) return;
+    try {
+      const fs = await import("fs");
+      if (fs.existsSync(this.storagePath)) {
+        const content = await fs.promises.readFile(this.storagePath, "utf8");
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed)) {
+          this._submissions = parsed;
+        }
+      }
+    } catch (e) {}
+  }
+
+  /**
+   * Saves submissions to disk.
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _saveSubmissions() {
+    if (!this.storagePath) return;
+    try {
+      const fs = await import("fs");
+      const pathModule = await import("path");
+      await fs.promises.mkdir(pathModule.dirname(this.storagePath), { recursive: true });
+      await fs.promises.writeFile(this.storagePath, JSON.stringify(this._submissions, null, 2), "utf8");
+    } catch (e) {}
+  }
 }
 
 /**
- * Creates a pending proposal for a command change in a team repository.
- * @param {Object} config - Active configuration.
- * @param {Object} params - { repoId, commandData, author, description }.
- * @param {string} [userRole="editor"] - User role submitting proposal.
- * @returns {Object} Updated configuration.
- * :visibility: public
+ * Team Command Repository Manager.
  */
-export function createProposal(
-  config,
-  { repoId, commandData, author = "editor", description = "" },
-  userRole = "editor"
-) {
-  checkPermission(userRole, "PROPOSE_CHANGE");
-
-  const updatedConfig = JSON.parse(JSON.stringify(config || {}));
-  if (!updatedConfig.approvalWorkflows) {
-    updatedConfig.approvalWorkflows = { proposals: [] };
+export class TeamRepositoryManager {
+  /**
+   * Constructs TeamRepositoryManager instance.
+   * @param {string} [storagePath] - Optional path to file storage for team repositories.
+   * @param {ApprovalWorkflowManager} [approvalWorkflowManager] - Approval manager instance.
+   * @param {ActivityFeedManager} [activityFeedManager] - Activity feed instance.
+   * @param {ConfigVersionControl} [versionControl] - Version control instance.
+   */
+  constructor(storagePath, approvalWorkflowManager, activityFeedManager, versionControl) {
+    this.storagePath = storagePath || null;
+    this.approvalWorkflowManager = approvalWorkflowManager || null;
+    this.activityFeedManager = activityFeedManager || null;
+    this.versionControl = versionControl || null;
+    this._repositories = new Map();
   }
-  if (!Array.isArray(updatedConfig.approvalWorkflows.proposals)) {
-    updatedConfig.approvalWorkflows.proposals = [];
+
+  /**
+   * Creates or registers a team repository.
+   * @param {object} repoData - Repository data { id, name, description, owner, commands }.
+   * @param {string} [userRole] - User role creating the repository.
+   * @returns {Promise<object>} Created repository object.
+   * @public
+   */
+  async createRepository(repoData, userRole = ROLES.ADMIN) {
+    enforcePermission(userRole, "publish_team");
+    await this._loadRepositories();
+
+    if (!repoData || !repoData.id || !repoData.name) {
+      throw new Error("Repository id and name are required");
+    }
+
+    const repo = {
+      id: repoData.id,
+      name: repoData.name,
+      description: repoData.description || "",
+      owner: repoData.owner || "system",
+      created_at: Date.now(),
+      updated_at: Date.now(),
+      commands: repoData.commands || [],
+    };
+
+    this._repositories.set(repo.id, repo);
+    await this._saveRepositories();
+
+    if (this.activityFeedManager) {
+      await this.activityFeedManager.logActivity(
+        "REPOSITORY_CREATED",
+        repo.owner,
+        { repositoryId: repo.id, name: repo.name },
+        repo.id
+      );
+    }
+
+    return repo;
   }
 
-  const proposalId = `prop-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-  const proposal = {
-    id: proposalId,
-    repoId,
-    commandData,
-    author,
-    description,
-    status: "pending",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    reviews: [],
-  };
+  /**
+   * Fetches repository data by ID.
+   * @param {string} repoId - Repository identifier.
+   * @returns {Promise<object|null>} Repository or null if not found.
+   * @public
+   */
+  async getRepository(repoId) {
+    await this._loadRepositories();
+    const repo = this._repositories.get(repoId);
+    return repo ? JSON.parse(JSON.stringify(repo)) : null;
+  }
 
-  updatedConfig.approvalWorkflows.proposals.push(proposal);
+  /**
+   * Lists all registered team repositories.
+   * @returns {Promise<Array<object>>} Array of repository objects.
+   * @public
+   */
+  async listRepositories() {
+    await this._loadRepositories();
+    return Array.from(this._repositories.values()).map((r) => JSON.parse(JSON.stringify(r)));
+  }
 
-  logActivity(updatedConfig, {
-    actor: author,
-    actorRole: userRole,
-    action: "CREATE_PROPOSAL",
-    target: commandData.name || "Command Proposal",
-    details: `Submitted proposal '${proposalId}': ${description}`,
-    repoId,
-  });
+  /**
+   * Publishes or proposes a command for a team repository.
+   * @param {string} repoId - Repository identifier.
+   * @param {object} commandObj - Command object.
+   * @param {string} [userRole] - User role.
+   * @param {string} [author] - Author user name.
+   * @param {object} [options] - Options (requireApproval, notes).
+   * @returns {Promise<object>} Status object or submission payload.
+   * @public
+   */
+  async publishCommand(repoId, commandObj, userRole = ROLES.EDITOR, author = "anonymous", options = {}) {
+    enforcePermission(userRole, "publish_team");
+    await this._loadRepositories();
 
-  return { config: updatedConfig, proposal };
+    const repo = this._repositories.get(repoId);
+    if (!repo) {
+      throw new Error(`Team repository '${repoId}' not found`);
+    }
+
+    const needsApproval = options.requireApproval || userRole === ROLES.EDITOR;
+
+    if (needsApproval && this.approvalWorkflowManager) {
+      return await this.approvalWorkflowManager.submitForApproval({
+        command: commandObj,
+        category: commandObj.category || "Team Commands",
+        repositoryId: repoId,
+        submitter: author,
+        submitterRole: userRole,
+        notes: options.notes || "Proposed team command",
+      });
+    }
+
+    const teamCommand = {
+      ...commandObj,
+      isTeamCommand: true,
+      repositoryId: repoId,
+      author,
+      publishedAt: Date.now(),
+    };
+
+    repo.commands.push(teamCommand);
+    repo.updated_at = Date.now();
+
+    await this._saveRepositories();
+
+    if (this.activityFeedManager) {
+      await this.activityFeedManager.logActivity(
+        "COMMAND_PUBLISHED",
+        author,
+        { repositoryId: repoId, commandName: commandObj.name },
+        repoId
+      );
+    }
+
+    return { status: "published", command: teamCommand };
+  }
+
+  /**
+   * Loads repositories from disk.
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _loadRepositories() {
+    if (!this.storagePath) return;
+    try {
+      const fs = await import("fs");
+      if (fs.existsSync(this.storagePath)) {
+        const content = await fs.promises.readFile(this.storagePath, "utf8");
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed)) {
+          this._repositories.clear();
+          for (const r of parsed) {
+            this._repositories.set(r.id, r);
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  /**
+   * Saves repositories to disk.
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _saveRepositories() {
+    if (!this.storagePath) return;
+    try {
+      const fs = await import("fs");
+      const pathModule = await import("path");
+      await fs.promises.mkdir(pathModule.dirname(this.storagePath), { recursive: true });
+      const list = Array.from(this._repositories.values());
+      await fs.promises.writeFile(this.storagePath, JSON.stringify(list, null, 2), "utf8");
+    } catch (e) {}
+  }
 }
 
 /**
- * Reviews (approves or rejects) a pending proposal.
- * @param {Object} config - Active configuration.
- * @param {string} proposalId - Proposal ID.
- * @param {Object} reviewData - { status, reviewer, comment }.
- * @param {string} [reviewerRole="approver"] - Reviewer's role.
- * @returns {Object} Result object with updated config and proposal.
- * :visibility: public
+ * Main Service class for Team Command Sharing, combining all sub-managers.
  */
-export function reviewProposal(
-  config,
-  proposalId,
-  { status, reviewer = "approver", comment = "" },
-  reviewerRole = "approver"
-) {
-  checkPermission(reviewerRole, "REVIEW_PROPOSAL");
+export class TeamSharingService {
+  /**
+   * Constructs TeamSharingService instance.
+   * @param {object} [config] - Configuration parameters (baseDir, userRole, userName).
+   */
+  constructor(config = {}) {
+    this.baseDir = config.baseDir || "/tmp/cmdbar-team";
+    this.userRole = config.userRole || ROLES.EDITOR;
+    this.userName = config.userName || "local_user";
 
-  if (status !== "approved" && status !== "rejected") {
-    throw new Error("Review status must be either 'approved' or 'rejected'.");
+    const pathJoin = (p) => `${this.baseDir}/${p}`;
+
+    this.activityFeed = new ActivityFeedManager(pathJoin("activity.json"));
+    this.versionControl = new ConfigVersionControl(pathJoin("history.json"));
+    this.approvalWorkflow = new ApprovalWorkflowManager(pathJoin("approvals.json"), this.activityFeed);
+    this.repositoryManager = new TeamRepositoryManager(
+      pathJoin("repositories.json"),
+      this.approvalWorkflow,
+      this.activityFeed,
+      this.versionControl
+    );
   }
 
-  const updatedConfig = JSON.parse(JSON.stringify(config || {}));
-  const proposals = (updatedConfig.approvalWorkflows && updatedConfig.approvalWorkflows.proposals) || [];
-  const proposal = proposals.find((p) => p.id === proposalId);
-
-  if (!proposal) {
-    throw new Error(`Proposal '${proposalId}' not found.`);
+  /**
+   * Shares a command object by exporting it to a URL string.
+   * @param {object} commandObj - Command to share.
+   * @param {string} [role] - User role.
+   * @returns {Promise<string>} Share URL string.
+   * @public
+   */
+  async shareCommand(commandObj, role = this.userRole) {
+    enforcePermission(role, "share");
+    const url = exportCommandToUrl(commandObj, { author: this.userName });
+    await this.activityFeed.logActivity("COMMAND_SHARED", this.userName, { commandName: commandObj.name });
+    return url;
   }
 
-  proposal.status = status;
-  proposal.updatedAt = new Date().toISOString();
-  proposal.reviews.push({
-    reviewer,
-    role: reviewerRole,
-    status,
-    comment,
-    timestamp: new Date().toISOString(),
-  });
+  /**
+   * Imports commands from a share URL into a configuration object.
+   * @param {string} urlStr - Share URL string.
+   * @param {object} [config] - Target config layout object.
+   * @param {string} [role] - User role.
+   * @returns {Promise<object>} Object containing { config, status, message }.
+   * @public
+   */
+  async importFromUrl(urlStr, config = { categories: [] }, role = this.userRole) {
+    enforcePermission(role, "import_command");
+    const payload = parseShareUrl(urlStr);
 
-  logActivity(updatedConfig, {
-    actor: reviewer,
-    actorRole: reviewerRole,
-    action: status === "approved" ? "APPROVE_PROPOSAL" : "REJECT_PROPOSAL",
-    target: proposalId,
-    details: `${status.toUpperCase()} proposal '${proposalId}': ${comment}`,
-    repoId: proposal.repoId,
-  });
+    let targetConfig = JSON.parse(JSON.stringify(config));
+    if (!targetConfig.categories) {
+      targetConfig.categories = [];
+    }
 
-  return { config: updatedConfig, proposal };
-}
+    if (payload.type === "command") {
+      const cmd = payload.data;
+      const catName = cmd.category || "Shared Commands";
+      let cat = targetConfig.categories.find((c) => c.name === catName);
+      if (!cat) {
+        cat = { name: catName, commands: [] };
+        targetConfig.categories.push(cat);
+      }
+      cat.commands = cat.commands || [];
+      cat.commands.push({
+        name: cmd.name,
+        command: cmd.command,
+        placeholder: cmd.placeholder || "",
+        isShared: true,
+        sharedBy: payload.author,
+      });
 
-/**
- * Merges an approved proposal into active team commands.
- * @param {Object} config - Active configuration.
- * @param {string} proposalId - Proposal ID.
- * @param {string} [userRole="approver"] - User role executing merge.
- * @returns {Object} Updated configuration.
- * :visibility: public
- */
-export function mergeProposal(config, proposalId, userRole = "approver") {
-  checkPermission(userRole, "APPROVE_PROPOSAL");
+      await this.activityFeed.logActivity("COMMAND_IMPORTED", this.userName, {
+        commandName: cmd.name,
+        fromAuthor: payload.author,
+      });
 
-  const updatedConfig = JSON.parse(JSON.stringify(config || {}));
-  const proposals = (updatedConfig.approvalWorkflows && updatedConfig.approvalWorkflows.proposals) || [];
-  const proposal = proposals.find((p) => p.id === proposalId);
+      await this.versionControl.recordRevision(targetConfig, this.userName, `Imported '${cmd.name}' via URL`);
 
-  if (!proposal) {
-    throw new Error(`Proposal '${proposalId}' not found.`);
+      return { config: targetConfig, status: "imported", message: `Successfully imported '${cmd.name}'` };
+    } else if (payload.type === "repository") {
+      const repoData = payload.data;
+      if (Array.isArray(repoData)) {
+        for (const item of repoData) {
+          if (item.name && item.commands) {
+            let cat = targetConfig.categories.find((c) => c.name === item.name);
+            if (!cat) {
+              cat = { name: item.name, commands: [] };
+              targetConfig.categories.push(cat);
+            }
+            cat.commands.push(...item.commands);
+          }
+        }
+      }
+      await this.activityFeed.logActivity("REPOSITORY_IMPORTED", this.userName, {
+        fromAuthor: payload.author,
+      });
+      await this.versionControl.recordRevision(targetConfig, this.userName, "Imported repository via URL");
+      return { config: targetConfig, status: "imported", message: "Successfully imported repository" };
+    }
+
+    throw new Error(`Unsupported payload type '${payload.type}'`);
   }
-
-  if (proposal.status !== "approved") {
-    throw new Error(`Proposal '${proposalId}' must be approved before merging (current status: '${proposal.status}').`);
-  }
-
-  const repo = listTeamRepositories(updatedConfig).find((r) => r.id === proposal.repoId);
-  const teamCatName = repo ? `Team: ${repo.name}` : "Team Shared Commands";
-
-  if (!Array.isArray(updatedConfig.categories)) {
-    updatedConfig.categories = [];
-  }
-
-  let cat = updatedConfig.categories.find((c) => c.name === teamCatName);
-  if (!cat) {
-    cat = { name: teamCatName, commands: [] };
-    updatedConfig.categories.push(cat);
-  }
-
-  cat.commands.push({
-    ...proposal.commandData,
-    teamRepoId: proposal.repoId,
-  });
-
-  proposal.status = "merged";
-  proposal.updatedAt = new Date().toISOString();
-
-  logActivity(updatedConfig, {
-    actor: "System",
-    actorRole: userRole,
-    action: "MERGE_PROPOSAL",
-    target: proposalId,
-    details: `Merged proposal '${proposalId}' into category '${teamCatName}'`,
-    repoId: proposal.repoId,
-  });
-
-  return createConfigRevision(
-    updatedConfig,
-    proposal.author,
-    `Merged team proposal: ${proposal.commandData.name || proposalId}`
-  );
-}
-
-/**
- * Returns list of proposals filtered by status, repo, or author.
- * @param {Object} config - Active configuration.
- * @param {Object} [filters] - Filter parameters { status, repoId, author }.
- * @returns {Array} List of matching proposals.
- * :visibility: public
- */
-export function listProposals(config, filters = {}) {
-  const proposals = (config && config.approvalWorkflows && config.approvalWorkflows.proposals) || [];
-  return proposals.filter((p) => {
-    if (filters.status && p.status !== filters.status) return false;
-    if (filters.repoId && p.repoId !== filters.repoId) return false;
-    if (filters.author && p.author !== filters.author) return false;
-    return true;
-  });
-}
-
-/**
- * Appends an event entry to the activity log.
- * @param {Object} config - Active configuration.
- * @param {Object} eventData - { actor, actorRole, action, target, details, repoId }.
- * @returns {Object} Created activity entry.
- * :visibility: public
- */
-export function logActivity(config, { actor = "system", actorRole = "viewer", action, target, details = "", repoId = null }) {
-  if (!config) return null;
-  if (!Array.isArray(config.activityFeed)) {
-    config.activityFeed = [];
-  }
-
-  const entry = {
-    id: `act-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-    timestamp: new Date().toISOString(),
-    actor,
-    actorRole,
-    action,
-    target,
-    details,
-    repoId,
-  };
-
-  config.activityFeed.unshift(entry);
-
-  // Keep max 1000 items
-  if (config.activityFeed.length > 1000) {
-    config.activityFeed.length = 1000;
-  }
-
-  return entry;
-}
-
-/**
- * Returns filtered and paginated activity feed log entries.
- * @param {Object} config - Active configuration.
- * @param {Object} [filters] - Filter parameters { repoId, actor, action, limit, offset }.
- * @returns {Object} Result object { items, total }.
- * :visibility: public
- */
-export function getActivityFeed(config, filters = {}) {
-  const feed = (config && config.activityFeed) || [];
-  const filtered = feed.filter((entry) => {
-    if (filters.repoId && entry.repoId !== filters.repoId) return false;
-    if (filters.actor && entry.actor !== filters.actor) return false;
-    if (filters.action && entry.action !== filters.action) return false;
-    return true;
-  });
-
-  const offset = Number(filters.offset) || 0;
-  const limit = Number(filters.limit) || 100;
-  const items = filtered.slice(offset, offset + limit);
-
-  return { items, total: filtered.length };
-}
-
-/**
- * Clears activity log entries.
- * @param {Object} config - Active configuration.
- * @param {string} [userRole="admin"] - User role executing clear.
- * @returns {Object} Updated configuration.
- * :visibility: public
- */
-export function clearActivityFeed(config, userRole = "admin") {
-  checkPermission(userRole, "MANAGE_REPOS");
-
-  const updatedConfig = JSON.parse(JSON.stringify(config || {}));
-  updatedConfig.activityFeed = [];
-  return updatedConfig;
 }

@@ -45,13 +45,14 @@ def mock_config():
 # 1. UNIT TESTS: BUTTONS & VISUAL LED FEEDBACK
 # =====================================================================
 
+
 def test_stream_deck_button_creation_and_states():
     btn = StreamDeckButton(
         key_index=0,
         action_type="command",
         command_name="Git Status",
         category="Projects",
-        label="Git Status"
+        label="Git Status",
     )
     assert btn.key_index == 0
     assert btn.action_type == "command"
@@ -86,10 +87,12 @@ def test_visual_renderer_led_colors_and_labels():
 
     assert idle_color != exec_color
     assert success_color == (30, 180, 75)  # Green LED
-    assert error_color == (220, 50, 50)     # Red LED
+    assert error_color == (220, 50, 50)  # Red LED
 
     # Dynamic Label Formatting and Wrapping
-    lines = renderer.format_dynamic_label("Deploy Application to Production Staging", max_chars_per_line=10, max_lines=3)
+    lines = renderer.format_dynamic_label(
+        "Deploy Application to Production Staging", max_chars_per_line=10, max_lines=3
+    )
     assert len(lines) <= 3
     assert all(len(line) <= 10 for line in lines)
 
@@ -98,24 +101,20 @@ def test_visual_renderer_svg_and_data_url_generation():
     renderer = VisualRenderer()
 
     svg = renderer.render_button_svg(
-        label="Git Status",
-        state="success",
-        subtitle="0.1s"
+        label="Git Status", state="success", subtitle="0.1s"
     )
     assert "<svg" in svg
     assert "Git Status" in svg
     assert "0.1s" in svg
 
-    data_url = renderer.render_button_data_url(
-        label="Build App",
-        state="executing"
-    )
+    data_url = renderer.render_button_data_url(label="Build App", state="executing")
     assert data_url.startswith("data:image/svg+xml;base64,")
 
 
 # =====================================================================
 # 2. UNIT TESTS: PROFILES & PROFILE SWITCHING
 # =====================================================================
+
 
 def test_stream_deck_profile_auto_population(mock_config):
     profile = StreamDeckProfile(name="Projects", grid_rows=3, grid_cols=5)
@@ -162,15 +161,18 @@ def test_profile_switching(mock_config):
 # 3. UNIT TESTS: STREAM DECK PROTOCOL PARSING & MESSAGES
 # =====================================================================
 
+
 def test_stream_deck_protocol_parsing_and_formatting():
     # Incoming message parsing
-    raw_incoming = json.dumps({
-        "event": "keyDown",
-        "action": "com.cmdbar.streamdeck.execute",
-        "context": "ctx_123",
-        "device": "dev_456",
-        "payload": {"keyIndex": 2}
-    })
+    raw_incoming = json.dumps(
+        {
+            "event": "keyDown",
+            "action": "com.cmdbar.streamdeck.execute",
+            "context": "ctx_123",
+            "device": "dev_456",
+            "payload": {"keyIndex": 2},
+        }
+    )
 
     parsed = StreamDeckPluginProtocol.parse_incoming_message(raw_incoming)
     assert parsed["event"] == "keyDown"
@@ -190,7 +192,9 @@ def test_stream_deck_protocol_parsing_and_formatting():
     assert '"event": "setTitle"' in title_msg
     assert '"title": "New Label"' in title_msg
 
-    img_msg = StreamDeckPluginProtocol.format_set_image("ctx_123", "data:image/png;base64,123")
+    img_msg = StreamDeckPluginProtocol.format_set_image(
+        "ctx_123", "data:image/png;base64,123"
+    )
     assert '"event": "setImage"' in img_msg
 
     state_msg = StreamDeckPluginProtocol.format_set_state("ctx_123", 1)
@@ -202,7 +206,9 @@ def test_stream_deck_protocol_parsing_and_formatting():
     ok_msg = StreamDeckPluginProtocol.format_show_ok("ctx_123")
     assert '"event": "showOk"' in ok_msg
 
-    switch_msg = StreamDeckPluginProtocol.format_switch_to_profile("dev_456", "Projects")
+    switch_msg = StreamDeckPluginProtocol.format_switch_to_profile(
+        "dev_456", "Projects"
+    )
     assert '"event": "switchToProfile"' in switch_msg
     assert '"profile": "Projects"' in switch_msg
 
@@ -243,21 +249,26 @@ def test_manager_context_and_key_actions(mock_config, tmp_path, monkeypatch):
 
     # Handle key down for profile switch button (slot 14)
     prof = manager.get_active_profile()
-    prof.set_button(14, StreamDeckButton(14, action_type="profile_switch", target_profile="Projects"))
+    prof.set_button(
+        14,
+        StreamDeckButton(14, action_type="profile_switch", target_profile="Projects"),
+    )
     res_switch = manager.handle_key_down("ctx_14", 14)
     assert res_switch["status"] == "profile_switched"
 
     # Update command feedback
-    manager.update_command_feedback("Git Status", exit_code=0, success=True, execution_time_ms=50.0)
+    manager.update_command_feedback(
+        "Git Status", exit_code=0, success=True, execution_time_ms=50.0
+    )
     btn = manager.profiles["Projects"].get_button(0)
     assert btn.state == "success"
     assert btn.execution_time_ms == 0.05
 
 
-
 # =====================================================================
 # 4. SECURITY REVIEW TESTS
 # =====================================================================
+
 
 def test_security_input_sanitization():
     renderer = VisualRenderer()
@@ -282,6 +293,7 @@ def test_security_input_sanitization():
 # =====================================================================
 # 5. INTEGRATION TESTS: D-BUS & STREAM DECK MANAGER
 # =====================================================================
+
 
 def test_dbus_stream_deck_integration(tmp_path, mock_config, monkeypatch):
     config_file = tmp_path / "config.json"
@@ -320,6 +332,7 @@ def test_dbus_stream_deck_integration(tmp_path, mock_config, monkeypatch):
 # 6. PERFORMANCE BENCHMARKS
 # =====================================================================
 
+
 def test_performance_benchmarks():
     renderer = VisualRenderer(cache_size=500)
 
@@ -332,7 +345,9 @@ def test_performance_benchmarks():
     avg_render_ms = total_render_ms / 100.0
 
     print(f"\n[BENCHMARK] Average visual button render time: {avg_render_ms:.3f} ms")
-    assert avg_render_ms < 5.0, f"Render benchmark failed: {avg_render_ms:.3f} ms >= 5.0 ms target"
+    assert (
+        avg_render_ms < 5.0
+    ), f"Render benchmark failed: {avg_render_ms:.3f} ms >= 5.0 ms target"
 
     # 2. Render Cache Benchmark (Repeated renders <0.1ms)
     start_cache_time = time.perf_counter()
@@ -342,7 +357,9 @@ def test_performance_benchmarks():
     avg_cache_ms = total_cache_ms / 500.0
 
     print(f"[BENCHMARK] Average cached render time: {avg_cache_ms:.4f} ms")
-    assert avg_cache_ms < 0.1, f"Cache benchmark failed: {avg_cache_ms:.4f} ms >= 0.1 ms target"
+    assert (
+        avg_cache_ms < 0.1
+    ), f"Cache benchmark failed: {avg_cache_ms:.4f} ms >= 0.1 ms target"
 
     # 3. Profile Switch Latency Benchmark (<10ms)
     manager = StreamDeckManager()
@@ -357,4 +374,6 @@ def test_performance_benchmarks():
     avg_switch_ms = total_switch_ms / 100.0
 
     print(f"[BENCHMARK] Average profile switch latency: {avg_switch_ms:.3f} ms")
-    assert avg_switch_ms < 10.0, f"Profile switch benchmark failed: {avg_switch_ms:.3f} ms >= 10.0 ms target"
+    assert (
+        avg_switch_ms < 10.0
+    ), f"Profile switch benchmark failed: {avg_switch_ms:.3f} ms >= 10.0 ms target"
