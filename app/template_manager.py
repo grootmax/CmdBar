@@ -161,14 +161,17 @@ def import_templates_to_config(config, templates):
     return config, count_added
 
 
-def export_command_as_template(command_obj, category_name="Custom", description=None, author=None):
+def export_command_as_template(
+    command_obj, category_name="Custom", description=None, author=None
+):
     """
     Exports a single command dict to a template schema dict.
     """
     cmd_text = command_obj.get("command") or command_obj.get("template", "")
     tmpl = {
         "name": command_obj.get("name", "Custom Command"),
-        "description": description or command_obj.get("description", f"Template for {command_obj.get('name')}"),
+        "description": description
+        or command_obj.get("description", f"Template for {command_obj.get('name')}"),
         "command": cmd_text,
         "template": cmd_text,
         "category": category_name or command_obj.get("category", "Custom"),

@@ -96,11 +96,10 @@ The policy enforcement engine (`extension/policyEngine.js` and `app/policy_engin
 - **Geographic Restrictions**: Restricts command execution by country code or IP CIDR ranges.
 - **Time-Based Access Controls**: Limits command execution to designated days and time windows.
 
-### Live Terminal Sharing Architecture
+### Workspace-Specific Configuration Module
 
-The Live Terminal Sharing system (`extension/terminalSharing.js` & `companion/terminal_sharing.py`) provides real-time collaborative shell sessions:
-- **WebRTC DataChannel Signaling**: P2P connection establishment with SDP offer/answer exchange and ICE candidate handling.
-- **Real-Time Cursor Tracking**: Manages participant cursor positions (line, column, selection) and custom display colors.
-- **Role-Based Permission Control**: Controls participant capabilities (`Host`, `Editor`, `Viewer`) with request/grant/revoke controls.
-- **E2E Encryption**: Protects output and input streams via AES-256-GCM symmetric encryption with derived session keys.
-- **Session Recording**: Captures frame events with relative timestamps and exports to Asciinema v2 and JSON log formats.
+The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`) manages project-level configuration discovery and switching:
+- **CWD & Git Auto-Detection**: Searches upward from current working directory to Git repository root for `.cmdbar.json` or `.cmdbar/config.json`.
+- **Project Templates**: Initializes project configurations using built-in templates (`node`, `python`, `rust`, `go`, `generic`).
+- **Smooth Merging**: Merges workspace categories with global configuration, prepending project commands while avoiding command duplicates.
+- **WorkspaceManager**: High-performance active workspace manager with caching to guarantee sub-5ms lookup performance.

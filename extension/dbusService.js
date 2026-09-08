@@ -8,7 +8,11 @@ import {
   verifyAndConsumeEmergencyCode,
 } from "./yubikeyAuth.js";
 import { EventTriggerManager } from "./eventTriggers.js";
-import { TerminalSharingSession } from "./terminalSharing.js";
+import {
+  WorkspaceManager,
+  findWorkspaceConfigPath,
+  initWorkspaceConfig,
+} from "./workspaceConfig.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -84,18 +88,6 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="code" type="s" direction="in"/>
       <arg name="success" type="b" direction="out"/>
     </method>
-    <method name="StartTerminalSharing">
-      <arg name="session_id" type="s" direction="in"/>
-      <arg name="title" type="s" direction="in"/>
-      <arg name="json_session_info" type="s" direction="out"/>
-    </method>
-    <method name="StopTerminalSharing">
-      <arg name="session_id" type="s" direction="in"/>
-      <arg name="success" type="b" direction="out"/>
-    </method>
-    <method name="GetTerminalSharingSessions">
-      <arg name="json_sessions" type="s" direction="out"/>
-    </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
       <arg name="exit_code" type="i"/>
@@ -152,7 +144,7 @@ export class CmdBarDBusService {
     this._busNameId = 0;
     this._ssoManager = new SSOManager();
     this._triggerManager = new EventTriggerManager();
-    this._terminalSessions = new Map();
+    this.workspaceManager = new WorkspaceManager();
   }
 
   export() {
@@ -610,35 +602,47 @@ export class CmdBarDBusService {
     }
   }
 
-  async StartTerminalSharing(sessionId, title) {
+  async DetectWorkspace(cwd) {
     try {
-      const session = new TerminalSharingSession({
-        sessionId: sessionId || undefined,
-        title: title || "CmdBar Shared Terminal",
-      });
-      session.start();
-      this._terminalSessions.set(session.sessionId, session);
-      return JSON.stringify(session.getMetrics());
+      const wsPath = findWorkspaceConfigPath(cwd);
+      return [Boolean(wsPath), wsPath || ""];
     } catch (e) {
-      console.error(`CmdBar D-Bus StartTerminalSharing error: ${e.message}`);
-      return JSON.stringify({ error: e.message });
+      return [false, ""];
     }
   }
 
-  async StopTerminalSharing(sessionId) {
-    if (this._terminalSessions.has(sessionId)) {
-      const session = this._terminalSessions.get(sessionId);
-      session.endSession();
-      this._terminalSessions.delete(sessionId);
-      return true;
+  async InitWorkspace(cwd, templateName) {
+    try {
+      const res = initWorkspaceConfig(cwd, templateName);
+      this.workspaceManager.registerWorkspace(cwd);
+      return [true, res.configPath];
+    } catch (e) {
+      return [false, ""];
     }
-    return false;
   }
 
-  async GetTerminalSharingSessions() {
-    const sessionsInfo = Array.from(this._terminalSessions.values()).map((s) => s.getMetrics());
-    return JSON.stringify(sessionsInfo);
+  async SwitchWorkspace(cwd) {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const globalCfg = await loadConfig(configPath);
+      this.workspaceManager.setGlobalConfig(globalCfg);
+      const wsCfg = this.workspaceManager.switchWorkspace(cwd);
+      return Boolean(wsCfg);
+    } catch (e) {
+      return false;
+    }
   }
+
+  async ListWorkspaces() {
+    try {
+      return JSON.stringify(this.workspaceManager.listWorkspaces());
+    } catch (e) {
+      return JSON.stringify([]);
+    }
+  }
+
   emitCommandExecuted(name, exitCode, success) {
     if (this._dbusImpl && GLib) {
       try {
