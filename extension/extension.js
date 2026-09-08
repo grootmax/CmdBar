@@ -2119,7 +2119,9 @@ const CmdBarIndicator = GObject.registerClass(
           this._monitor.disconnect(this._monitorId);
           this._monitorId = 0;
         }
-        this._monitor.cancel();
+        if (typeof this._monitor.cancel === "function") {
+          this._monitor.cancel();
+        }
         this._monitor = null;
       }
       super.destroy();

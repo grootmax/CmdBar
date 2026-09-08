@@ -300,11 +300,21 @@ jobs:
               echo ""
               echo "Fetching base branch..."
 
-              git fetch origin "$BASE_BRANCH"
+              if ! git fetch origin "$BASE_BRANCH"; then
+                echo "WARNING: Failed to fetch base branch $BASE_BRANCH"
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               echo "Fetching Jules branch..."
 
-              git fetch origin "$HEAD_BRANCH"
+              if ! git fetch origin "$HEAD_BRANCH"; then
+                echo "WARNING: Failed to fetch head branch $HEAD_BRANCH"
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               # ==================================================
               # CHECKOUT JULES BRANCH
@@ -313,9 +323,14 @@ jobs:
               echo ""
               echo "Checking out Jules branch..."
 
-              git checkout -B \
+              if ! git checkout -B \
                 "$HEAD_BRANCH" \
-                "origin/$HEAD_BRANCH"
+                "origin/$HEAD_BRANCH"; then
+                echo "WARNING: Failed to checkout branch $HEAD_BRANCH"
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               # ==================================================
               # MERGE BASE INTO JULES BRANCH
@@ -387,10 +402,14 @@ jobs:
                   echo "Resolving conflict:"
                   echo "  $FILE"
 
+                  rm -f .git/index.lock
                   if git checkout --theirs -- "$FILE" 2>/dev/null; then
-                    git add -- "$FILE"
+                    rm -f .git/index.lock
+                    git add -- "$FILE" || true
                   else
-                    git rm -f -- "$FILE" 2>/dev/null || true
+                    echo "  File $FILE removed in theirs, deleting..."
+                    rm -f .git/index.lock
+                    git rm -f -- "$FILE" 2>/dev/null || rm -f "$FILE" || true
                   fi
                 done
 
@@ -433,6 +452,7 @@ jobs:
                 echo ""
                 echo "Committing conflict resolution..."
 
+                rm -f .git/index.lock
                 if ! git diff --quiet || ! git diff --cached --quiet || [ -f .git/MERGE_HEAD ]; then
                   git commit \
                     -m "chore: auto-resolve merge conflicts" || true
@@ -447,7 +467,12 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              git push origin "$HEAD_BRANCH"
+              if ! git push origin "$HEAD_BRANCH"; then
+                echo "WARNING: Unable to push resolved branch $HEAD_BRANCH to origin."
+                cd /
+                rm -rf "$WORKDIR"
+                break
+              fi
 
               cd /
 

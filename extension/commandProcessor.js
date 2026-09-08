@@ -284,6 +284,13 @@ export const DEFAULT_ALLOWED_BINARIES = [
   "bwrap",
   "flatpak-spawn",
   "firejail",
+  "wmctrl",
+  "xdotool",
+  "i3-msg",
+  "swaymsg",
+  "hyprctl",
+  "gdbus",
+  "dbus-send",
 ];
 
 /**
@@ -299,6 +306,10 @@ export function isBinaryAllowlisted(binaryPath, customAllowlist = []) {
   const cleanPath = binaryPath.trim();
   if (!cleanPath) {
     return false;
+  }
+
+  if (cleanPath.startsWith("cmdbar:window:") || cleanPath.startsWith("window:")) {
+    return true;
   }
 
   if (Array.isArray(customAllowlist) && customAllowlist.length > 0) {
@@ -1541,3 +1552,13 @@ export function hasNonGitPlaceholders(commandTemplate) {
   return hasPlaceholder(stripped);
 }
 
+export {
+  closeWindow,
+  moveWindow,
+  resizeWindow,
+  tileWindow,
+  switchWorkspace,
+  getWindowsList,
+  generateWindowPreview,
+  executeWindowCommand,
+} from "./windowManager.js";

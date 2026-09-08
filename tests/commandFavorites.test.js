@@ -63,6 +63,13 @@ jest.unstable_mockModule('gi', () => ({
   Gio: {
     Subprocess: { new: mockSubprocessNew },
     SubprocessFlags: { STDIN_PIPE: 1, STDERR_PIPE: 2, STDOUT_PIPE: 4, NONE: 0 },
+    File: {
+      new_for_path: () => ({
+        monitor_file: () => ({ connect: () => {} }),
+        get_path: () => '',
+      }),
+    },
+    FileMonitorFlags: { NONE: 0 },
   },
   GLib: {
     getenv: mockGetenv,
@@ -101,7 +108,8 @@ jest.unstable_mockModule('resource:///org/gnome/shell/ui/main.js', () => ({
 
 jest.unstable_mockModule('resource:///org/gnome/shell/ui/panelMenu.js', () => ({
   Button: class {
-    constructor() {
+    constructor(...args) {
+      this.children = [];
       this.menu = {
         items: [],
         removeAll() {
@@ -111,6 +119,13 @@ jest.unstable_mockModule('resource:///org/gnome/shell/ui/panelMenu.js', () => ({
           this.items.push(item);
         },
       };
+      if (typeof this._init === 'function') {
+        this._init(...args);
+      }
+    }
+    _init() {}
+    add_child(child) {
+      this.children.push(child);
     }
     destroy() {}
   },

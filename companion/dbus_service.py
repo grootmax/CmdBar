@@ -22,6 +22,17 @@ from app.workspace_config import (
     PROJECT_TEMPLATES,
 )
 from companion.stream_deck import get_stream_deck_manager
+from companion.window_manager import (
+    get_windows_list,
+    close_window,
+    move_window,
+    resize_window,
+    tile_window,
+    switch_workspace,
+    generate_window_preview,
+    execute_window_command,
+)
+
 
 
 class CmdBarDBusService:
@@ -508,3 +519,18 @@ class CmdBarDBusService:
     def get_terminal_sharing_sessions(self) -> str:
         sessions_info = [s.get_metrics() for s in self.active_terminal_sessions.values()]
         return json.dumps(sessions_info)
+
+    def list_windows(self) -> str:
+        return json.dumps(get_windows_list())
+
+    def control_window(self, action: str, param: str = "") -> bool:
+        cmd_str = f"cmdbar:window:{action} {param}".strip()
+        res = execute_window_command(cmd_str)
+        return bool(res and res.get("result", {}).get("success"))
+
+    def get_window_preview(self) -> str:
+        return generate_window_preview()
+
+    def switch_workspace(self, target: str) -> bool:
+        res = switch_workspace(target)
+        return bool(res and res.get("success"))

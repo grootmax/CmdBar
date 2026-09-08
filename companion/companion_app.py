@@ -29,6 +29,7 @@ except ImportError:
         def get_profile_env(cfg, name=None): return {}
         def is_command_visible_in_profile(cmd, name): return True
         def merge_environment(base, cfg, name=None): return dict(base or {})
+from companion.window_manager import execute_window_command
 
 from app.workspace_config import (
     init_workspace_config,
@@ -391,9 +392,22 @@ def get_preview_tokens(tokens, params=None, schema=None):
 def run_command_in_shell(command_str):
     """
     Runs the given command string inside a shell and returns (exit_code, stdout, stderr).
+    Also supports window management commands (cmdbar:window:...).
     """
     import time
     start_time = time.time()
+    if command_str and isinstance(command_str, str):
+        clean = command_str.strip()
+        if clean.startswith("cmdbar:window:") or clean.startswith("window:"):
+            win_res = execute_window_command(clean)
+            if win_res.get("isWindowCmd"):
+                res = win_res.get("result", {})
+                code = 0 if res.get("success", True) else 1
+                out = res.get("preview") or res.get("message") or ""
+                dur_ms = int((time.time() - start_time) * 1000)
+                config_data = load_config()
+                log_command(command_str, code, dur_ms, config=config_data)
+                return code, out, ""
     try:
         res = subprocess.run(command_str, shell=True, text=True, capture_output=True)
         dur_ms = int((time.time() - start_time) * 1000)

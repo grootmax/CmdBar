@@ -22,6 +22,11 @@ import {
   verifyAndConsumeEmergencyCode,
   authenticateCommand,
   benchmarkYubikeyAuth,
+  closeWindow,
+  tileWindow,
+  switchWorkspace,
+  generateWindowPreview,
+  executeWindowCommand,
 } from "./extension/commandProcessor.js";
 import {
   saveConfigAtomically,
@@ -191,7 +196,17 @@ try {
   assert.strictEqual(hasNonGitPlaceholders('git push origin {git-branch}'), false, 'Should have no non-git placeholders');
   assert.strictEqual(hasNonGitPlaceholders('git commit -m "<msg>" on {git-branch}'), true, 'Should detect <msg> non-git placeholder');
 
-  // 7. Atomic Persistence Tests (Sync & Async)
+  // 7. Window Management Tests
+  const winCmdRes = executeWindowCommand('cmdbar:window:tile left');
+  assert.strictEqual(winCmdRes.isWindowCmd, true, 'Should detect window command');
+  assert.strictEqual(winCmdRes.result.success, true, 'Window command should succeed');
+
+  const winPrevRes = generateWindowPreview([{
+      id: 1, title: 'Term', wmClass: 'term', workspace: 0, focused: true, rect: { x: 0, y: 0, width: 960, height: 1080 }
+  }], 1920, 1080);
+  assert.ok(winPrevRes.includes('Desktop Window Layout'), 'Window preview should contain header title');
+
+  // 8. Atomic Persistence Tests (Sync & Async)
   const tempDir = path.join(
     os.tmpdir(),
     `cmdbar-standalone-test-${Date.now()}`,
