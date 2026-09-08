@@ -231,6 +231,7 @@ class CmdBarDBusClient:
         res = self._call_method("TriggerStreamDeckButton", key_index)
         return bool(res)
 
+
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
         self._executed_callbacks.append(callback)

@@ -7,69 +7,24 @@ import { sanitizeHistoryItem, MAX_HISTORY_ITEMS } from "./commandProcessor.js";
 import { DEFAULT_POLICY_CONFIG } from "./policyEngine.js";
 import { DEFAULT_RBAC_CONFIG } from "./rbacManager.js";
 
-export const DEFAULT_CONFIG = {
-  sso: {
-    enabled: false,
-    default_provider: "azure",
-    auto_provision: true,
-    allowed_domains: ["example.com"],
-    default_role: "user",
-    group_claim: "groups",
-    providers: {
-      azure: {
-        name: "Azure Active Directory",
-        type: "azure",
-        protocol: "oidc",
-        tenant_id: "common",
-        client_id: "",
-        client_secret: "",
-        redirect_uri: "http://localhost:8080/callback/sso",
-        saml_sso_url: "https://login.microsoftonline.com/common/saml2",
-        saml_entity_id: "https://sts.windows.net/common/",
-      },
-      okta: {
-        name: "Okta Workforce Identity",
-        type: "okta",
-        protocol: "oidc",
-        domain: "company.okta.com",
-        client_id: "",
-        client_secret: "",
-        redirect_uri: "http://localhost:8080/callback/sso",
-        saml_sso_url: "https://company.okta.com/app/sso/saml",
-        saml_entity_id: "http://www.okta.com/default",
-      },
-      google: {
-        name: "Google Workspace SSO",
-        type: "google",
-        protocol: "oidc",
-        client_id: "",
-        client_secret: "",
-        redirect_uri: "http://localhost:8080/callback/sso",
-        saml_sso_url: "https://accounts.google.com/o/saml2/idp",
-        saml_entity_id: "https://accounts.google.com/o/saml2?idpid=default",
-      },
-    },
-    group_mappings: [
-      {
-        id: "rule-admin",
-        group_pattern: "Admins",
-        match_type: "contains",
-        role: "admin",
-        categories: ["System Utilities", "Infrastructure", "AI Assistant", "Projects"],
-      },
-      {
-        id: "rule-dev",
-        group_pattern: "Developers",
-        match_type: "contains",
-        role: "developer",
-        categories: ["Projects", "AI Assistant"],
-      },
-    ],
-    session: {
-      max_ttl_seconds: 28800,
-      refresh_threshold_seconds: 300,
-    },
+export const DEFAULT_BRANDING = {
+  enabled: false,
+  white_label: false,
+  organization_name: "CmdBar Enterprise",
+  logo_url: "",
+  logo_path: "",
+  brand_color: "#0055ff",
+  accent_color: "#00aaff",
+  domain_alias: "",
+  custom_ssl: {
+    cert_path: "",
+    key_path: "",
+    ca_path: "",
+    verify_ssl: true,
   },
+};
+
+export const DEFAULT_CONFIG = {
   audit: {
     enabled: true,
     privacy_mode: false,
@@ -253,6 +208,7 @@ function sleep(ms) {
 }
 
 /**
+/**
  * Validates white label branding configuration section.
  * @param {object} branding
  * @returns {boolean}
@@ -262,6 +218,18 @@ export function validateBrandingConfig(branding) {
   if (typeof branding !== "object") return false;
 
   if (branding.enabled !== undefined && typeof branding.enabled !== "boolean") {
+    return false;
+  }
+  if (branding.white_label !== undefined && typeof branding.white_label !== "boolean") {
+    return false;
+  }
+  if (branding.organization_name !== undefined && typeof branding.organization_name !== "string") {
+    return false;
+  }
+  if (branding.brand_color !== undefined && typeof branding.brand_color !== "string") {
+    return false;
+  }
+  if (branding.accent_color !== undefined && typeof branding.accent_color !== "string") {
     return false;
   }
   if (branding.app_name !== undefined && typeof branding.app_name !== "string") {
@@ -324,30 +292,60 @@ export function validateBrandingConfig(branding) {
  * @returns {object}
  */
 export function getEffectiveBranding(config) {
-  const defaultBranding = DEFAULT_CONFIG.branding;
+  const defaultBranding = DEFAULT_CONFIG.branding || DEFAULT_BRANDING;
   const rawBranding = (config && (config.branding || config.white_label)) || {};
   return {
     enabled: Boolean(rawBranding.enabled ?? defaultBranding.enabled),
-    app_name: (rawBranding.app_name && typeof rawBranding.app_name === "string" && rawBranding.app_name.trim()) || defaultBranding.app_name,
-    logo_path: rawBranding.logo_path || defaultBranding.logo_path,
+    app_name: (rawBranding.app_name && typeof rawBranding.app_name === "string" && rawBranding.app_name.trim()) || defaultBranding.app_name || "CmdBar",
+    logo_path: rawBranding.logo_path || defaultBranding.logo_path || "",
     brand_colors: {
-      primary: (rawBranding.brand_colors && rawBranding.brand_colors.primary) || defaultBranding.brand_colors.primary,
-      accent: (rawBranding.brand_colors && rawBranding.brand_colors.accent) || defaultBranding.brand_colors.accent,
-      background: (rawBranding.brand_colors && rawBranding.brand_colors.background) || defaultBranding.brand_colors.background,
-      text: (rawBranding.brand_colors && rawBranding.brand_colors.text) || defaultBranding.brand_colors.text,
+      primary: (rawBranding.brand_colors && rawBranding.brand_colors.primary) || (defaultBranding.brand_colors && defaultBranding.brand_colors.primary) || "#3584e4",
+      accent: (rawBranding.brand_colors && rawBranding.brand_colors.accent) || (defaultBranding.brand_colors && defaultBranding.brand_colors.accent) || "#1c71d8",
+      background: (rawBranding.brand_colors && rawBranding.brand_colors.background) || (defaultBranding.brand_colors && defaultBranding.brand_colors.background) || "#2d2d2d",
+      text: (rawBranding.brand_colors && rawBranding.brand_colors.text) || (defaultBranding.brand_colors && defaultBranding.brand_colors.text) || "#ffffff",
     },
-    domain_alias: rawBranding.domain_alias || defaultBranding.domain_alias,
+    domain_alias: rawBranding.domain_alias || defaultBranding.domain_alias || "",
     custom_ssl: {
-      cert_path: (rawBranding.custom_ssl && rawBranding.custom_ssl.cert_path) || defaultBranding.custom_ssl.cert_path,
-      key_path: (rawBranding.custom_ssl && rawBranding.custom_ssl.key_path) || defaultBranding.custom_ssl.key_path,
-      ca_path: (rawBranding.custom_ssl && rawBranding.custom_ssl.ca_path) || defaultBranding.custom_ssl.ca_path,
-      verify_ssl: rawBranding.custom_ssl && typeof rawBranding.custom_ssl.verify_ssl === "boolean" ? rawBranding.custom_ssl.verify_ssl : defaultBranding.custom_ssl.verify_ssl,
+      cert_path: (rawBranding.custom_ssl && rawBranding.custom_ssl.cert_path) || (defaultBranding.custom_ssl && defaultBranding.custom_ssl.cert_path) || "",
+      key_path: (rawBranding.custom_ssl && rawBranding.custom_ssl.key_path) || (defaultBranding.custom_ssl && defaultBranding.custom_ssl.key_path) || "",
+      ca_path: (rawBranding.custom_ssl && rawBranding.custom_ssl.ca_path) || (defaultBranding.custom_ssl && defaultBranding.custom_ssl.ca_path) || "",
+      verify_ssl: rawBranding.custom_ssl && typeof rawBranding.custom_ssl.verify_ssl === "boolean" ? rawBranding.custom_ssl.verify_ssl : (defaultBranding.custom_ssl ? defaultBranding.custom_ssl.verify_ssl : true),
     },
     enterprise_identity: {
-      organization_name: (rawBranding.enterprise_identity && rawBranding.enterprise_identity.organization_name) || defaultBranding.enterprise_identity.organization_name,
-      support_url: (rawBranding.enterprise_identity && rawBranding.enterprise_identity.support_url) || defaultBranding.enterprise_identity.support_url,
-      support_email: (rawBranding.enterprise_identity && rawBranding.enterprise_identity.support_email) || defaultBranding.enterprise_identity.support_email,
-      footer_text: (rawBranding.enterprise_identity && rawBranding.enterprise_identity.footer_text) || defaultBranding.enterprise_identity.footer_text,
+      organization_name: (rawBranding.enterprise_identity && rawBranding.enterprise_identity.organization_name) || (defaultBranding.enterprise_identity && defaultBranding.enterprise_identity.organization_name) || "",
+      support_url: (rawBranding.enterprise_identity && rawBranding.enterprise_identity.support_url) || (defaultBranding.enterprise_identity && defaultBranding.enterprise_identity.support_url) || "",
+      support_email: (rawBranding.enterprise_identity && rawBranding.enterprise_identity.support_email) || (defaultBranding.enterprise_identity && defaultBranding.enterprise_identity.support_email) || "",
+      footer_text: (rawBranding.enterprise_identity && rawBranding.enterprise_identity.footer_text) || (defaultBranding.enterprise_identity && defaultBranding.enterprise_identity.footer_text) || "",
+    },
+  };
+}
+
+/**
+ * Returns normalized branding configuration.
+ * @param {object} config
+ * @returns {object}
+ */
+export function getBrandingConfig(config) {
+  if (!config || typeof config !== "object") {
+    return { ...DEFAULT_BRANDING };
+  }
+  const branding = config.branding && typeof config.branding === "object" ? config.branding : {};
+  const isEnabled = Boolean(branding.enabled || branding.white_label);
+  const ssl = branding.custom_ssl && typeof branding.custom_ssl === "object" ? branding.custom_ssl : {};
+  return {
+    enabled: isEnabled,
+    white_label: isEnabled,
+    organization_name: String(branding.organization_name || "CmdBar Enterprise"),
+    logo_url: String(branding.logo_url || ""),
+    logo_path: String(branding.logo_path || ""),
+    brand_color: String(branding.brand_color || "#0055ff"),
+    accent_color: String(branding.accent_color || "#00aaff"),
+    domain_alias: String(branding.domain_alias || ""),
+    custom_ssl: {
+      cert_path: String(ssl.cert_path || ""),
+      key_path: String(ssl.key_path || ""),
+      ca_path: String(ssl.ca_path || ""),
+      verify_ssl: ssl.verify_ssl !== false,
     },
   };
 }
@@ -377,6 +375,7 @@ export function getEffectiveDomainUrl(brandingConfig, endpointPath = "") {
  */
 export function validateConfigSchema(config) {
   if (!config || typeof config !== "object") return false;
+  if (config.branding !== undefined && !validateBrandingConfig(config.branding)) return false;
   if (!Array.isArray(config.categories)) return false;
   if (config.branding !== undefined && !validateBrandingConfig(config.branding)) {
     return false;

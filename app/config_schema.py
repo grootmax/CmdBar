@@ -49,6 +49,23 @@ def compute_signature(config_data, key):
     ).hexdigest()
 
 
+DEFAULT_BRANDING = {
+  "enabled": False,
+  "white_label": False,
+  "organization_name": "CmdBar Enterprise",
+  "logo_url": "",
+  "logo_path": "",
+  "brand_color": "#0055ff",
+  "accent_color": "#00aaff",
+  "domain_alias": "",
+  "custom_ssl": {
+    "cert_path": "",
+    "key_path": "",
+    "ca_path": "",
+    "verify_ssl": True
+  }
+}
+
 DEFAULT_CONFIG = {
     "sso": {
         "enabled": False,
@@ -320,6 +337,66 @@ DEFAULT_CONFIG = {
     },
     "triggers": [],
 }
+
+
+def get_branding_config(config):
+    """
+    Returns resolved branding settings from configuration layout.
+    :visibility: public
+    """
+    if not isinstance(config, dict):
+        return dict(DEFAULT_BRANDING)
+    branding = config.get("branding", {})
+    if not isinstance(branding, dict):
+        branding = {}
+    is_enabled = bool(branding.get("enabled", False) or branding.get("white_label", False))
+    ssl_cfg = branding.get("custom_ssl", {}) if isinstance(branding.get("custom_ssl"), dict) else {}
+    return {
+        "enabled": is_enabled,
+        "white_label": is_enabled,
+        "organization_name": str(branding.get("organization_name") or "CmdBar Enterprise"),
+        "logo_url": str(branding.get("logo_url") or ""),
+        "logo_path": str(branding.get("logo_path") or ""),
+        "brand_color": str(branding.get("brand_color") or "#0055ff"),
+        "accent_color": str(branding.get("accent_color") or "#00aaff"),
+        "domain_alias": str(branding.get("domain_alias") or ""),
+        "custom_ssl": {
+            "cert_path": str(ssl_cfg.get("cert_path") or ""),
+            "key_path": str(ssl_cfg.get("key_path") or ""),
+            "ca_path": str(ssl_cfg.get("ca_path") or ""),
+            "verify_ssl": bool(ssl_cfg.get("verify_ssl", True))
+        }
+    }
+
+
+def get_branding_config(config):
+    """
+    Returns resolved branding settings from configuration layout.
+    :visibility: public
+    """
+    if not isinstance(config, dict):
+        return dict(DEFAULT_BRANDING)
+    branding = config.get("branding", {})
+    if not isinstance(branding, dict):
+        branding = {}
+    is_enabled = bool(branding.get("enabled", False) or branding.get("white_label", False))
+    ssl_cfg = branding.get("custom_ssl", {}) if isinstance(branding.get("custom_ssl"), dict) else {}
+    return {
+        "enabled": is_enabled,
+        "white_label": is_enabled,
+        "organization_name": str(branding.get("organization_name") or "CmdBar Enterprise"),
+        "logo_url": str(branding.get("logo_url") or ""),
+        "logo_path": str(branding.get("logo_path") or ""),
+        "brand_color": str(branding.get("brand_color") or "#0055ff"),
+        "accent_color": str(branding.get("accent_color") or "#00aaff"),
+        "domain_alias": str(branding.get("domain_alias") or ""),
+        "custom_ssl": {
+            "cert_path": str(ssl_cfg.get("cert_path") or ""),
+            "key_path": str(ssl_cfg.get("key_path") or ""),
+            "ca_path": str(ssl_cfg.get("ca_path") or ""),
+            "verify_ssl": bool(ssl_cfg.get("verify_ssl", True))
+        }
+    }
 
 
 def get_config_path():
@@ -594,6 +671,7 @@ def resolve_command_preview(
         array_preview += f"\nArgs List: {json.dumps(resolved_parts)}"
         return array_preview, errors
 
+
 def validate_branding_config(branding):
     """
     Validates white label branding configuration structure.
@@ -606,7 +684,17 @@ def validate_branding_config(branding):
     
     if "enabled" in branding and not isinstance(branding["enabled"], bool):
         return False
+    if "white_label" in branding and not isinstance(branding["white_label"], bool):
+        return False
+    if "organization_name" in branding and not isinstance(branding["organization_name"], str):
+        return False
+    if "brand_color" in branding and not isinstance(branding["brand_color"], str):
+        return False
+    if "accent_color" in branding and not isinstance(branding["accent_color"], str):
+        return False
     if "app_name" in branding and not isinstance(branding["app_name"], str):
+        return False
+    if "logo_url" in branding and not isinstance(branding["logo_url"], str):
         return False
     if "logo_path" in branding and not isinstance(branding["logo_path"], str):
         return False
