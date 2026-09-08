@@ -50,6 +50,6 @@ In `~/.config/cmdbar/config.json`:
 
 External tools and scripts can manage live terminal sharing sessions via D-Bus (`org.gnome.CmdBar`):
 
-- `StartTerminalSharing(sessionId, title)`
-- `StopTerminalSharing(sessionId)`
-- `GetTerminalSharingSessions()`
+- `StartTerminalSharing(sessionId, title)`: Starts a live terminal sharing session and returns metrics JSON.
+- `StopTerminalSharing(sessionId)`: Stops an active session by ID.
+- `GetTerminalSharingSessions()`: Returns JSON array of all active sessions and metrics.
