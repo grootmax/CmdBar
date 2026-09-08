@@ -702,7 +702,6 @@ export class CmdBarDBusService {
       }
     }
   }
-<<<<<<< HEAD
   /**
    * Returns pending command approval submissions over D-Bus.
    * @returns {Promise<string>} JSON string of pending approvals.
@@ -718,8 +717,6 @@ export class CmdBarDBusService {
     }
   }
 
-=======
->>>>>>> df7596c (feat(stream-deck): Add Elgato Stream Deck integration with visual buttons, feedback LEDs, dynamic labels, and profile switching)
   async GetResourceMetrics() {
     try {
       if (this._indicator && this._indicator._resourceMonitor) {
@@ -786,7 +783,6 @@ export class CmdBarDBusService {
     }
   }
 
-<<<<<<< HEAD
   async DetectWorkspace(cwd) {
     try {
       const wsPath = findWorkspaceConfigPath(cwd);
@@ -832,7 +828,6 @@ export class CmdBarDBusService {
     }
   }
 
-<<<<<<< HEAD
   /**
    * Rejects a pending submission over D-Bus.
    * @param {string} submissionId - ID of submission to reject.
