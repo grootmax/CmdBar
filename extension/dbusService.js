@@ -20,6 +20,13 @@ import {
   parseShareUrl,
   ROLES,
 } from "./teamSharing.js";
+import {
+  exportEnvironmentSnapshot,
+  importEnvironmentSnapshot,
+  createBackup,
+  listBackups,
+  restoreFromBackup
+} from "./environmentSnapshot.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -137,6 +144,26 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetConfigHistory">
       <arg name="json_history" type="s" direction="out"/>
+    </method>
+    <method name="ExportSnapshot">
+      <arg name="options_json" type="s" direction="in"/>
+      <arg name="snapshot_json" type="s" direction="out"/>
+    </method>
+    <method name="ImportSnapshot">
+      <arg name="snapshot_json" type="s" direction="in"/>
+      <arg name="options_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="CreateBackup">
+      <arg name="description" type="s" direction="in"/>
+      <arg name="backup_path" type="s" direction="out"/>
+    </method>
+    <method name="RestoreBackup">
+      <arg name="backup_path_or_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="ListBackups">
+      <arg name="json_backups_list" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -607,6 +634,33 @@ export class CmdBarDBusService {
     }
   }
 
+  async ExportSnapshot(optionsJson = '{}') {
+    try {
+      let options = {};
+      try { options = JSON.parse(optionsJson || '{}'); } catch (e) {}
+      const snapshot = await exportEnvironmentSnapshot(options);
+      return JSON.stringify(snapshot);
+    } catch (e) {
+      console.error(`CmdBar D-Bus ExportSnapshot error: ${e.message}`);
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async ImportSnapshot(snapshotJson, optionsJson = '{}') {
+    try {
+      let options = {};
+      try { options = JSON.parse(optionsJson || '{}'); } catch (e) {}
+      const res = await importEnvironmentSnapshot(snapshotJson, options);
+      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        this._indicator._reloadMenu();
+      }
+      return Boolean(res && res.success);
+    } catch (e) {
+      console.error(`CmdBar D-Bus ImportSnapshot error: ${e.message}`);
+      return false;
+    }
+  }
+
   async GetEffectiveAppName() {
     try {
       const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
@@ -690,7 +744,6 @@ export class CmdBarDBusService {
       return JSON.stringify([]);
     }
   }
-
   async GetResourceMetrics() {
     try {
       if (this._indicator && this._indicator._resourceMonitor) {
@@ -882,13 +935,38 @@ export class CmdBarDBusService {
     return JSON.stringify(sessionsInfo);
   }
 
-  /**
-   * Emits CommandExecuted signal.
-   * @param {string} name - Command name.
-   * @param {number} exitCode - Exit code.
-   * @param {boolean} success - Success flag.
-   * @public
-   */
+  async CreateBackup(description = 'D-Bus backup') {
+    try {
+      const res = await createBackup({ description: description || 'D-Bus backup' });
+      return res.backup_path || '';
+    } catch (e) {
+      console.error(`CmdBar D-Bus CreateBackup error: ${e.message}`);
+      return '';
+    }
+  }
+
+  async RestoreBackup(backupPathOrId) {
+    try {
+      const res = await restoreFromBackup(backupPathOrId);
+      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        this._indicator._reloadMenu();
+      }
+      return Boolean(res && res.success);
+    } catch (e) {
+      console.error(`CmdBar D-Bus RestoreBackup error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async ListBackups() {
+    try {
+      const backups = listBackups();
+      return JSON.stringify(backups);
+    } catch (e) {
+      console.error(`CmdBar D-Bus ListBackups error: ${e.message}`);
+      return JSON.stringify([]);
+    }
+  }
   emitCommandExecuted(name, exitCode, success) {
     if (this._dbusImpl && GLib) {
       try {
