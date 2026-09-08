@@ -13,6 +13,13 @@ from companion.yubikey_auth import (
     verify_and_consume_emergency_code,
 )
 from companion.event_triggers import EventTriggerEngine
+from app.workspace_config import (
+    WorkspaceManager,
+    init_workspace_config,
+    find_workspace_config_path,
+    detect_project_type,
+    PROJECT_TEMPLATES,
+)
 from companion.stream_deck import get_stream_deck_manager
 
 
@@ -21,7 +28,7 @@ class CmdBarDBusService:
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, and manages signals for CommandExecuted,
+    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
     CommandOutput, and EventTriggered.
     :visibility: public
     """
@@ -36,6 +43,7 @@ class CmdBarDBusService:
         self.auth_manager = YubiKeyAuthManager()
         self._event_triggered_listeners = []
         self.trigger_engine = EventTriggerEngine()
+        self.workspace_manager = WorkspaceManager()
         self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
 
     def is_yubikey_required(self, name: str) -> bool:
@@ -418,6 +426,37 @@ class CmdBarDBusService:
         :visibility: public
         """
         return self.trigger_engine.remove_trigger(trigger_id)
+
+    def detect_workspace(self, cwd: str) -> tuple:
+        path = find_workspace_config_path(cwd)
+        has_ws = path is not None
+        return has_ws, path or ""
+
+    def init_workspace(self, cwd: str, template_name: str = None) -> tuple:
+        try:
+            cfg, path = init_workspace_config(cwd, template_name)
+            self.workspace_manager.register_workspace(cwd)
+            return True, path
+        except Exception:
+            return False, ""
+
+    def switch_workspace(self, cwd: str) -> bool:
+        try:
+            global_cfg = load_config()
+            self.workspace_manager.set_global_config(global_cfg)
+            ws_cfg = self.workspace_manager.switch_workspace(cwd)
+            return ws_cfg is not None
+        except Exception:
+            return False
+
+    def list_workspaces(self) -> list:
+        return self.workspace_manager.list_workspaces()
+
+    def list_workspaces_json(self) -> str:
+        return json.dumps(self.list_workspaces())
+
+    def get_workspace_templates(self) -> dict:
+        return PROJECT_TEMPLATES
 
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""

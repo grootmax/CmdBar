@@ -95,3 +95,11 @@ The policy enforcement engine (`extension/policyEngine.js` and `app/policy_engin
 - **Data Loss Prevention (DLP)**: Scans commands, parameters, and outputs for sensitive patterns (AWS keys, private keys, SSNs, credit cards, tokens) with block, redact, and warn actions.
 - **Geographic Restrictions**: Restricts command execution by country code or IP CIDR ranges.
 - **Time-Based Access Controls**: Limits command execution to designated days and time windows.
+
+### Workspace-Specific Configuration Module
+
+The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`) manages project-level configuration discovery and switching:
+- **CWD & Git Auto-Detection**: Searches upward from current working directory to Git repository root for `.cmdbar.json` or `.cmdbar/config.json`.
+- **Project Templates**: Initializes project configurations using built-in templates (`node`, `python`, `rust`, `go`, `generic`).
+- **Smooth Merging**: Merges workspace categories with global configuration, prepending project commands while avoiding command duplicates.
+- **WorkspaceManager**: High-performance active workspace manager with caching to guarantee sub-5ms lookup performance.

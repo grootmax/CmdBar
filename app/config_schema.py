@@ -57,6 +57,13 @@ DEFAULT_CONFIG = {
         "allowed_domains": ["example.com"],
         "default_role": "user",
         "group_claim": "groups",
+        "session_timeout_minutes": 480,
+        "idle_timeout_minutes": 120,
+        "jit_provisioning": {
+            "enabled": True,
+            "default_role": "user",
+            "attribute_mapping": {"email": "email", "name": "name", "groups": "groups"},
+        },
         "providers": {
             "azure": {
                 "name": "Azure Active Directory",
@@ -95,24 +102,26 @@ DEFAULT_CONFIG = {
             {
                 "id": "rule-admin",
                 "group_pattern": "Admins",
+                "sso_group": "CmdBar-Admins",
                 "match_type": "contains",
                 "role": "admin",
-                "categories": [
-                    "System Utilities",
-                    "Infrastructure",
-                    "AI Assistant",
-                    "Projects",
-                ],
+                "categories": ["System Utilities", "Infrastructure", "AI Assistant", "Projects"],
+                "allowed_categories": ["*"],
             },
             {
                 "id": "rule-dev",
                 "group_pattern": "Developers",
+                "sso_group": "Developers",
                 "match_type": "contains",
                 "role": "developer",
                 "categories": ["Projects", "AI Assistant"],
+                "allowed_categories": ["Projects"],
             },
         ],
-        "session": {"max_ttl_seconds": 28800, "refresh_threshold_seconds": 300},
+        "session": {
+            "max_ttl_seconds": 28800,
+            "refresh_threshold_seconds": 300,
+        },
     },
     "audit": {
         "enabled": True,
@@ -165,6 +174,60 @@ DEFAULT_CONFIG = {
             "footer_text": "",
         },
     },
+    "categories": [
+        {
+            "name": "System Utilities",
+            "commands": [
+                {
+                    "name": "Ping Host",
+                    "command": "ping -c 3 <host>",
+                    "mode": "shell-quoted",
+                    "parameters": {
+                        "host": {
+                            "regex": "^[a-zA-Z0-9.-]+$",
+                            "error_message": "Invalid host format! Must contain only alphanumeric, dots, and dashes.",
+                        }
+                    },
+                },
+                {
+                    "name": "Direct Exec",
+                    "command": '/usr/bin/echo "Hello" <arg>',
+                    "mode": "direct-array",
+                    "parameters": {
+                        "arg": {
+                            "regex": "^[a-zA-Z0-9_]+$",
+                            "error_message": "Invalid argument format! Must be alphanumeric or underscore.",
+                        }
+                    },
+                },
+            ],
+        },
+        {
+            "name": "Git",
+            "commands": [
+                {
+                    "name": "Git Status",
+                    "command": "git status",
+                    "mode": "shell-quoted",
+                },
+                {
+                    "name": "Git Pull",
+                    "command": "git pull origin {git-branch}",
+                    "mode": "shell-quoted",
+                },
+                {
+                    "name": "Git Push",
+                    "command": "git push origin {git-branch}",
+                    "mode": "shell-quoted",
+                },
+                {
+                    "name": "Git Commit",
+                    "command": 'git commit -m "<commit-message>"',
+                    "mode": "shell-quoted",
+                },
+            ],
+        },
+    ],
     "yubikey": {
         "enabled": False,
         "default_mode": "touch",
@@ -173,9 +236,27 @@ DEFAULT_CONFIG = {
         "emergency_codes": [],
     },
     "profiles": [
-        {"name": "Production", "env": {"ENV": "production", "LOG_LEVEL": "warn"}},
-        {"name": "Staging", "env": {"ENV": "staging", "LOG_LEVEL": "info"}},
-        {"name": "Development", "env": {"ENV": "development", "LOG_LEVEL": "debug"}},
+        {
+            "name": "Production",
+            "env": {
+                "ENV": "production",
+                "LOG_LEVEL": "warn",
+            },
+        },
+        {
+            "name": "Staging",
+            "env": {
+                "ENV": "staging",
+                "LOG_LEVEL": "info",
+            },
+        },
+        {
+            "name": "Development",
+            "env": {
+                "ENV": "development",
+                "LOG_LEVEL": "debug",
+            },
+        },
     ],
     "active_profile": "Development",
     "policy": {
@@ -214,56 +295,30 @@ DEFAULT_CONFIG = {
         "rules": [],
         "overrides": [],
     },
-    "categories": [
-        {
-            "name": "System Utilities",
-            "commands": [
-                {
-                    "name": "Ping Host",
-                    "command": "ping -c 3 <host>",
-                    "mode": "shell-quoted",
-                    "parameters": {
-                        "host": {
-                            "regex": "^[a-zA-Z0-9.-]+$",
-                            "error_message": "Invalid host format! Must contain only alphanumeric, dots, and dashes.",
-                        }
-                    },
-                },
-                {
-                    "name": "Direct Exec",
-                    "command": '/usr/bin/echo "Hello" <arg>',
-                    "mode": "direct-array",
-                    "parameters": {
-                        "arg": {
-                            "regex": "^[a-zA-Z0-9_]+$",
-                            "error_message": "Invalid argument format! Must be alphanumeric or underscore.",
-                        }
-                    },
-                },
-            ],
+    "iot": {
+        "enabled": False,
+        "mqtt": {
+            "enabled": False,
+            "host": "localhost",
+            "port": 1883,
+            "topic_prefix": "cmdbar",
+            "username": "",
+            "password": "",
         },
-        {
-            "name": "Git",
-            "commands": [
-                {"name": "Git Status", "command": "git status", "mode": "shell-quoted"},
-                {
-                    "name": "Git Pull",
-                    "command": "git pull origin {git-branch}",
-                    "mode": "shell-quoted",
-                },
-                {
-                    "name": "Git Push",
-                    "command": "git push origin {git-branch}",
-                    "mode": "shell-quoted",
-                },
-                {
-                    "name": "Git Commit",
-                    "command": 'git commit -m "<commit-message>"',
-                    "mode": "shell-quoted",
-                },
-            ],
+        "webhook": {
+            "enabled": False,
+            "host": "127.0.0.1",
+            "port": 8088,
+            "secret": "",
         },
-    ],
+        "home_automation": {
+            "enabled": False,
+            "platform": "homeassistant",
+            "discovery_prefix": "homeassistant",
+        },
+        "sensor_triggers": [],
+    },
+    "triggers": [],
 }
 
 
@@ -346,17 +401,11 @@ def load_config(path=None):
 
         # Normalize and migrate loaded configuration
         migrated = False
-        if "branding" in config_data and not validate_branding_config(
-            config_data["branding"]
-        ):
+        if "branding" in config_data and not validate_branding_config(config_data["branding"]):
             config_data["branding"] = json.loads(json.dumps(DEFAULT_CONFIG["branding"]))
             migrated = True
-        if "white_label" in config_data and not validate_branding_config(
-            config_data["white_label"]
-        ):
-            config_data["white_label"] = json.loads(
-                json.dumps(DEFAULT_CONFIG["branding"])
-            )
+        if "white_label" in config_data and not validate_branding_config(config_data["white_label"]):
+            config_data["white_label"] = json.loads(json.dumps(DEFAULT_CONFIG["branding"]))
             migrated = True
         if "yubikey" not in config_data or not isinstance(
             config_data.get("yubikey"), dict
@@ -446,7 +495,6 @@ def validate_parameter_value(value, parameter_schema):
             return False, err
 
     return True, None
-
 
 from app.sandbox_wrapper import (
     is_sandbox_enabled,
@@ -538,7 +586,6 @@ def resolve_command_preview(
 
         if sandbox_config and is_sandbox_enabled(sandbox_config):
             resolved_parts = wrap_command_in_sandbox(resolved_parts, sandbox_config)
-
         # Preview representation for direct-array is the list of individual args
         array_preview = "Direct Array: " + " ".join(
             shlex.quote(p) for p in resolved_parts
@@ -546,7 +593,6 @@ def resolve_command_preview(
         # We can also append the list format to be 100% explicit
         array_preview += f"\nArgs List: {json.dumps(resolved_parts)}"
         return array_preview, errors
-
 
 def validate_branding_config(branding):
     """
@@ -557,14 +603,14 @@ def validate_branding_config(branding):
         return True
     if not isinstance(branding, dict):
         return False
-
+    
     if "enabled" in branding and not isinstance(branding["enabled"], bool):
         return False
     if "app_name" in branding and not isinstance(branding["app_name"], str):
         return False
     if "logo_path" in branding and not isinstance(branding["logo_path"], str):
         return False
-
+    
     if "brand_colors" in branding and branding["brand_colors"] is not None:
         if not isinstance(branding["brand_colors"], dict):
             return False
@@ -574,24 +620,14 @@ def validate_branding_config(branding):
             if val is not None and val != "":
                 if not isinstance(val, str):
                     return False
-                if (
-                    not re.match(hex_regex, val)
-                    and not re.match(r"^(rgb|hsl)a?\(", val)
-                    and not val.isalpha()
-                ):
+                if not re.match(hex_regex, val) and not re.match(r"^(rgb|hsl)a?\(", val) and not val.isalpha():
                     return False
 
     if "domain_alias" in branding and not isinstance(branding["domain_alias"], str):
         return False
-    if (
-        branding.get("domain_alias")
-        and isinstance(branding["domain_alias"], str)
-        and branding["domain_alias"].strip()
-    ):
+    if branding.get("domain_alias") and isinstance(branding["domain_alias"], str) and branding["domain_alias"].strip():
         domain_str = branding["domain_alias"].strip()
-        domain_regex = (
-            r"^(https?://)?([a-zA-Z0-9.-]+|\[[a-fA-F0-9:]+\])(:[0-9]+)?(/.*)?$"
-        )
+        domain_regex = r"^(https?://)?([a-zA-Z0-9.-]+|\[[a-fA-F0-9:]+\])(:[0-9]+)?(/.*)?$"
         if not re.match(domain_regex, domain_str):
             return False
 
@@ -608,10 +644,7 @@ def validate_branding_config(branding):
         if "verify_ssl" in ssl_cfg and not isinstance(ssl_cfg["verify_ssl"], bool):
             return False
 
-    if (
-        "enterprise_identity" in branding
-        and branding["enterprise_identity"] is not None
-    ):
+    if "enterprise_identity" in branding and branding["enterprise_identity"] is not None:
         if not isinstance(branding["enterprise_identity"], dict):
             return False
         ent = branding["enterprise_identity"]
@@ -628,56 +661,30 @@ def get_effective_branding(config):
     :visibility: public
     """
     default_branding = DEFAULT_CONFIG["branding"]
-    raw_branding = (
-        (config or {}).get("branding") or (config or {}).get("white_label") or {}
-    )
+    raw_branding = (config or {}).get("branding") or (config or {}).get("white_label") or {}
     return {
         "enabled": bool(raw_branding.get("enabled", default_branding["enabled"])),
-        "app_name": (raw_branding.get("app_name") or "").strip()
-        or default_branding["app_name"],
+        "app_name": (raw_branding.get("app_name") or "").strip() or default_branding["app_name"],
         "logo_path": raw_branding.get("logo_path", default_branding["logo_path"]),
         "brand_colors": {
-            "primary": (raw_branding.get("brand_colors") or {}).get("primary")
-            or default_branding["brand_colors"]["primary"],
-            "accent": (raw_branding.get("brand_colors") or {}).get("accent")
-            or default_branding["brand_colors"]["accent"],
-            "background": (raw_branding.get("brand_colors") or {}).get("background")
-            or default_branding["brand_colors"]["background"],
-            "text": (raw_branding.get("brand_colors") or {}).get("text")
-            or default_branding["brand_colors"]["text"],
+            "primary": (raw_branding.get("brand_colors") or {}).get("primary") or default_branding["brand_colors"]["primary"],
+            "accent": (raw_branding.get("brand_colors") or {}).get("accent") or default_branding["brand_colors"]["accent"],
+            "background": (raw_branding.get("brand_colors") or {}).get("background") or default_branding["brand_colors"]["background"],
+            "text": (raw_branding.get("brand_colors") or {}).get("text") or default_branding["brand_colors"]["text"],
         },
-        "domain_alias": raw_branding.get(
-            "domain_alias", default_branding["domain_alias"]
-        ),
+        "domain_alias": raw_branding.get("domain_alias", default_branding["domain_alias"]),
         "custom_ssl": {
-            "cert_path": (raw_branding.get("custom_ssl") or {}).get("cert_path")
-            or default_branding["custom_ssl"]["cert_path"],
-            "key_path": (raw_branding.get("custom_ssl") or {}).get("key_path")
-            or default_branding["custom_ssl"]["key_path"],
-            "ca_path": (raw_branding.get("custom_ssl") or {}).get("ca_path")
-            or default_branding["custom_ssl"]["ca_path"],
-            "verify_ssl": (raw_branding.get("custom_ssl") or {}).get(
-                "verify_ssl", default_branding["custom_ssl"]["verify_ssl"]
-            ),
+            "cert_path": (raw_branding.get("custom_ssl") or {}).get("cert_path") or default_branding["custom_ssl"]["cert_path"],
+            "key_path": (raw_branding.get("custom_ssl") or {}).get("key_path") or default_branding["custom_ssl"]["key_path"],
+            "ca_path": (raw_branding.get("custom_ssl") or {}).get("ca_path") or default_branding["custom_ssl"]["ca_path"],
+            "verify_ssl": (raw_branding.get("custom_ssl") or {}).get("verify_ssl", default_branding["custom_ssl"]["verify_ssl"]),
         },
         "enterprise_identity": {
-            "organization_name": (raw_branding.get("enterprise_identity") or {}).get(
-                "organization_name"
-            )
-            or default_branding["enterprise_identity"]["organization_name"],
-            "support_url": (raw_branding.get("enterprise_identity") or {}).get(
-                "support_url"
-            )
-            or default_branding["enterprise_identity"]["support_url"],
-            "support_email": (raw_branding.get("enterprise_identity") or {}).get(
-                "support_email"
-            )
-            or default_branding["enterprise_identity"]["support_email"],
-            "footer_text": (raw_branding.get("enterprise_identity") or {}).get(
-                "footer_text"
-            )
-            or default_branding["enterprise_identity"]["footer_text"],
-        },
+            "organization_name": (raw_branding.get("enterprise_identity") or {}).get("organization_name") or default_branding["enterprise_identity"]["organization_name"],
+            "support_url": (raw_branding.get("enterprise_identity") or {}).get("support_url") or default_branding["enterprise_identity"]["support_url"],
+            "support_email": (raw_branding.get("enterprise_identity") or {}).get("support_email") or default_branding["enterprise_identity"]["support_email"],
+            "footer_text": (raw_branding.get("enterprise_identity") or {}).get("footer_text") or default_branding["enterprise_identity"]["footer_text"],
+        }
     }
 
 
@@ -702,7 +709,6 @@ def get_ssl_context(branding_config):
     :visibility: public
     """
     import ssl
-
     ssl_cfg = (branding_config or {}).get("custom_ssl") or {}
     verify_ssl = ssl_cfg.get("verify_ssl", True)
     ca_path = ssl_cfg.get("ca_path")
@@ -713,16 +719,10 @@ def get_ssl_context(branding_config):
         ctx = ssl._create_unverified_context()
         return ctx
 
-    ctx = ssl.create_default_context(
-        cafile=ca_path if ca_path and os.path.exists(ca_path) else None
-    )
+    ctx = ssl.create_default_context(cafile=ca_path if ca_path and os.path.exists(ca_path) else None)
     if cert_path and os.path.exists(cert_path):
-        ctx.load_cert_chain(
-            certfile=cert_path,
-            keyfile=key_path if key_path and os.path.exists(key_path) else None,
-        )
+        ctx.load_cert_chain(certfile=cert_path, keyfile=key_path if key_path and os.path.exists(key_path) else None)
     return ctx
-
 
 def get_profiles(config):
     """
@@ -747,16 +747,10 @@ def get_profiles(config):
         for name, val in profiles_raw.items():
             env_obj = {}
             if isinstance(val, dict):
-                env_obj = (
-                    val.get("env")
-                    or val.get("envVars")
-                    or val.get("environment")
-                    or val
-                )
+                env_obj = val.get("env") or val.get("envVars") or val.get("environment") or val
             result.append({"name": name, "env": env_obj})
         return result
     return []
-
 
 def get_active_profile_name(config):
     """
@@ -772,7 +766,6 @@ def get_active_profile_name(config):
     profiles = get_profiles(config)
     return profiles[0]["name"] if profiles else None
 
-
 def get_profile_env(config, profile_name=None):
     """
     Gets environment variables dict for specified profile name.
@@ -787,7 +780,6 @@ def get_profile_env(config, profile_name=None):
         if p["name"].lower() == target_lower:
             return p.get("env", {})
     return {}
-
 
 def is_command_visible_in_profile(cmd, active_profile):
     """
@@ -817,7 +809,6 @@ def is_command_visible_in_profile(cmd, active_profile):
                 return True
     return False
 
-
 def merge_environment(base_env, config, profile_name=None):
     """
     Merges profile env vars into base environment dict.
@@ -829,3 +820,4 @@ def merge_environment(base_env, config, profile_name=None):
         if v is not None:
             merged[str(k)] = str(v)
     return merged
+
