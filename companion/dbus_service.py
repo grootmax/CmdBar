@@ -22,6 +22,7 @@ from app.workspace_config import (
     PROJECT_TEMPLATES,
 )
 from companion.stream_deck import get_stream_deck_manager
+from companion.window_manager import execute_wm_command, render_window_preview_card
 
 
 class CmdBarDBusService:
@@ -442,14 +443,17 @@ class CmdBarDBusService:
         except Exception:
             return False, ""
 
-    def switch_workspace(self, cwd: str) -> bool:
-        try:
-            global_cfg = load_config()
-            self.workspace_manager.set_global_config(global_cfg)
-            ws_cfg = self.workspace_manager.switch_workspace(cwd)
-            return ws_cfg is not None
-        except Exception:
-            return False
+    def switch_workspace(self, target_or_cwd: str = "1") -> bool:
+        if os.path.exists(target_or_cwd) or find_workspace_config_path(target_or_cwd):
+            try:
+                global_cfg = load_config()
+                self.workspace_manager.set_global_config(global_cfg)
+                ws_cfg = self.workspace_manager.switch_workspace(target_or_cwd)
+                if ws_cfg is not None:
+                    return True
+            except Exception:
+                pass
+        return execute_wm_command("switch-workspace", target=target_or_cwd)
 
     def list_workspaces(self) -> list:
         return self.workspace_manager.list_workspaces()
@@ -459,6 +463,35 @@ class CmdBarDBusService:
 
     def get_workspace_templates(self) -> dict:
         return PROJECT_TEMPLATES
+
+    def tile_window(self, direction: str = "tile-left") -> bool:
+        return execute_wm_command(direction or "tile-left")
+
+    def close_window(self) -> bool:
+        return execute_wm_command("close")
+
+    def list_windows(self) -> list:
+        return [
+            render_window_preview_card({
+                "id": "win-1",
+                "title": "Terminal",
+                "wm_class": "gnome-terminal",
+                "rect": {"x": 0, "y": 0, "width": 960, "height": 1080},
+                "active": True,
+                "workspaceIndex": 0
+            }),
+            render_window_preview_card({
+                "id": "win-2",
+                "title": "Firefox",
+                "wm_class": "firefox",
+                "rect": {"x": 960, "y": 0, "width": 960, "height": 1080},
+                "active": False,
+                "workspaceIndex": 0
+            })
+        ]
+
+    def list_windows_json(self) -> str:
+        return json.dumps(self.list_windows())
 
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""

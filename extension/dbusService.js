@@ -20,6 +20,7 @@ import {
   parseShareUrl,
   ROLES,
 } from "./teamSharing.js";
+import { WindowManager } from "./windowManager.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -137,6 +138,20 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="GetConfigHistory">
       <arg name="json_history" type="s" direction="out"/>
+    </method>
+    <method name="TileWindow">
+      <arg name="direction" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="CloseWindow">
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="SwitchWorkspace">
+      <arg name="target" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="ListWindows">
+      <arg name="json_windows" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -607,6 +622,16 @@ export class CmdBarDBusService {
     }
   }
 
+  async TileWindow(direction) {
+    try {
+      const wm = new WindowManager(this._indicator);
+      return await wm.executeAction(direction || "tile-left");
+    } catch (e) {
+      console.error(`CmdBar D-Bus TileWindow error: ${e.message}`);
+      return false;
+    }
+  }
+
   async GetEffectiveAppName() {
     try {
       const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
@@ -776,16 +801,12 @@ export class CmdBarDBusService {
     }
   }
 
-  async SwitchWorkspace(cwd) {
+  async CloseWindow() {
     try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
-      const globalCfg = await loadConfig(configPath);
-      this.workspaceManager.setGlobalConfig(globalCfg);
-      const wsCfg = this.workspaceManager.switchWorkspace(cwd);
-      return Boolean(wsCfg);
+      const wm = new WindowManager(this._indicator);
+      return await wm.executeAction("close");
     } catch (e) {
+      console.error(`CmdBar D-Bus CloseWindow error: ${e.message}`);
       return false;
     }
   }
@@ -813,10 +834,43 @@ export class CmdBarDBusService {
     }
   }
 
+  async SwitchWorkspace(targetOrCwd) {
+    try {
+      if (this.workspaceManager) {
+        const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+          ? this._indicator._getConfigPath()
+          : await getDefaultConfigPath();
+        const globalCfg = await loadConfig(configPath);
+        this.workspaceManager.setGlobalConfig(globalCfg);
+        const wsCfg = this.workspaceManager.switchWorkspace(targetOrCwd);
+        if (wsCfg) return true;
+      }
+    } catch (e) {}
+
+    try {
+      const wm = new WindowManager(this._indicator);
+      return await wm.executeAction("switch-workspace", { target: targetOrCwd });
+    } catch (e) {
+      console.error(`CmdBar D-Bus SwitchWorkspace error: ${e.message}`);
+      return false;
+    }
+  }
+
   async ListWorkspaces() {
     try {
       return JSON.stringify(this.workspaceManager.listWorkspaces());
     } catch (e) {
+      return JSON.stringify([]);
+    }
+  }
+
+  async ListWindows() {
+    try {
+      const wm = new WindowManager(this._indicator);
+      const list = wm.getWindowsList();
+      return JSON.stringify(list);
+    } catch (e) {
+      console.error(`CmdBar D-Bus ListWindows error: ${e.message}`);
       return JSON.stringify([]);
     }
   }

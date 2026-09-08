@@ -1541,3 +1541,14 @@ export function hasNonGitPlaceholders(commandTemplate) {
   return hasPlaceholder(stripped);
 }
 
+export {
+  detectWMEnvironment,
+  calculateTileBounds,
+  calculatePreviewGeometry,
+  generatePreviewOverlayData,
+  renderWindowPreviewCard,
+  generateWMCommand,
+  parseWMCommand,
+  isWMCommand,
+  WindowManager,
+} from "./windowManager.js";
