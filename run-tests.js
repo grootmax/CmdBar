@@ -22,6 +22,8 @@ import {
   verifyAndConsumeEmergencyCode,
   authenticateCommand,
   benchmarkYubikeyAuth,
+  isCalculatorQuery,
+  calculate,
 } from "./extension/commandProcessor.js";
 import {
   saveConfigAtomically,
@@ -183,6 +185,7 @@ try {
   );
 
   // 6. Git Integration Tests
+  // 6. Git Integration Tests
   assert.strictEqual(detectGitRepo('/app/CmdBar'), true, 'Should detect /app/CmdBar as a git repository');
   const gitState = getGitStateSync('/app/CmdBar');
   assert.strictEqual(gitState.isGitRepo, true, 'Git state should confirm git repo');
@@ -191,7 +194,34 @@ try {
   assert.strictEqual(hasNonGitPlaceholders('git push origin {git-branch}'), false, 'Should have no non-git placeholders');
   assert.strictEqual(hasNonGitPlaceholders('git commit -m "<msg>" on {git-branch}'), true, 'Should detect <msg> non-git placeholder');
 
-  // 7. Atomic Persistence Tests (Sync & Async)
+  // 7. Quick Calculator Tests
+  assert.strictEqual(
+    isCalculatorQuery("> 2+2"),
+    true,
+    "Should detect > prefix as calculator query",
+  );
+  assert.strictEqual(
+    isCalculatorQuery("git status"),
+    false,
+    "Should reject non-calculator query",
+  );
+  assert.strictEqual(
+    calculate("> 2 + 2").result,
+    "4",
+    "Should calculate 2 + 2 = 4",
+  );
+  assert.strictEqual(
+    calculate("> 10 km to miles").result,
+    "6.21371192 miles",
+    "Should convert 10 km to miles",
+  );
+  assert.strictEqual(
+    calculate("> 100 USD to EUR").result,
+    "92 EUR",
+    "Should convert 100 USD to EUR",
+  );
+
+  // 8. Atomic Persistence Tests (Sync & Async)
   const tempDir = path.join(
     os.tmpdir(),
     `cmdbar-standalone-test-${Date.now()}`,
@@ -228,7 +258,7 @@ try {
     "Written data should match source data (async)",
   );
 
-  // 7. YubiKey 2FA Verification Tests
+  // 9. YubiKey 2FA Verification Tests
   const otpRes = validateYubicoOTP(
     "ccccccbedvcebcgdehbcfnhfhkfvvtrgeubfnfgnrtgr",
     "ccccccbedvce",
@@ -312,7 +342,6 @@ try {
     true,
     "YubiKey auth benchmark should complete under 50ms",
   );
-
   // Cleanup temp files & dir
   if (fs.existsSync(tempDir)) {
     fs.rmSync(tempDir, { recursive: true, force: true });

@@ -49,6 +49,26 @@ jest.unstable_mockModule('gi', () => ({
         if (this._listeners['clicked']) this._listeners['clicked']();
       }
     },
+    Entry: class {
+      constructor(props) {
+        Object.assign(this, props);
+        this.text = props ? props.text || "" : "";
+        this._listeners = {};
+        this.clutter_text = {
+          connect: (signal, cb) => {
+            this._listeners[signal] = cb;
+          },
+        };
+      }
+      get_text() {
+        return this.text;
+      }
+      set_text(val) {
+        this.text = val;
+        if (this._listeners["text-changed"])
+          this._listeners["text-changed"]();
+      }
+    },
   },
   Clutter: {
     Orientation: { HORIZONTAL: 0, VERTICAL: 1 },
@@ -241,12 +261,14 @@ describe('Command Favorites and Pinning Unit Tests', () => {
     await ext._indicator._reloadMenu();
 
     const items = ext._indicator.menu.items;
-    // Top section: "Favorites" category header, then favorited Command B, then separator
+    // Search entry & separator at index 0 & 1, then "Favorites" header at index 2, then favorited Command B
     expect(items.length).toBeGreaterThan(3);
-    const firstHeader = items[0];
-    expect(firstHeader.label.text).toBe('Favorites');
+    const favHeader = items.find((item) => item.label && item.label.text === 'Favorites');
+    expect(favHeader).toBeDefined();
+    expect(favHeader.label.text).toBe('Favorites');
 
-    const favCmdItem = items[1];
+    const favHeaderIndex = items.indexOf(favHeader);
+    const favCmdItem = items[favHeaderIndex + 1];
     expect(favCmdItem._commandName).toBe('Command B');
 
     ext.disable();
