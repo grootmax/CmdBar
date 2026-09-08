@@ -374,13 +374,16 @@ jobs:
 
                 for FILE in "${CONFLICTED_FILES[@]}"; do
 
-                  if [ -z "$FILE" ]; then
-                    continue
+                  [ -z "$FILE" ] && continue
+
+                  echo "Resolving conflict:"
+                  echo "  $FILE"
+
+                  if git checkout --theirs -- "$FILE" 2>/dev/null; then
+                    git add -- "$FILE"
+                  else
+                    git rm -f -- "$FILE" 2>/dev/null || true
                   fi
-
-                  git checkout --theirs -- "$FILE" 2>/dev/null || git rm -f -- "$FILE"
-
-                  git add -- "$FILE" 2>/dev/null || true
                 done
 
                 # ==================================================
@@ -488,7 +491,7 @@ jobs:
 
               CHECK_OUTPUT=$(
                 gh api "repos/$GH_REPO/commits/$HEAD_SHA/check-runs" \
-                  --jq '[(.check_runs // [])[] | {name: .name, status: .status, conclusion: .conclusion, workflow: (.app.name // ""), bucket: (if .status != "completed" then "pending" elif (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required") then "fail" else "pass" end)}]' \
+                  --jq '[.check_runs[] | {name: .name, status: .status, conclusion: .conclusion, workflow: (.app.name // ""), bucket: (if .status != "completed" then "pending" elif (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required") then "fail" else "pass" end)}]' \
                   2>/dev/null || echo "[]"
               )
 

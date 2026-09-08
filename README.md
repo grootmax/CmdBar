@@ -13,6 +13,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 
 - **Quick Calculator & Eval** – Type `> 2+2`, `= (100 - 25) / 5`, or `calc sin(45)` directly in the search box to evaluate math expressions inline and press Enter to copy the evaluated result to your clipboard
 - **Policy Enforcement Engine** – Enterprise security policy enforcement with MFA (RFC 6238 TOTP) for sensitive operations, Data Loss Prevention (DLP) pattern scanning and redaction, Geographic location/IP CIDR restrictions, and Time-based access controls
+- **Web Dashboard** – Modern web interface featuring drag-and-drop category & command reordering, real-time command preview dry-run engine with parameter validation, team collaboration presets & role access controls, mobile responsiveness, and PWA offline capability with Service Worker caching.
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Command Favorites & Pinning** – Star frequently used commands with inline star buttons or keyboard shortcuts (`f` / `*`) to pin them into a dedicated "Favorites" category at the top of the menu and sort them first within categories.
 - **Sandboxed Execution Mode** – Option to execute commands in a sandbox container using `bwrap` (Bubblewrap), `flatpak-spawn`, or `firejail` with configurable security profiles (`strict`, `permissive`, `custom`), filesystem isolation, and network isolation toggles
@@ -141,6 +142,15 @@ python3 companion/companion_app.py
 ```
 This utility manages configuration storage seamlessly and will also fallback gracefully to terminal-based output if the desktop environment / GTK is unavailable.
 
+#### Web Dashboard Server
+Launch the Web Dashboard UI and server for configuration editing, drag-drop reordering, live preview, and team collaboration:
+```bash
+python3 companion/companion_app.py --dashboard --port 8080
+```
+Or launch the web dashboard server directly:
+```bash
+python3 -m companion.web_dashboard --port 8080 --open
+```
 ---
 
 ## Configuration Layout & Schemas

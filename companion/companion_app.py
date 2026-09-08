@@ -1417,8 +1417,6 @@ if GUI_AVAILABLE:
                 existing = [existing]
             existing.append(tmpl)
             export_templates_to_file(existing, export_path)
-
-
     class CmdBarApp(Adw.Application):
         def __init__(self, **kwargs):
             super().__init__(
@@ -1443,6 +1441,15 @@ def main():
         "--cli",
         action="store_true",
         help="Force running in Command Line Interface mode",
+    )
+    parser.add_argument(
+        "--dashboard", action="store_true", help="Launch the Web Dashboard server"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8080,
+        help="Port for the Web Dashboard server (default: 8080)",
     )
     parser.add_argument("--branding", action="store_true", help="Print current branding configuration")
     parser.add_argument("--enable-white-label", action="store_true", help="Enable enterprise white labeling")
@@ -1474,8 +1481,16 @@ def main():
         if args.branding:
             print(json.dumps(branding, indent=2))
         return
+    elif args.dashboard:
+        from companion.web_dashboard import start_dashboard_server
 
-    if args.cli or not GUI_AVAILABLE:
+        server = start_dashboard_server(port=args.port, open_browser=True)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            server.server_close()
+            sys.exit(0)
+    elif args.cli or not GUI_AVAILABLE:
         if not GUI_AVAILABLE and not args.cli:
             print(
                 "GUI libraries (GTK4 / Libadwaita) are not available. Falling back to CLI mode.\n"
