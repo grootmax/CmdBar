@@ -1017,6 +1017,7 @@ export {
 } from "./yubikeyAuth.js";
 
 /**
+ * Checks if search text triggers calculator mode (> prefix, = prefix, or calc prefix).
  * @param {string} text
  * @returns {boolean}
  */
@@ -1398,6 +1399,7 @@ export function evaluateMathExpression(expr) {
     };
   }
 }
+
 
 /**
  * Detects if a directory is a Git repository by checking for .git file/directory or git status.
