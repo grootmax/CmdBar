@@ -231,6 +231,88 @@ class CmdBarDBusClient:
         res = self._call_method("TriggerStreamDeckButton", key_index)
         return bool(res)
 
+    def get_cron_jobs(self) -> list:
+        """Retrieve all cron jobs from CmdBar."""
+        res = self._call_method("GetCronJobs")
+        if isinstance(res, list):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return []
+        return []
+
+    def add_cron_job(self, job_data) -> bool:
+        """Add or update a cron job."""
+        job_str = json.dumps(job_data) if isinstance(job_data, dict) else str(job_data)
+        res = self._call_method("AddCronJob", job_str)
+        return bool(res)
+
+    def remove_cron_job(self, job_id: str) -> bool:
+        """Remove a cron job by ID."""
+        res = self._call_method("RemoveCronJob", job_id)
+        return bool(res)
+
+    def run_cron_job(self, job_id: str) -> bool:
+        """Run a cron job manually by ID."""
+        res = self._call_method("RunCronJob", job_id)
+        return bool(res)
+
+    def check_and_run_due_cron_jobs(self) -> list:
+        """Trigger evaluation and execution of all due cron jobs."""
+        res = self._call_method("CheckAndRunDueCronJobs")
+        if isinstance(res, list):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return []
+        return []
+
+    def get_stream_deck_profiles(self) -> dict:
+        """Retrieve Stream Deck active and available profiles."""
+        res = self._call_method("GetStreamDeckProfiles")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return {"active_profile": "Default", "profiles": ["Default"]}
+        return {"active_profile": "Default", "profiles": ["Default"]}
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Switch active Stream Deck profile by name."""
+        res = self._call_method("SetStreamDeckProfile", profile_name)
+        return bool(res)
+
+    def get_stream_deck_status(self) -> dict:
+        """Retrieve diagnostic status summary for Stream Deck integration."""
+        res = self._call_method("GetStreamDeckStatus")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Trigger simulated button press on Stream Deck key index."""
+        res = self._call_method("TriggerStreamDeckButton", key_index)
+        return bool(res)
+
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
         self._executed_callbacks.append(callback)

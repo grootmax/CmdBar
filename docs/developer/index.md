@@ -108,3 +108,12 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 
 The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
 For full details, see [Team Command Sharing Specification](team_command_sharing.md).
+
+### Cron Scheduling Architecture
+
+The Cron Scheduler module (`app/cron_scheduler.py` & `extension/cronScheduler.js`) provides automated background execution:
+- **Expression Parsing**: 5-part cron syntax parser supporting shorthands (`@daily`, `@hourly`, etc.), step intervals, ranges, and day/month names.
+- **Timezone Awareness**: Converts datetimes into target timezones (`UTC`, `Local`, or IANA timezone strings).
+- **Overlap Prevention**: Tracks running job states to prevent duplicate concurrent executions.
+- **Email Reporting**: Formats and dispatches email execution reports on completion or failure.
+- **Visual Editor**: Integrated Libadwaita UI with schedule presets, real-time expression validation, and projected run times preview.
