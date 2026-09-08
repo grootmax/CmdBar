@@ -165,7 +165,6 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="ListBackups">
       <arg name="json_backups_list" type="s" direction="out"/>
     </method>
-    </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
       <arg name="exit_code" type="i"/>
