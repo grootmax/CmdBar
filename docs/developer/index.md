@@ -108,3 +108,14 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 
 The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
 For full details, see [Team Command Sharing Specification](team_command_sharing.md).
+
+### Quick Notes & Scratchpad Module
+
+The notes manager module (`extension/notesManager.js` and `companion/notes.py`) provides quick plain-text scratchpad notes:
+- **Note Data Model**: `id`, `title`, `content`, `tags`, `attachedCommand`, `pinned`, `createdAt`, `updatedAt`.
+- **Markdown & Plain Text**: Renders Markdown to Pango markup for GNOME Shell and HTML for companion/web views.
+- **Tag Organization**: Groups notes by tag, supports tag filtering and tag summaries.
+- **Attached Commands**: Notes can have executable command templates with parameter substitution (`executeAttachedCommand`).
+- **Share Links**: Generates and parses shareable links (`cmdbar://note/share?data=...`).
+- **D-Bus Integration**: Exposes `GetNotes`, `AddNote`, `SearchNotes`, `ShareNoteLink`, `ImportNoteLink` on `org.gnome.CmdBar`.
+- **Atomic Sync**: `syncNotes` resolves conflicts using last-write-wins based on `updatedAt`.

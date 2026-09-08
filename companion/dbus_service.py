@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import subprocess
+import time
 from companion.companion_app import load_config, save_config, run_command_in_shell
 from app.config_schema import validate_branding_config, get_effective_branding
 from companion.sso_manager import SSOManager, SSOProviderConfig
@@ -22,6 +23,13 @@ from app.workspace_config import (
     PROJECT_TEMPLATES,
 )
 from companion.stream_deck import get_stream_deck_manager
+from companion.notes import (
+    create_note,
+    search_notes,
+    get_note_by_id,
+    generate_share_link,
+    parse_share_link,
+)
 
 
 class CmdBarDBusService:
@@ -508,3 +516,89 @@ class CmdBarDBusService:
     def get_terminal_sharing_sessions(self) -> str:
         sessions_info = [s.get_metrics() for s in self.active_terminal_sessions.values()]
         return json.dumps(sessions_info)
+    def get_notes(self) -> list:
+        config = load_config()
+        return config.get("notes", [])
+
+    def get_notes_json(self) -> str:
+        return json.dumps(self.get_notes())
+
+    def add_note(self, title: str, content: str = "", tags_str: str = "", attached_command: str = None) -> dict:
+        config = load_config()
+        notes = config.setdefault("notes", [])
+
+        tags = []
+        if tags_str:
+            try:
+                tags = json.loads(tags_str)
+            except Exception:
+                tags = [t.strip() for t in str(tags_str).split(",") if t.strip()]
+
+        note = create_note(
+            title=title or "Untitled Note",
+            content=content or "",
+            tags=tags,
+            attached_command=attached_command or None,
+        )
+        notes.append(note)
+        save_config(config)
+        return note
+
+    def add_note_json(self, title: str, content: str = "", tags_str: str = "", attached_command: str = None) -> str:
+        return json.dumps(self.add_note(title, content, tags_str, attached_command))
+
+    def search_notes(self, query: str) -> list:
+        config = load_config()
+        return search_notes(config.get("notes", []), query)
+
+    def search_notes_json(self, query: str) -> str:
+        return json.dumps(self.search_notes(query))
+
+    def share_note_link(self, note_id: str) -> str:
+        config = load_config()
+        note = get_note_by_id(config.get("notes", []), note_id)
+        if not note:
+            return ""
+        return generate_share_link(note)
+
+    def import_note_link(self, link: str) -> dict:
+        imported = parse_share_link(link)
+        if not imported:
+            return {}
+        config = load_config()
+        notes = config.setdefault("notes", [])
+        notes.append(imported)
+        save_config(config)
+        return imported
+
+    def import_note_link_json(self, link: str) -> str:
+        return json.dumps(self.import_note_link(link))
+
+    def get_stream_deck_profiles(self) -> str:
+        """Returns JSON string containing available Stream Deck profiles and active profile."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            summary = self.stream_deck_manager.get_status_summary()
+            return json.dumps({
+                "active_profile": summary["active_profile"],
+                "profiles": summary["available_profiles"]
+            })
+        return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Switches the active Stream Deck profile."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            return self.stream_deck_manager.switch_profile(profile_name)
+        return False
+
+    def get_stream_deck_status(self) -> str:
+        """Returns diagnostic status JSON summary for Stream Deck integration."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            return json.dumps(self.stream_deck_manager.get_status_summary())
+        return json.dumps({})
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Simulates key press on active Stream Deck grid."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
+            return res.get("status") in ("executed", "profile_switched")
+        return False

@@ -38,6 +38,10 @@ import {
   formatBytes,
   formatRate,
 } from "./systemResourceMonitor.js";
+import {
+  renderMarkdown,
+  executeAttachedCommand,
+} from "./notesManager.js";
 
 export const globalCacheStore = new CommandCacheStore();
 globalCacheStore.init().catch(() => {});
@@ -1833,6 +1837,33 @@ const CmdBarIndicator = GObject.registerClass(
             }
           });
           this.menu.addMenuItem(exportItem);
+        }
+
+        if (config.notes && Array.isArray(config.notes) && config.notes.length > 0) {
+          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+          this.menu.addMenuItem(new CategoryHeaderMenuItem("Quick Notes & Scratchpad"));
+          config.notes.forEach((note) => {
+            const label = (note.title || "Untitled") + (note.tags && note.tags.length ? ` [${note.tags.join(", ")}]` : "");
+            let item = new PopupMenu.PopupMenuItem(label);
+            item.connect("activate", () => {
+              if (note.attachedCommand) {
+                try {
+                  const execData = executeAttachedCommand(note);
+                  this.executeCommand(note.title, execData.command, {}, note);
+                } catch (err) {
+                  if (Main && typeof Main.notify === "function") {
+                    Main.notify("Attached Command Error", err.message);
+                  }
+                }
+              } else {
+                const rendered = renderMarkdown(note.content || "");
+                if (Main && typeof Main.notify === "function") {
+                  Main.notify(`Note: ${note.title}`, rendered.raw || note.content || "");
+                }
+              }
+            });
+            this.menu.addMenuItem(item);
+          });
         }
 
         // Add enterprise identity footer if configured
