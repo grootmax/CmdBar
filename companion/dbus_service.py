@@ -372,7 +372,6 @@ class CmdBarDBusService:
         res = self.get_resource_metrics()
         return json.dumps(res)
 
-<<<<<<< HEAD
     def add_event_listener(self, on_event_triggered=None):
         if on_event_triggered:
             self._event_triggered_listeners.append(on_event_triggered)
