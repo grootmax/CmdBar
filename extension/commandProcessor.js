@@ -1,3 +1,4 @@
+
 /**
  * Core business logic for CmdBar extension command processing and validation.
  */
@@ -1399,8 +1400,9 @@ export function evaluateMathExpression(expr) {
   }
 }
 
+
 /**
- * Detects if a directory is a Git repository by checking for .git file/directory or git status.
+ * Auto-detects if a directory is inside a Git repository.
  * @param {string} [dirPath]
  * @returns {boolean}
  */

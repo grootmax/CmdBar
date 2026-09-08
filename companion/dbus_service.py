@@ -21,6 +21,7 @@ from app.workspace_config import (
     detect_project_type,
     PROJECT_TEMPLATES,
 )
+from companion.system_monitor import SystemMonitor, collect_system_metrics
 from companion.stream_deck import get_stream_deck_manager
 
 
@@ -29,7 +30,8 @@ class CmdBarDBusService:
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
+    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, GetSystemMetrics,
+    GetResourceMonitorCSV, SetResourceThresholds, and manages signals for CommandExecuted,
     CommandOutput, and EventTriggered.
     :visibility: public
     """
@@ -39,92 +41,24 @@ class CmdBarDBusService:
         self._executed_listeners = []
         self._output_listeners = []
         self._sso_session_listeners = []
+        self._alert_listeners = []
         config = load_config(self.config_path) if self.config_path else load_config()
         self._sso_manager = SSOManager(config)
         self.auth_manager = YubiKeyAuthManager()
         self._event_triggered_listeners = []
         self.trigger_engine = EventTriggerEngine()
         self.workspace_manager = WorkspaceManager()
+        self._system_monitor = SystemMonitor()
         self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
         self.active_terminal_sessions = {}
 
-    def is_yubikey_required(self, name: str) -> bool:
-        if not name:
-            return False
-        config = load_config()
-        clean_name = str(name).strip()
-        found_cmd = None
-        for cat in config.get("categories", []):
-            for c in cat.get("commands", []):
-                if (
-                    c.get("name") == clean_name
-                    or c.get("template") == clean_name
-                    or c.get("command") == clean_name
-                ):
-                    found_cmd = c
-                    break
-            if found_cmd:
-                break
-        cmd_obj = found_cmd or clean_name
-        return is_sensitive_command(cmd_obj, config.get("yubikey", {}))
-
-    def authenticate_yubikey(
-        self, name: str, mode: str = "touch", credential: str = ""
-    ) -> tuple:
-        config = load_config()
-        clean_name = str(name).strip() if name else ""
-        found_cmd = None
-        if clean_name:
-            for cat in config.get("categories", []):
-                for c in cat.get("commands", []):
-                    if (
-                        c.get("name") == clean_name
-                        or c.get("template") == clean_name
-                        or c.get("command") == clean_name
-                    ):
-                        found_cmd = c
-                        break
-                if found_cmd:
-                    break
-        cmd_obj = found_cmd or clean_name
-
-        auth_payload = {"mode": mode}
-        if mode == "otp":
-            auth_payload["otp"] = credential
-        elif mode == "emergency":
-            auth_payload["emergency_code"] = credential
-
-        success, msg = self.auth_manager.authenticate_command(
-            cmd_obj, auth_payload, config
-        )
-        if success and mode == "emergency":
-            save_config(config)
-        return success, msg
-
-    def generate_emergency_codes(self, count: int = 5) -> str:
-        config = load_config()
-        yk_cfg = config.setdefault("yubikey", {})
-        raw_codes, hashed_codes = generate_emergency_codes(count=count)
-        yk_cfg["emergency_codes"] = hashed_codes
-        save_config(config)
-        return json.dumps(raw_codes)
-
-    def verify_emergency_code(self, code: str) -> bool:
-        config = load_config()
-        yk_cfg = config.setdefault("yubikey", {})
-        valid, msg = verify_and_consume_emergency_code(code, yk_cfg)
-        if valid:
-            save_config(config)
-        return valid
-
-    is_yubi_key_required = is_yubikey_required
-    authenticate_yubi_key = authenticate_yubikey
-
-    def add_listener(self, on_executed=None, on_output=None):
+    def add_listener(self, on_executed=None, on_output=None, on_alert=None):
         if on_executed:
             self._executed_listeners.append(on_executed)
         if on_output:
             self._output_listeners.append(on_output)
+        if on_alert:
+            self._alert_listeners.append(on_alert)
 
     def add_command(self, name: str, command: str, category: str = "External") -> bool:
         if not name or not str(name).strip():
@@ -358,14 +292,88 @@ class CmdBarDBusService:
         """
         return self._sso_manager.validate_category_access(session_id, category_name)
 
+    def is_yubikey_required(self, name: str) -> bool:
+        if not name:
+            return False
+        config = load_config()
+        clean_name = str(name).strip()
+        found_cmd = None
+        for cat in config.get("categories", []):
+            for c in cat.get("commands", []):
+                if (
+                    c.get("name") == clean_name
+                    or c.get("template") == clean_name
+                    or c.get("command") == clean_name
+                ):
+                    found_cmd = c
+                    break
+            if found_cmd:
+                break
+        cmd_obj = found_cmd or clean_name
+        return is_sensitive_command(cmd_obj, config.get("yubikey", {}))
+
+    def authenticate_yubikey(
+        self, name: str, mode: str = "touch", credential: str = ""
+    ) -> tuple:
+        config = load_config()
+        clean_name = str(name).strip() if name else ""
+        found_cmd = None
+        if clean_name:
+            for cat in config.get("categories", []):
+                for c in cat.get("commands", []):
+                    if (
+                        c.get("name") == clean_name
+                        or c.get("template") == clean_name
+                        or c.get("command") == clean_name
+                    ):
+                        found_cmd = c
+                        break
+                if found_cmd:
+                    break
+        cmd_obj = found_cmd or clean_name
+
+        auth_payload = {"mode": mode}
+        if mode == "otp":
+            auth_payload["otp"] = credential
+        elif mode == "emergency":
+            auth_payload["emergency_code"] = credential
+
+        success, msg = self.auth_manager.authenticate_command(
+            cmd_obj, auth_payload, config
+        )
+        if success and mode == "emergency":
+            save_config(config)
+        return success, msg
+
+    def generate_emergency_codes(self, count: int = 5) -> str:
+        config = load_config()
+        yk_cfg = config.setdefault("yubikey", {})
+        raw_codes, hashed_codes = generate_emergency_codes(count=count)
+        yk_cfg["emergency_codes"] = hashed_codes
+        save_config(config)
+        return json.dumps(raw_codes)
+
+    def verify_emergency_code(self, code: str) -> bool:
+        config = load_config()
+        yk_cfg = config.setdefault("yubikey", {})
+        valid, msg = verify_and_consume_emergency_code(code, yk_cfg)
+        if valid:
+            save_config(config)
+        return valid
+
+    is_yubi_key_required = is_yubikey_required
+    authenticate_yubi_key = authenticate_yubikey
+
     def get_resource_metrics(self) -> dict:
         if hasattr(self, "_resource_monitor") and self._resource_monitor:
             return self._resource_monitor.get_metrics_dict()
-        from companion.resource_monitor import SystemResourceMonitor
-
-        rm = SystemResourceMonitor()
-        rm.sample_metrics()
-        return rm.get_metrics_dict()
+        try:
+            from companion.resource_monitor import SystemResourceMonitor
+            rm = SystemResourceMonitor()
+            rm.sample_metrics()
+            return rm.get_metrics_dict()
+        except ImportError:
+            return self.get_system_metrics()
 
     def get_resource_metrics_json(self) -> str:
         res = self.get_resource_metrics()
@@ -460,6 +468,45 @@ class CmdBarDBusService:
     def get_workspace_templates(self) -> dict:
         return PROJECT_TEMPLATES
 
+    def get_system_metrics(self) -> dict:
+        sample = collect_system_metrics()
+        self._system_monitor.record_sample(sample)
+        summary = self._system_monitor.format_menu_summary(sample)
+        history = self._system_monitor.get_history()
+
+        def notify_alert(title, msg, alert):
+            for listener in self._alert_listeners:
+                try:
+                    listener(alert["resource"], alert["value"], alert["threshold"])
+                except Exception:
+                    pass
+
+        alerts = self._system_monitor.check_and_notify(sample, notify_alert)
+        return {
+            "current": sample,
+            "summary": summary,
+            "history": history,
+            "alerts": alerts
+        }
+
+    def get_system_metrics_json(self) -> str:
+        return json.dumps(self.get_system_metrics())
+
+    def get_resource_monitor_csv(self) -> str:
+        if not self._system_monitor.get_history():
+            self._system_monitor.record_sample()
+        return self._system_monitor.export_to_csv()
+
+    def set_resource_thresholds(self, json_or_dict) -> bool:
+        try:
+            if isinstance(json_or_dict, str):
+                thresholds = json.loads(json_or_dict)
+            else:
+                thresholds = json_or_dict
+            self._system_monitor.set_thresholds(thresholds)
+            return True
+        except Exception:
+            return False
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
         if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:

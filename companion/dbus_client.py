@@ -26,6 +26,7 @@ class CmdBarDBusClient:
         self.service = service
         self._executed_callbacks = []
         self._output_callbacks = []
+        self._alert_callbacks = []
 
     def _call_method(self, method_name, *args):
         if self.service:
@@ -195,42 +196,48 @@ class CmdBarDBusClient:
                 return {}
         return {}
 
-    def get_stream_deck_profiles(self) -> dict:
-        """Retrieve Stream Deck active and available profiles."""
-        res = self._call_method("GetStreamDeckProfiles")
+    def get_system_metrics(self) -> dict:
+        """Retrieve system metrics dict from CmdBar."""
+        res = self._call_method("GetSystemMetrics")
         if isinstance(res, dict):
             return res
         if isinstance(res, str):
             try:
-                clean_str = res.strip("'\"")
-                return json.loads(clean_str)
-            except Exception:
-                return {"active_profile": "Default", "profiles": ["Default"]}
-        return {"active_profile": "Default", "profiles": ["Default"]}
-
-    def set_stream_deck_profile(self, profile_name: str) -> bool:
-        """Switch active Stream Deck profile by name."""
-        res = self._call_method("SetStreamDeckProfile", profile_name)
-        return bool(res)
-
-    def get_stream_deck_status(self) -> dict:
-        """Retrieve diagnostic status summary for Stream Deck integration."""
-        res = self._call_method("GetStreamDeckStatus")
-        if isinstance(res, dict):
-            return res
-        if isinstance(res, str):
-            try:
-                clean_str = res.strip("'\"")
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
                 return json.loads(clean_str)
             except Exception:
                 return {}
         return {}
 
-    def trigger_stream_deck_button(self, key_index: int) -> bool:
-        """Trigger simulated button press on Stream Deck key index."""
-        res = self._call_method("TriggerStreamDeckButton", key_index)
+    def get_resource_monitor_csv(self) -> str:
+        """Retrieve resource monitor history in CSV format."""
+        res = self._call_method("GetResourceMonitorCSV")
+        if isinstance(res, str):
+            if res.startswith("'") and res.endswith("'"):
+                return res[1:-1]
+            return res
+        return ""
+
+    def set_resource_thresholds(self, thresholds) -> bool:
+        """Set resource monitoring thresholds."""
+        json_str = json.dumps(thresholds) if isinstance(thresholds, dict) else str(thresholds)
+        res = self._call_method("SetResourceThresholds", json_str)
         return bool(res)
 
+    def on_high_resource_usage_alert(self, callback):
+        """Register callback for HighResourceUsageAlert signals: callback(resource, value, threshold)"""
+        self._alert_callbacks.append(callback)
+        if self.service and hasattr(self.service, "add_listener"):
+            self.service.add_listener(on_alert=callback)
+
+    def emit_signal_alert(self, resource: str, value: float, threshold: float):
+        for cb in self._alert_callbacks:
+            try:
+                cb(resource, value, threshold)
+            except Exception:
+                pass
     def on_command_executed(self, callback):
         """Register callback for CommandExecuted signals: callback(name, exit_code, success)"""
         self._executed_callbacks.append(callback)

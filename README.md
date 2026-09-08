@@ -14,6 +14,7 @@ Perfect for developers who live in the terminal and want one-click access to pro
 - **Quick Calculator & Eval** – Type `> 2+2`, `= (100 - 25) / 5`, or `calc sin(45)` directly in the search box to evaluate math expressions inline and press Enter to copy the evaluated result to your clipboard
 - **Policy Enforcement Engine** – Enterprise security policy enforcement with MFA (RFC 6238 TOTP) for sensitive operations, Data Loss Prevention (DLP) pattern scanning and redaction, Geographic location/IP CIDR restrictions, and Time-based access controls
 - **Web Dashboard** – Modern web interface featuring drag-and-drop category & command reordering, real-time command preview dry-run engine with parameter validation, team collaboration presets & role access controls, mobile responsiveness, and PWA offline capability with Service Worker caching.
+- **System Resource Monitors** – Live CPU, Memory, Disk, and Network monitoring with mini sparkline graphs in the top-bar menu, configurable alert thresholds, desktop notifications on high resource usage, CSV export, and full D-Bus integration
 - **AI Natural Language Translator** – Prefix prompts with `/ai ` (e.g. `/ai deploy latest build to staging`) to translate natural language into executable shell commands via OpenAI, Anthropic (Claude), or Ollama (local model fallback) with secure API key storage and mandatory execution confirmation
 - **Command Favorites & Pinning** – Star frequently used commands with inline star buttons or keyboard shortcuts (`f` / `*`) to pin them into a dedicated "Favorites" category at the top of the menu and sort them first within categories.
 - **Sandboxed Execution Mode** – Option to execute commands in a sandbox container using `bwrap` (Bubblewrap), `flatpak-spawn`, or `firejail` with configurable security profiles (`strict`, `permissive`, `custom`), filesystem isolation, and network isolation toggles
@@ -300,6 +301,9 @@ CmdBar exposes a full D-Bus API on the Session Bus under bus name `org.gnome.Cmd
 | `SetStreamDeckProfile` | `string profile_name` | `boolean` | Switch active Stream Deck profile by name |
 | `GetStreamDeckStatus` | *None* | `string` (JSON) | Get Stream Deck status summary & performance stats |
 | `TriggerStreamDeckButton` | `int32 key_index` | `boolean` | Trigger simulated button press on Stream Deck key index |
+| `GetSystemMetrics` | *None* | `string` (JSON) | Get live CPU, memory, disk, network metrics and mini graphs |
+| `GetResourceMonitorCSV` | *None* | `string` (CSV) | Get recorded metric history formatted as CSV |
+| `SetResourceThresholds` | `string json_thresholds` | `boolean` | Update alert thresholds for resources |
 
 ### Signals
 
@@ -307,6 +311,7 @@ CmdBar exposes a full D-Bus API on the Session Bus under bus name `org.gnome.Cmd
 |--------|------------|-------------|
 | `CommandExecuted` | `string name, int32 exit_code, boolean success` | Emitted when a command finishes execution |
 | `CommandOutput` | `string name, string stdout, string stderr` | Emitted with command output streams |
+| `HighResourceUsageAlert` | `string resource, double value, double threshold` | Emitted when resource usage breaches threshold |
 
 ### CLI Example (`gdbus`)
 ```bash

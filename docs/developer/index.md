@@ -108,3 +108,12 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 
 The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
 For full details, see [Team Command Sharing Specification](team_command_sharing.md).
+
+### System Resource Monitors Module
+
+The System Resource Monitors module (`extension/systemMonitor.js` and `companion/system_monitor.py`) provides real-time resource tracking:
+- **Metric Collection**: Non-blocking sampling of CPU %, Memory MB/%, Disk GB/%, and Network Rx/Tx KB/s.
+- **Mini Graphs**: Renders unicode sparkline charts (` ▂▃▄▅▆▇█`) for resource history in menu items.
+- **Threshold Alerts**: Checks usage against configurable thresholds (`cpu`, `memory`, `disk`, `network`) and emits desktop notifications with cooldown throttling.
+- **CSV Export**: Formats collected history into standardized CSV format for analytical reporting.
+- **D-Bus API**: Exposes `GetSystemMetrics`, `GetResourceMonitorCSV`, `SetResourceThresholds`, and `HighResourceUsageAlert` signal over session D-Bus bus `org.gnome.CmdBar`.
