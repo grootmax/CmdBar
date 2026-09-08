@@ -303,7 +303,6 @@ DEFAULT_CONFIG = {
         "led_feedback": True,
         "mappings": [],
     },
-    },
     "iot": {
         "enabled": False,
         "mqtt": {
