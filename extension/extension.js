@@ -1893,7 +1893,6 @@ const CmdBarIndicator = GObject.registerClass(
               });
             }
           });
-        }
 
         const numpad = getNormalizedNumpadConfig(config);
         if (numpad && numpad.enabled) {
