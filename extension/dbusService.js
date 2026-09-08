@@ -154,6 +154,18 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="code" type="s" direction="in"/>
       <arg name="success" type="b" direction="out"/>
     </method>
+    <method name="StartTerminalSharing">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="title" type="s" direction="in"/>
+      <arg name="json_session_info" type="s" direction="out"/>
+    </method>
+    <method name="StopTerminalSharing">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetTerminalSharingSessions">
+      <arg name="json_sessions" type="s" direction="out"/>
+    </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
       <arg name="exit_code" type="i"/>
