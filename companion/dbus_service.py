@@ -47,7 +47,11 @@ class CmdBarDBusService:
         self._event_triggered_listeners = []
         self.trigger_engine = EventTriggerEngine()
         self.workspace_manager = WorkspaceManager()
-        self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
+        try:
+            from companion.stream_deck import get_stream_deck_manager
+            self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
+        except Exception:
+            self.stream_deck_manager = None
         self.active_terminal_sessions = {}
         self.iot_manager = IoTTriggerManager(config_path=config_path, dbus_service=self)
 
