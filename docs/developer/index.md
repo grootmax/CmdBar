@@ -109,10 +109,11 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
 For full details, see [Team Command Sharing Specification](team_command_sharing.md).
 
-### IoT Trigger Subsystem
+### YubiKey 2FA Authentication Module
 
-The IoT Trigger subsystem (`companion/iot_service.py` and `extension/iotTrigger.js`) enables triggering commands via:
-- **MQTT Integration**: Message parsing for `cmdbar/trigger/<command>` and telemetry topics.
-- **Webhook Listeners**: HTTP POST server with secret token / HMAC SHA-256 validation.
-- **Home Automation Bridge**: State and action translation for Home Assistant and openHAB.
-- **Sensor Rules**: Condition operators and cooldown deduplication for threshold alerts.
+The YubiKey authentication modules (`extension/yubikeyAuth.js` and `companion/yubikey_auth.py`) handle hardware-backed multi-factor authentication:
+- **Sensitive Command Detection**: Automatically identifies destructive or elevated commands (`sudo`, `rm -rf`, `aws ecs`, `kubectl delete`, `deploy`) or commands explicitly flagged with `sensitive: true` / `require_2fa: true`.
+- **Hardware Touch-to-Confirm**: Supports hardware presence test / touch confirmation before execution.
+- **Yubico OTP & FIDO2/U2F Assertions**: Parses 44-character ModHex OTP tokens, verifies device IDs, and validates FIDO2 assertion signatures against registered public keys.
+- **Emergency Access**: Single-use 8-character emergency recovery codes for fallback access when hardware keys are unavailable.
+- **D-Bus Interface Integration**: Exposes `VerifyYubiKey2FA`, `GetYubiKeyStatus`, `RegisterYubiKeyDevice`, and `ValidateEmergencyCode` D-Bus methods on `org.gnome.CmdBar`.

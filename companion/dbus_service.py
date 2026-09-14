@@ -260,6 +260,7 @@ class CmdBarDBusService:
                         "category": cat_name,
                         "placeholder": c.get("placeholder", ""),
                         "parameters": c.get("parameters", {}),
+                        "sensitive": bool(c.get("sensitive") or c.get("require_2fa") or c.get("require_yubikey")),
                     }
                 )
         return all_cmds
@@ -512,61 +513,106 @@ class CmdBarDBusService:
         sessions_info = [s.get_metrics() for s in self.active_terminal_sessions.values()]
         return json.dumps(sessions_info)
 
-    def trigger_iot_event(self, source: str, topic_or_endpoint: str, payload_json: str) -> bool:
-        """
-        Triggers an IoT event via D-Bus from MQTT, Webhooks, or Home Automation sources.
-        :visibility: public
-        """
-        if not source or not topic_or_endpoint:
+    def get_stream_deck_profiles(self) -> str:
+        """Returns JSON string containing available Stream Deck profiles and active profile."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            summary = self.stream_deck_manager.get_status_summary()
+            return json.dumps({
+                "active_profile": summary["active_profile"],
+                "profiles": summary["available_profiles"]
+            })
+        return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Switches the active Stream Deck profile."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            return self.stream_deck_manager.switch_profile(profile_name)
+        return False
+
+    def get_stream_deck_status(self) -> str:
+        """Returns diagnostic status JSON summary for Stream Deck integration."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            return json.dumps(self.stream_deck_manager.get_status_summary())
+        return json.dumps({})
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Simulates key press on active Stream Deck grid."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
+            return res.get("status") in ("executed", "profile_switched")
+        return False
+
+    def verify_yubikey_2fa(self, command_json: str, auth_data_json: str) -> bool:
+        try:
+            from companion.yubikey_auth import YubiKeyAuthManager
+            config = load_config()
+            manager = YubiKeyAuthManager(config)
+
+            try:
+                cmd_obj = json.loads(command_json) if command_json else {}
+            except Exception:
+                cmd_obj = {"command": command_json}
+
+            try:
+                auth_data = json.loads(auth_data_json) if auth_data_json else {}
+            except Exception:
+                auth_data = {}
+
+            res = manager.authenticate_command(cmd_obj, auth_data)
+            if res.get("success") and "remainingEmergencyCodes" in res:
+                config.setdefault("yubikey", {})["emergency_codes"] = res["remainingEmergencyCodes"]
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus verify_yubikey_2fa error: {e}\n")
             return False
-        
-        src = str(source).lower().strip()
-        endpoint = str(topic_or_endpoint).strip()
-        
+
+    def get_yubikey_status(self) -> str:
         try:
-            payload = json.loads(payload_json) if payload_json and str(payload_json).strip().startswith(("{", "[")) else (payload_json or "")
-        except Exception:
-            payload = payload_json or ""
+            config = load_config()
+            yubikey_cfg = config.get("yubikey") or {}
+            return json.dumps({
+                "enabled": bool(yubikey_cfg.get("enabled")),
+                "mode": yubikey_cfg.get("mode", "touch"),
+                "key_count": len(yubikey_cfg.get("keys", [])) if isinstance(yubikey_cfg.get("keys"), list) else 0,
+                "emergency_code_count": len(yubikey_cfg.get("emergency_codes", [])) if isinstance(yubikey_cfg.get("emergency_codes"), list) else 0,
+                "require_for_sensitive": yubikey_cfg.get("require_for_sensitive") is not False
+            })
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus get_yubikey_status error: {e}\n")
+            return json.dumps({"enabled": False, "mode": "touch", "key_count": 0, "emergency_code_count": 0})
 
-        if src in ("mqtt", "broker"):
-            res = self.iot_manager.process_mqtt_message(endpoint, payload)
-        elif src in ("webhook", "http"):
-            res = self.iot_manager.process_webhook_request(endpoint, {}, payload)
-        elif src in ("homeassistant", "ha", "openhab"):
-            res = self.iot_manager.process_home_assistant_event(payload if isinstance(payload, dict) else {"command": payload})
-        elif src in ("sensor", "telemetry"):
-            triggered = self.iot_manager.evaluate_sensor_telemetry(endpoint, payload)
-            res = {"success": True, "triggers": triggered}
-        else:
-            res = self.iot_manager.execute_command_with_safety(endpoint, payload if isinstance(payload, dict) else {})
-
-        return bool(res.get("success", False))
-
-    def get_iot_triggers(self) -> list:
-        """
-        Returns list of registered sensor rules and IoT triggers.
-        :visibility: public
-        """
-        return self.iot_manager.get_sensor_rules()
-
-    def register_iot_trigger(self, trigger_json: str) -> bool:
-        """
-        Registers a new IoT sensor trigger rule from JSON string.
-        :visibility: public
-        """
+    def register_yubikey_device(self, device_json: str) -> bool:
         try:
-            data = json.loads(trigger_json)
-            if not isinstance(data, dict):
+            from companion.yubikey_auth import register_device
+            config = load_config()
+            yubi_cfg = config.setdefault("yubikey", {})
+
+            try:
+                dev_info = json.loads(device_json)
+            except Exception:
                 return False
-            return self.iot_manager.register_sensor_rule(
-                sensor_id=data.get("sensor_id", "*"),
-                metric=data.get("metric", "value"),
-                operator=data.get("operator", "=="),
-                threshold=data.get("threshold"),
-                command_name=data.get("command_name"),
-                parameters=data.get("parameters", {}),
-                cooldown_seconds=data.get("cooldown_seconds", 10.0),
-                persist=True
-            )
-        except Exception:
+
+            res = register_device(dev_info, yubi_cfg.get("keys", []))
+            if res.get("success"):
+                yubi_cfg["keys"] = res.get("keys", [])
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus register_yubikey_device error: {e}\n")
+            return False
+
+    def validate_emergency_code(self, code: str) -> bool:
+        try:
+            from companion.yubikey_auth import verify_emergency_code
+            config = load_config()
+            yubi_cfg = config.setdefault("yubikey", {})
+
+            res = verify_emergency_code(code, yubi_cfg.get("emergency_codes", []))
+            if res.get("success"):
+                yubi_cfg["emergency_codes"] = res.get("remainingCodes", [])
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus validate_emergency_code error: {e}\n")
             return False
