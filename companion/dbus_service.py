@@ -22,6 +22,7 @@ from app.workspace_config import (
     PROJECT_TEMPLATES,
 )
 from companion.stream_deck import get_stream_deck_manager
+from companion.iot_service import IoTTriggerManager
 
 
 class CmdBarDBusService:
@@ -29,8 +30,9 @@ class CmdBarDBusService:
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
-    CommandOutput, and EventTriggered.
+    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management,
+    TriggerIoTEvent, GetIoTTriggers, RegisterIoTTrigger,
+    and manages signals for CommandExecuted, CommandOutput, and EventTriggered.
     :visibility: public
     """
 
@@ -47,6 +49,7 @@ class CmdBarDBusService:
         self.workspace_manager = WorkspaceManager()
         self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
         self.active_terminal_sessions = {}
+        self.iot_manager = IoTTriggerManager(config_path=config_path, dbus_service=self)
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:

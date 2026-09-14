@@ -20,6 +20,12 @@ import {
   parseShareUrl,
   ROLES,
 } from "./teamSharing.js";
+import {
+  processMQTTTopicAndPayload,
+  processWebhookRequest,
+  processHomeAutomationEvent,
+  evaluateSensorRules,
+} from "./iotTrigger.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -866,11 +872,6 @@ export class CmdBarDBusService {
     }
   }
 
-  /**
-   * Gets configuration revision history over D-Bus.
-   * @returns {Promise<string>} JSON string of revision history.
-   * @public
-   */
   async GetConfigHistory() {
     try {
       const history = await this._teamSharingService.versionControl.getHistory();
