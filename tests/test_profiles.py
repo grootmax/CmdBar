@@ -7,6 +7,7 @@ from app.config_schema import (
     merge_environment,
 )
 
+
 def test_get_profiles_list_and_dict():
     cfg_list = {
         "profiles": [
@@ -29,20 +30,20 @@ def test_get_profiles_list_and_dict():
     assert profiles_dict[0]["name"] == "Staging"
     assert profiles_dict[0]["env"]["ENV_TYPE"] == "staging"
 
+
 def test_get_active_profile_name():
     cfg = {
         "active_profile": "Staging",
         "profiles": [
             {"name": "Production"},
             {"name": "Staging"},
-        ]
+        ],
     }
     assert get_active_profile_name(cfg) == "Staging"
 
-    cfg_no_active = {
-        "profiles": [{"name": "Development"}]
-    }
+    cfg_no_active = {"profiles": [{"name": "Development"}]}
     assert get_active_profile_name(cfg_no_active) == "Development"
+
 
 def test_get_profile_env_and_merge():
     cfg = {
@@ -50,7 +51,7 @@ def test_get_profile_env_and_merge():
         "profiles": [
             {"name": "Production", "env": {"HOST": "prod.example.com", "PORT": "443"}},
             {"name": "Development", "env": {"HOST": "localhost", "PORT": "8000"}},
-        ]
+        ],
     }
     prod_env = get_profile_env(cfg)
     assert prod_env["HOST"] == "prod.example.com"
@@ -63,6 +64,7 @@ def test_get_profile_env_and_merge():
     assert merged["PATH"] == "/usr/bin"
     assert merged["HOST"] == "prod.example.com"
     assert merged["PORT"] == "443"
+
 
 def test_is_command_visible_in_profile():
     cmd_dev = {"name": "Dev Task", "profiles": ["Development"]}

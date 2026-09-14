@@ -35,7 +35,9 @@ def test_sso_provider_config_presets():
     assert "login.microsoftonline.com" in azure_cfg.authorization_endpoint
     assert azure_cfg.client_id == "az_123"
 
-    okta_cfg = SSOProviderConfig.create_preset("okta", {"domain": "dev.okta.com", "client_id": "ok_456"})
+    okta_cfg = SSOProviderConfig.create_preset(
+        "okta", {"domain": "dev.okta.com", "client_id": "ok_456"}
+    )
     assert "dev.okta.com" in okta_cfg.authorization_endpoint
     assert okta_cfg.client_id == "ok_456"
 
@@ -45,12 +47,17 @@ def test_sso_provider_config_presets():
 
 
 def test_saml_handler():
-    saml = SAMLHandler(sp_entity_id="https://test.cmdbar.org/metadata", acs_url="http://localhost:8080/acs")
+    saml = SAMLHandler(
+        sp_entity_id="https://test.cmdbar.org/metadata",
+        acs_url="http://localhost:8080/acs",
+    )
     metadata = saml.generate_sp_metadata()
     assert "<md:EntityDescriptor" in metadata
     assert "https://test.cmdbar.org/metadata" in metadata
 
-    authn = saml.generate_authn_request(destination="https://idp.example.com/sso", relay_state="state_123")
+    authn = saml.generate_authn_request(
+        destination="https://idp.example.com/sso", relay_state="state_123"
+    )
     assert authn["saml_request_b64"]
     assert authn["relay_state"] == "state_123"
     assert "https://idp.example.com/sso" in authn["redirect_url"]
@@ -81,7 +88,9 @@ def test_saml_handler():
 
 
 def test_oidc_handler():
-    provider_cfg = SSOProviderConfig.create_preset("azure", {"client_id": "test_client"})
+    provider_cfg = SSOProviderConfig.create_preset(
+        "azure", {"client_id": "test_client"}
+    )
     auth_data = OIDCHandler.generate_authorization_url(provider_cfg)
 
     assert "test_client" in auth_data["url"]
@@ -89,7 +98,9 @@ def test_oidc_handler():
     assert auth_data["code_verifier"]
 
     # Test JWT payload parsing and claim verification
-    header = base64.b64encode(json.dumps({"alg": "none"}).encode("utf-8")).decode("utf-8")
+    header = base64.b64encode(json.dumps({"alg": "none"}).encode("utf-8")).decode(
+        "utf-8"
+    )
     payload_data = {
         "sub": "usr_999",
         "email": "alice@company.com",
@@ -104,7 +115,9 @@ def test_oidc_handler():
     assert decoded["sub"] == "usr_999"
     assert decoded["email"] == "alice@company.com"
 
-    verified = OIDCHandler.verify_id_token_claims(mock_jwt, expected_client_id="test_client")
+    verified = OIDCHandler.verify_id_token_claims(
+        mock_jwt, expected_client_id="test_client"
+    )
     assert verified["valid"] is True
     assert verified["claims"]["email"] == "alice@company.com"
 
@@ -120,7 +133,9 @@ def test_jit_provisioner():
     assert jit.is_domain_allowed("bob@company.com") is True
     assert jit.is_domain_allowed("charlie@other.com") is False
 
-    res = jit.provisionUser({"email": "bob@company.com", "name": "Bob Smith", "groups": ["Admins"]})
+    res = jit.provisionUser(
+        {"email": "bob@company.com", "name": "Bob Smith", "groups": ["Admins"]}
+    )
     assert res["success"] is True
     assert res["profile"]["email"] == "bob@company.com"
     assert res["profile"]["name"] == "Bob Smith"
@@ -164,8 +179,15 @@ def test_session_manager(tmp_path):
     session_file = os.path.join(tmp_path, "sso_sessions.json")
     mgr = SessionManager(session_file_path=session_file, max_ttl=3600)
 
-    user = {"user_id": "u1", "email": "test@company.com", "name": "Test User", "groups": ["Admins"]}
-    sess = mgr.create_session(user, role="admin", assigned_categories=["Projects"], provider="azure")
+    user = {
+        "user_id": "u1",
+        "email": "test@company.com",
+        "name": "Test User",
+        "groups": ["Admins"],
+    }
+    sess = mgr.create_session(
+        user, role="admin", assigned_categories=["Projects"], provider="azure"
+    )
 
     assert sess["session_id"]
     assert sess["status"] == "active"

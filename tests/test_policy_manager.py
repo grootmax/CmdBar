@@ -37,8 +37,12 @@ class TestPolicyManager(unittest.TestCase):
             "rules": [],
         }
 
-        self.assertTrue(evaluate_command_policy("echo Hello", policy_config=policy)["allowed"])
-        self.assertTrue(evaluate_command_policy("git status", policy_config=policy)["allowed"])
+        self.assertTrue(
+            evaluate_command_policy("echo Hello", policy_config=policy)["allowed"]
+        )
+        self.assertTrue(
+            evaluate_command_policy("git status", policy_config=policy)["allowed"]
+        )
 
         blocked = evaluate_command_policy("python3 script.py", policy_config=policy)
         self.assertFalse(blocked["allowed"])
@@ -67,14 +71,22 @@ class TestPolicyManager(unittest.TestCase):
             ],
         }
 
-        res_alice = evaluate_command_policy("aws s3 ls", custom_context={"user": "alice"}, policy_config=policy)
+        res_alice = evaluate_command_policy(
+            "aws s3 ls", custom_context={"user": "alice"}, policy_config=policy
+        )
         self.assertFalse(res_alice["allowed"])
         self.assertEqual(res_alice["blocked_by"], "user_group_rule")
 
-        res_bob = evaluate_command_policy("aws s3 ls", custom_context={"user": "bob"}, policy_config=policy)
+        res_bob = evaluate_command_policy(
+            "aws s3 ls", custom_context={"user": "bob"}, policy_config=policy
+        )
         self.assertTrue(res_bob["allowed"])
 
-        res_intern = evaluate_command_policy("docker ps", custom_context={"user": "sam", "groups": ["interns"]}, policy_config=policy)
+        res_intern = evaluate_command_policy(
+            "docker ps",
+            custom_context={"user": "sam", "groups": ["interns"]},
+            policy_config=policy,
+        )
         self.assertFalse(res_intern["allowed"])
 
     def test_approval_and_overrides(self):
@@ -83,7 +95,9 @@ class TestPolicyManager(unittest.TestCase):
 
         self.assertFalse(pm.evaluate(cmd)["allowed"])
 
-        req = pm.request_approval(cmd, requester_context={"user": "user1"}, reason="Clean cache")
+        req = pm.request_approval(
+            cmd, requester_context={"user": "user1"}, reason="Clean cache"
+        )
         self.assertEqual(req["status"], "pending")
 
         appr = pm.approve_request(req["id"], approver_context={"user": "admin"})
@@ -94,11 +108,21 @@ class TestPolicyManager(unittest.TestCase):
         self.assertTrue(eval_approved["allowed"])
         self.assertTrue(eval_approved["approved"])
 
-        override = pm.grant_override("chmod -R 777 *", approver_context={"user": "admin"})
-        self.assertTrue(pm.evaluate("chmod -R 777 /tmp/dir", approval_token=override["token"])["allowed"])
+        override = pm.grant_override(
+            "chmod -R 777 *", approver_context={"user": "admin"}
+        )
+        self.assertTrue(
+            pm.evaluate("chmod -R 777 /tmp/dir", approval_token=override["token"])[
+                "allowed"
+            ]
+        )
 
         pm.revoke_override(override["token"])
-        self.assertFalse(pm.evaluate("chmod -R 777 /tmp/dir", approval_token=override["token"])["allowed"])
+        self.assertFalse(
+            pm.evaluate("chmod -R 777 /tmp/dir", approval_token=override["token"])[
+                "allowed"
+            ]
+        )
 
 
 if __name__ == "__main__":

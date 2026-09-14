@@ -60,6 +60,7 @@
       <default>''</default>
       <summary>Enterprise Domain Alias</summary>
       <description>Custom domain alias endpoint for enterprise server communications.</description>
+    </key>
     <key name="active-profile" type="s">
       <default>'Development'</default>
       <summary>Active Environment Profile</summary>

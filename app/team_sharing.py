@@ -181,7 +181,9 @@ def import_from_share_url(
         raise ValueError(decode_res.get("error"))
 
     updated_config = json.loads(json.dumps(config or {"categories": []}))
-    if "categories" not in updated_config or not isinstance(updated_config["categories"], list):
+    if "categories" not in updated_config or not isinstance(
+        updated_config["categories"], list
+    ):
         updated_config["categories"] = []
 
     payload_data = decode_res["data"]
@@ -189,7 +191,9 @@ def import_from_share_url(
 
     if decode_res.get("type") == "category" and "commands" in payload_data:
         cat_name = target_category or payload_data.get("name", "Shared Commands")
-        cat = next((c for c in updated_config["categories"] if c.get("name") == cat_name), None)
+        cat = next(
+            (c for c in updated_config["categories"] if c.get("name") == cat_name), None
+        )
         if not cat:
             cat = {"name": cat_name, "commands": []}
             updated_config["categories"].append(cat)
@@ -197,7 +201,14 @@ def import_from_share_url(
             cat["commands"].append(cmd)
             imported_count += 1
     else:
-        cat = next((c for c in updated_config["categories"] if c.get("name") == target_category), None)
+        cat = next(
+            (
+                c
+                for c in updated_config["categories"]
+                if c.get("name") == target_category
+            ),
+            None,
+        )
         if not cat:
             cat = {"name": target_category, "commands": []}
             updated_config["categories"].append(cat)
@@ -220,7 +231,9 @@ def import_from_share_url(
     }
 
 
-def add_team_repository(repo_data: dict, config: dict, user_role: str = "admin") -> dict:
+def add_team_repository(
+    repo_data: dict, config: dict, user_role: str = "admin"
+) -> dict:
     """
     Registers a new team repository.
     :visibility: public
@@ -228,14 +241,23 @@ def add_team_repository(repo_data: dict, config: dict, user_role: str = "admin")
     check_permission(user_role, "MANAGE_REPOS")
 
     updated_config = json.loads(json.dumps(config or {}))
-    if "teamRepositories" not in updated_config or not isinstance(updated_config["teamRepositories"], list):
+    if "teamRepositories" not in updated_config or not isinstance(
+        updated_config["teamRepositories"], list
+    ):
         updated_config["teamRepositories"] = []
 
     if not repo_data or not repo_data.get("id") or not repo_data.get("name"):
         raise ValueError("Repository data must include 'id' and 'name'.")
 
     repo_id = repo_data["id"]
-    existing_idx = next((i for i, r in enumerate(updated_config["teamRepositories"]) if r.get("id") == repo_id), -1)
+    existing_idx = next(
+        (
+            i
+            for i, r in enumerate(updated_config["teamRepositories"])
+            if r.get("id") == repo_id
+        ),
+        -1,
+    )
 
     new_repo = {
         "id": repo_id,
@@ -268,7 +290,9 @@ def add_team_repository(repo_data: dict, config: dict, user_role: str = "admin")
     return updated_config
 
 
-def remove_team_repository(repo_id: str, config: dict, user_role: str = "admin") -> dict:
+def remove_team_repository(
+    repo_id: str, config: dict, user_role: str = "admin"
+) -> dict:
     """
     Removes / disconnects a team repository.
     :visibility: public
@@ -276,15 +300,27 @@ def remove_team_repository(repo_id: str, config: dict, user_role: str = "admin")
     check_permission(user_role, "MANAGE_REPOS")
 
     updated_config = json.loads(json.dumps(config or {}))
-    if "teamRepositories" not in updated_config or not isinstance(updated_config["teamRepositories"], list):
+    if "teamRepositories" not in updated_config or not isinstance(
+        updated_config["teamRepositories"], list
+    ):
         return updated_config
 
-    repo = next((r for r in updated_config["teamRepositories"] if r.get("id") == repo_id), None)
-    updated_config["teamRepositories"] = [r for r in updated_config["teamRepositories"] if r.get("id") != repo_id]
+    repo = next(
+        (r for r in updated_config["teamRepositories"] if r.get("id") == repo_id), None
+    )
+    updated_config["teamRepositories"] = [
+        r for r in updated_config["teamRepositories"] if r.get("id") != repo_id
+    ]
 
-    if repo and "categories" in updated_config and isinstance(updated_config["categories"], list):
+    if (
+        repo
+        and "categories" in updated_config
+        and isinstance(updated_config["categories"], list)
+    ):
         team_cat_name = f"Team: {repo.get('name')}"
-        updated_config["categories"] = [c for c in updated_config["categories"] if c.get("name") != team_cat_name]
+        updated_config["categories"] = [
+            c for c in updated_config["categories"] if c.get("name") != team_cat_name
+        ]
 
     log_activity(
         updated_config,
@@ -343,17 +379,28 @@ def sync_team_repository(
         ]
 
     team_cat_name = f"Team: {repo['name']}"
-    if "categories" not in updated_config or not isinstance(updated_config["categories"], list):
+    if "categories" not in updated_config or not isinstance(
+        updated_config["categories"], list
+    ):
         updated_config["categories"] = []
 
-    cat = next((c for c in updated_config["categories"] if c.get("name") == team_cat_name), None)
+    cat = next(
+        (c for c in updated_config["categories"] if c.get("name") == team_cat_name),
+        None,
+    )
     if not cat:
         cat = {"name": team_cat_name, "commands": []}
         updated_config["categories"].append(cat)
     else:
-        cat["commands"] = [cmd for cmd in cat.get("commands", []) if cmd.get("teamRepoId") != repo_id]
+        cat["commands"] = [
+            cmd for cmd in cat.get("commands", []) if cmd.get("teamRepoId") != repo_id
+        ]
 
-    commands_list = remote_data if isinstance(remote_data, list) else remote_data.get("commands", [])
+    commands_list = (
+        remote_data
+        if isinstance(remote_data, list)
+        else remote_data.get("commands", [])
+    )
 
     for cmd in commands_list:
         cmd_copy = dict(cmd)
@@ -381,7 +428,9 @@ def sync_team_repository(
     }
 
 
-def create_config_revision(config: dict, author: str = "system", message: str = "Updated configuration") -> dict:
+def create_config_revision(
+    config: dict, author: str = "system", message: str = "Updated configuration"
+) -> dict:
     """
     Creates a new revision record in configuration version control.
     :visibility: public
@@ -402,7 +451,13 @@ def create_config_revision(config: dict, author: str = "system", message: str = 
     diff_summary = (
         diff_config_revisions(prev_rev.get("categories", []), categories_snapshot)
         if prev_rev
-        else {"addedCommands": sum(len(c.get("commands", [])) for c in categories_snapshot), "removedCommands": 0, "modifiedCommands": 0}
+        else {
+            "addedCommands": sum(
+                len(c.get("commands", [])) for c in categories_snapshot
+            ),
+            "removedCommands": 0,
+            "modifiedCommands": 0,
+        }
     )
 
     new_revision = {
@@ -466,17 +521,25 @@ def diff_config_revisions(snapshot_a: list = None, snapshot_b: list = None) -> d
             added += 1
         else:
             cmd_a = map_a[key]
-            if cmd_a.get("command") != cmd_b.get("command") or canonical_json(cmd_a) != canonical_json(cmd_b):
+            if cmd_a.get("command") != cmd_b.get("command") or canonical_json(
+                cmd_a
+            ) != canonical_json(cmd_b):
                 modified += 1
 
     for key in map_a:
         if key not in map_b:
             removed += 1
 
-    return {"addedCommands": added, "removedCommands": removed, "modifiedCommands": modified}
+    return {
+        "addedCommands": added,
+        "removedCommands": removed,
+        "modifiedCommands": modified,
+    }
 
 
-def rollback_to_revision(config: dict, revision_id: int, user_role: str = "admin") -> dict:
+def rollback_to_revision(
+    config: dict, revision_id: int, user_role: str = "admin"
+) -> dict:
     """
     Restores configuration to a previous revision.
     :visibility: public
@@ -485,7 +548,9 @@ def rollback_to_revision(config: dict, revision_id: int, user_role: str = "admin
 
     updated_config = json.loads(json.dumps(config or {}))
     history = get_revision_history(updated_config)
-    target_rev = next((r for r in history if r.get("revision") == int(revision_id)), None)
+    target_rev = next(
+        (r for r in history if r.get("revision") == int(revision_id)), None
+    )
 
     if not target_rev:
         raise ValueError(f"Revision #{revision_id} not found in history.")
@@ -611,15 +676,29 @@ def merge_proposal(config: dict, proposal_id: str, user_role: str = "approver") 
         raise ValueError(f"Proposal '{proposal_id}' not found.")
 
     if proposal.get("status") != "approved":
-        raise ValueError(f"Proposal '{proposal_id}' must be approved before merging (status: '{proposal.get('status')}').")
+        raise ValueError(
+            f"Proposal '{proposal_id}' must be approved before merging (status: '{proposal.get('status')}')."
+        )
 
-    repo = next((r for r in list_team_repositories(updated_config) if r.get("id") == proposal.get("repoId")), None)
+    repo = next(
+        (
+            r
+            for r in list_team_repositories(updated_config)
+            if r.get("id") == proposal.get("repoId")
+        ),
+        None,
+    )
     team_cat_name = f"Team: {repo.get('name')}" if repo else "Team Shared Commands"
 
-    if "categories" not in updated_config or not isinstance(updated_config["categories"], list):
+    if "categories" not in updated_config or not isinstance(
+        updated_config["categories"], list
+    ):
         updated_config["categories"] = []
 
-    cat = next((c for c in updated_config["categories"] if c.get("name") == team_cat_name), None)
+    cat = next(
+        (c for c in updated_config["categories"] if c.get("name") == team_cat_name),
+        None,
+    )
     if not cat:
         cat = {"name": team_cat_name, "commands": []}
         updated_config["categories"].append(cat)
@@ -654,7 +733,9 @@ def list_proposals(config: dict, filters: dict = None) -> list:
     :visibility: public
     """
     filters = filters or {}
-    proposals = config.get("approvalWorkflows", {}).get("proposals", []) if config else []
+    proposals = (
+        config.get("approvalWorkflows", {}).get("proposals", []) if config else []
+    )
     result = []
     for p in proposals:
         if filters.get("status") and p.get("status") != filters.get("status"):

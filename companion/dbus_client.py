@@ -110,6 +110,42 @@ class CmdBarDBusClient:
                 return []
         return []
 
+    def get_stream_deck_profiles(self) -> dict:
+        """Retrieve Stream Deck active and available profiles."""
+        res = self._call_method("GetStreamDeckProfiles")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return {"active_profile": "Default", "profiles": ["Default"]}
+        return {"active_profile": "Default", "profiles": ["Default"]}
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Switch active Stream Deck profile by name."""
+        res = self._call_method("SetStreamDeckProfile", profile_name)
+        return bool(res)
+
+    def get_stream_deck_status(self) -> dict:
+        """Retrieve diagnostic status summary for Stream Deck integration."""
+        res = self._call_method("GetStreamDeckStatus")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res.strip("'\"")
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Trigger simulated button press on Stream Deck key index."""
+        res = self._call_method("TriggerStreamDeckButton", key_index)
+        return bool(res)
+
     def is_yubikey_required(self, name: str) -> bool:
         """Checks if a command requires YubiKey authentication."""
         res = self._call_method("IsYubiKeyRequired", name)
@@ -220,3 +256,39 @@ class CmdBarDBusClient:
                 cb(name, stdout, stderr)
             except Exception:
                 pass
+
+    def get_stream_deck_profiles(self) -> dict:
+        res = self._call_method("GetStreamDeckProfiles")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        res = self._call_method("SetStreamDeckProfile", profile_name)
+        return bool(res)
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        res = self._call_method("TriggerStreamDeckButton", key_index)
+        return bool(res)
+
+    def get_stream_deck_status(self) -> dict:
+        res = self._call_method("GetStreamDeckStatus")
+        if isinstance(res, dict):
+            return res
+        if isinstance(res, str):
+            try:
+                clean_str = res
+                if clean_str.startswith("'") and clean_str.endswith("'"):
+                    clean_str = clean_str[1:-1]
+                return json.loads(clean_str)
+            except Exception:
+                return {}
+        return {}

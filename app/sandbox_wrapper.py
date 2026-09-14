@@ -45,8 +45,14 @@ def get_sandbox_config(cmd_obj):
         sandbox = cmd_obj.get("sandbox")
         if isinstance(sandbox, dict):
             cfg["enabled"] = sandbox.get("enabled") is not False
-            cfg["engine"] = sandbox.get("engine") or cmd_obj.get("sandbox_engine") or cfg["engine"]
-            cfg["profile"] = sandbox.get("profile") or cmd_obj.get("sandbox_profile") or cfg["profile"]
+            cfg["engine"] = (
+                sandbox.get("engine") or cmd_obj.get("sandbox_engine") or cfg["engine"]
+            )
+            cfg["profile"] = (
+                sandbox.get("profile")
+                or cmd_obj.get("sandbox_profile")
+                or cfg["profile"]
+            )
             if "filesystem" in sandbox:
                 cfg["filesystem"] = sandbox["filesystem"]
             elif "sandbox_filesystem" in cmd_obj:
@@ -78,6 +84,7 @@ def wrap_command_in_sandbox(argv, sandbox_config_or_cmd):
     """
     if isinstance(argv, str):
         import shlex
+
         try:
             original_argv = shlex.split(argv)
         except Exception:
@@ -105,16 +112,31 @@ def wrap_command_in_sandbox(argv, sandbox_config_or_cmd):
     if engine == "bwrap":
         wrapper = ["bwrap"]
         if profile == "strict":
-            wrapper.extend([
-                "--ro-bind", "/usr", "/usr",
-                "--ro-bind-try", "/lib", "/lib",
-                "--ro-bind-try", "/lib64", "/lib64",
-                "--ro-bind-try", "/bin", "/bin",
-                "--ro-bind-try", "/sbin", "/sbin",
-                "--proc", "/proc",
-                "--dev", "/dev",
-                "--tmpfs", "/tmp"
-            ])
+            wrapper.extend(
+                [
+                    "--ro-bind",
+                    "/usr",
+                    "/usr",
+                    "--ro-bind-try",
+                    "/lib",
+                    "/lib",
+                    "--ro-bind-try",
+                    "/lib64",
+                    "/lib64",
+                    "--ro-bind-try",
+                    "/bin",
+                    "/bin",
+                    "--ro-bind-try",
+                    "/sbin",
+                    "/sbin",
+                    "--proc",
+                    "/proc",
+                    "--dev",
+                    "/dev",
+                    "--tmpfs",
+                    "/tmp",
+                ]
+            )
             if not net_allowed:
                 wrapper.append("--unshare-net")
             wrapper.append("--unshare-all")
@@ -123,15 +145,29 @@ def wrap_command_in_sandbox(argv, sandbox_config_or_cmd):
             if not net_allowed:
                 wrapper.append("--unshare-net")
         else:
-            wrapper.extend([
-                "--ro-bind", "/usr", "/usr",
-                "--ro-bind-try", "/lib", "/lib",
-                "--ro-bind-try", "/lib64", "/lib64",
-                "--ro-bind-try", "/bin", "/bin",
-                "--ro-bind-try", "/sbin", "/sbin",
-                "--proc", "/proc",
-                "--dev", "/dev"
-            ])
+            wrapper.extend(
+                [
+                    "--ro-bind",
+                    "/usr",
+                    "/usr",
+                    "--ro-bind-try",
+                    "/lib",
+                    "/lib",
+                    "--ro-bind-try",
+                    "/lib64",
+                    "/lib64",
+                    "--ro-bind-try",
+                    "/bin",
+                    "/bin",
+                    "--ro-bind-try",
+                    "/sbin",
+                    "/sbin",
+                    "--proc",
+                    "/proc",
+                    "--dev",
+                    "/dev",
+                ]
+            )
             if fs_mode in ("read-only", "strict"):
                 wrapper.extend(["--ro-bind", "/", "/", "--tmpfs", "/tmp"])
             elif fs_mode in ("tmpfs", "isolated"):

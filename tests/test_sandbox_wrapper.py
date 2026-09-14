@@ -27,15 +27,17 @@ def test_get_sandbox_config():
     assert cfg["filesystem"] == "read-only"
     assert cfg["network"] is False
 
-    custom_cfg = get_sandbox_config({
-        "sandbox": {
-            "enabled": True,
-            "engine": "firejail",
-            "profile": "custom",
-            "filesystem": "tmpfs",
-            "network": True,
+    custom_cfg = get_sandbox_config(
+        {
+            "sandbox": {
+                "enabled": True,
+                "engine": "firejail",
+                "profile": "custom",
+                "filesystem": "tmpfs",
+                "network": True,
+            }
         }
-    })
+    )
     assert custom_cfg["engine"] == "firejail"
     assert custom_cfg["profile"] == "custom"
     assert custom_cfg["filesystem"] == "tmpfs"
@@ -100,7 +102,9 @@ def test_resolve_command_preview_sandboxed():
     schema = {"host": {"regex": r"^[0-9.]+$"}}
     sb_config = {"sandbox": {"enabled": True, "engine": "bwrap", "network": False}}
 
-    resolved, errors = resolve_command_preview(cmd_template, mode, vals, schema, sandbox_config=sb_config)
+    resolved, errors = resolve_command_preview(
+        cmd_template, mode, vals, schema, sandbox_config=sb_config
+    )
     assert errors == {}
     assert "bwrap" in resolved
     assert "--unshare-net" in resolved

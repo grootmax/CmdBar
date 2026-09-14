@@ -23,6 +23,7 @@ class StreamDeckButton:
     Represents a visual button on a Stream Deck key grid.
     :visibility: public
     """
+
     def __init__(
         self,
         key_index: int,
@@ -32,13 +33,17 @@ class StreamDeckButton:
         label: str = "",
         target_profile: str = "",
         state: str = "idle",
-        led_color: Optional[Tuple[int, int, int]] = None
+        led_color: Optional[Tuple[int, int, int]] = None,
     ):
         self.key_index = key_index
         self.action_type = action_type  # "command", "profile_switch", "status", "empty"
         self.command_name = command_name
         self.category = category
-        self.label = label or command_name or (f"Profile: {target_profile}" if target_profile else "Empty")
+        self.label = (
+            label
+            or command_name
+            or (f"Profile: {target_profile}" if target_profile else "Empty")
+        )
         self.target_profile = target_profile
         self.state = state  # "idle", "executing", "success", "error", "disabled"
         self.last_output = ""
@@ -80,7 +85,7 @@ class StreamDeckButton:
             label=data.get("label", ""),
             target_profile=data.get("target_profile", ""),
             state=data.get("state", "idle"),
-            led_color=tuple(data["led_color"]) if data.get("led_color") else None
+            led_color=tuple(data["led_color"]) if data.get("led_color") else None,
         )
         btn.last_output = data.get("last_output", "")
         btn.execution_time_ms = data.get("execution_time_ms", 0.0)
@@ -92,6 +97,7 @@ class StreamDeckProfile:
     Manages a Stream Deck key profile and button grid layout.
     :visibility: public
     """
+
     def __init__(self, name: str, grid_rows: int = 3, grid_cols: int = 5):
         self.name = name
         self.grid_rows = grid_rows
@@ -113,7 +119,7 @@ class StreamDeckProfile:
         self,
         category_name: str,
         config_data: Dict[str, Any],
-        available_profiles: Optional[List[str]] = None
+        available_profiles: Optional[List[str]] = None,
     ):
         """
         Populates profile key grid from a specified CmdBar category.
@@ -121,7 +127,7 @@ class StreamDeckProfile:
         """
         self.buttons.clear()
         categories = config_data.get("categories", [])
-        
+
         target_commands = []
         if category_name == "Default" or category_name == "All":
             for cat in categories:
@@ -132,8 +138,12 @@ class StreamDeckProfile:
                     target_commands = cat.get("commands", [])
                     break
 
-        usable_slots = self.max_keys - 1 if (available_profiles and len(available_profiles) > 1) else self.max_keys
-        
+        usable_slots = (
+            self.max_keys - 1
+            if (available_profiles and len(available_profiles) > 1)
+            else self.max_keys
+        )
+
         for idx, cmd in enumerate(target_commands[:usable_slots]):
             btn = StreamDeckButton(
                 key_index=idx,
@@ -141,7 +151,7 @@ class StreamDeckProfile:
                 command_name=cmd.get("name", f"Cmd {idx+1}"),
                 category=category_name,
                 label=cmd.get("name", f"Cmd {idx+1}"),
-                state="idle"
+                state="idle",
             )
             self.set_button(idx, btn)
 
@@ -149,16 +159,22 @@ class StreamDeckProfile:
         if available_profiles and len(available_profiles) > 1:
             # Add profile switch button at the bottom right corner
             last_slot = self.max_keys - 1
-            current_idx = available_profiles.index(self.name) if self.name in available_profiles else 0
-            next_profile = available_profiles[(current_idx + 1) % len(available_profiles)]
-            
+            current_idx = (
+                available_profiles.index(self.name)
+                if self.name in available_profiles
+                else 0
+            )
+            next_profile = available_profiles[
+                (current_idx + 1) % len(available_profiles)
+            ]
+
             switch_btn = StreamDeckButton(
                 key_index=last_slot,
                 action_type="profile_switch",
                 target_profile=next_profile,
                 label=f"➔ {next_profile}",
                 state="idle",
-                led_color=(100, 100, 220)
+                led_color=(100, 100, 220),
             )
             self.set_button(last_slot, switch_btn)
 
@@ -168,7 +184,7 @@ class StreamDeckProfile:
             "name": self.name,
             "grid_rows": self.grid_rows,
             "grid_cols": self.grid_cols,
-            "buttons": {k: v.to_dict() for k, v in self.buttons.items()}
+            "buttons": {k: v.to_dict() for k, v in self.buttons.items()},
         }
 
     @classmethod
@@ -177,7 +193,7 @@ class StreamDeckProfile:
         profile = cls(
             name=data.get("name", "Default"),
             grid_rows=data.get("grid_rows", 3),
-            grid_cols=data.get("grid_cols", 5)
+            grid_cols=data.get("grid_cols", 5),
         )
         buttons_data = data.get("buttons", {})
         for key_str, btn_dict in buttons_data.items():
@@ -194,11 +210,11 @@ class VisualRenderer:
     """
 
     STATE_COLORS = {
-        "idle": (40, 44, 52),       # Dark Charcoal
+        "idle": (40, 44, 52),  # Dark Charcoal
         "executing": (230, 160, 0),  # Amber Yellow LED
-        "success": (30, 180, 75),   # Vibrant Green LED
-        "error": (220, 50, 50),     # Bright Red LED
-        "disabled": (25, 25, 25)    # Dimmed Gray
+        "success": (30, 180, 75),  # Vibrant Green LED
+        "error": (220, 50, 50),  # Bright Red LED
+        "disabled": (25, 25, 25),  # Dimmed Gray
     }
 
     def __init__(self, cache_size: int = 256):
@@ -208,7 +224,7 @@ class VisualRenderer:
             "total_renders": 0,
             "cache_hits": 0,
             "cache_misses": 0,
-            "total_render_time_ms": 0.0
+            "total_render_time_ms": 0.0,
         }
 
     def get_led_color_for_state(self, state: str) -> Tuple[int, int, int]:
@@ -220,17 +236,28 @@ class VisualRenderer:
         if not label:
             return ""
         # Remove dangerous XML characters
-        clean = label.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&apos;")
+        clean = (
+            label.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&apos;")
+        )
         return clean.strip()
 
-    def format_dynamic_label(self, label: str, max_chars_per_line: int = 10, max_lines: int = 3) -> List[str]:
+    def format_dynamic_label(
+        self, label: str, max_chars_per_line: int = 10, max_lines: int = 3
+    ) -> List[str]:
         """Formats and wraps dynamic labels into clean multi-line displays."""
         words = label.split()
         lines = []
         current_line = ""
 
         for word in words:
-            if len(current_line) + len(word) + (1 if current_line else 0) <= max_chars_per_line:
+            if (
+                len(current_line) + len(word) + (1 if current_line else 0)
+                <= max_chars_per_line
+            ):
                 current_line += (" " if current_line else "") + word
             else:
                 if current_line:
@@ -243,8 +270,12 @@ class VisualRenderer:
             lines.append(current_line)
 
         # Truncate final line with ellipsis if needed
-        if lines and len(lines) == max_lines and len(words) > len(" ".join(lines).split()):
-            lines[-1] = lines[-1][:max_chars_per_line - 1] + "…"
+        if (
+            lines
+            and len(lines) == max_lines
+            and len(words) > len(" ".join(lines).split())
+        ):
+            lines[-1] = lines[-1][: max_chars_per_line - 1] + "…"
 
         return lines or [""]
 
@@ -255,7 +286,7 @@ class VisualRenderer:
         led_color: Optional[Tuple[int, int, int]] = None,
         width: int = 72,
         height: int = 72,
-        subtitle: str = ""
+        subtitle: str = "",
     ) -> str:
         """
         Renders button visual state to an SVG XML string with feedback LED accents.
@@ -353,7 +384,7 @@ class VisualRenderer:
         led_color: Optional[Tuple[int, int, int]] = None,
         width: int = 72,
         height: int = 72,
-        subtitle: str = ""
+        subtitle: str = "",
     ) -> str:
         """
         Renders visual button to Base64 encoded Data URL string (data:image/svg+xml;base64,...).
@@ -380,7 +411,7 @@ class StreamDeckPluginProtocol:
                 "action": data.get("action", ""),
                 "context": data.get("context", ""),
                 "device": data.get("device", ""),
-                "payload": data.get("payload", {})
+                "payload": data.get("payload", {}),
             }
         except Exception:
             return {"event": "error", "payload": {}}
@@ -388,81 +419,64 @@ class StreamDeckPluginProtocol:
     @staticmethod
     def format_register_plugin(plugin_uuid: str) -> str:
         """Formats registerPlugin message."""
-        return json.dumps({
-            "event": "registerPlugin",
-            "uuid": plugin_uuid
-        })
+        return json.dumps({"event": "registerPlugin", "uuid": plugin_uuid})
 
     @staticmethod
     def format_set_title(context: str, title: str, target: int = 0) -> str:
         """Formats setTitle message to update button dynamic label."""
-        return json.dumps({
-            "event": "setTitle",
-            "context": context,
-            "payload": {
-                "title": title,
-                "target": target
+        return json.dumps(
+            {
+                "event": "setTitle",
+                "context": context,
+                "payload": {"title": title, "target": target},
             }
-        })
+        )
 
     @staticmethod
     def format_set_image(context: str, image_data_url: str, target: int = 0) -> str:
         """Formats setImage message to update button visual appearance."""
-        return json.dumps({
-            "event": "setImage",
-            "context": context,
-            "payload": {
-                "image": image_data_url,
-                "target": target
+        return json.dumps(
+            {
+                "event": "setImage",
+                "context": context,
+                "payload": {"image": image_data_url, "target": target},
             }
-        })
+        )
 
     @staticmethod
     def format_set_state(context: str, state_index: int) -> str:
         """Formats setState message for multi-state buttons."""
-        return json.dumps({
-            "event": "setState",
-            "context": context,
-            "payload": {
-                "state": state_index
-            }
-        })
+        return json.dumps(
+            {"event": "setState", "context": context, "payload": {"state": state_index}}
+        )
 
     @staticmethod
     def format_show_alert(context: str) -> str:
         """Formats showAlert message for error feedback."""
-        return json.dumps({
-            "event": "showAlert",
-            "context": context
-        })
+        return json.dumps({"event": "showAlert", "context": context})
 
     @staticmethod
     def format_show_ok(context: str) -> str:
         """Formats showOk message for success feedback."""
-        return json.dumps({
-            "event": "showOk",
-            "context": context
-        })
+        return json.dumps({"event": "showOk", "context": context})
 
     @staticmethod
     def format_switch_to_profile(device_id: str, profile_name: str) -> str:
         """Formats switchToProfile message for profile switching."""
-        return json.dumps({
-            "event": "switchToProfile",
-            "device": device_id,
-            "payload": {
-                "profile": profile_name
+        return json.dumps(
+            {
+                "event": "switchToProfile",
+                "device": device_id,
+                "payload": {"profile": profile_name},
             }
-        })
+        )
 
     @staticmethod
     def format_set_feedback(context: str, feedback: Dict[str, Any]) -> str:
         """Formats setFeedback message for Stream Deck Plus dynamic strip feedback."""
-        return json.dumps({
-            "event": "setFeedback",
-            "context": context,
-            "payload": feedback
-        })
+        return json.dumps(
+            {"event": "setFeedback", "context": context, "payload": feedback}
+        )
 
 
 class StreamDeckManager:
@@ -482,7 +496,7 @@ class StreamDeckManager:
         self.active_device_id: str = "device_default"
         self.context_key_map: Dict[str, int] = {}  # context -> key_index
         self.key_context_map: Dict[int, str] = {}  # key_index -> context
-        
+
         self.load_profiles()
 
     def sanitize_input(self, text: str) -> str:
@@ -500,12 +514,16 @@ class StreamDeckManager:
 
         self.profiles.clear()
         categories = config_data.get("categories", [])
-        
-        available_profile_names = ["Default"] + [cat.get("name") for cat in categories if cat.get("name")]
-        
+
+        available_profile_names = ["Default"] + [
+            cat.get("name") for cat in categories if cat.get("name")
+        ]
+
         # 1. Build Default profile (All commands)
         default_prof = StreamDeckProfile("Default", grid_rows=3, grid_cols=5)
-        default_prof.auto_populate_from_category("Default", config_data, available_profile_names)
+        default_prof.auto_populate_from_category(
+            "Default", config_data, available_profile_names
+        )
         self.profiles["Default"] = default_prof
 
         # 2. Build Category profiles
@@ -513,7 +531,9 @@ class StreamDeckManager:
             cat_name = cat.get("name")
             if cat_name:
                 prof = StreamDeckProfile(cat_name, grid_rows=3, grid_cols=5)
-                prof.auto_populate_from_category(cat_name, config_data, available_profile_names)
+                prof.auto_populate_from_category(
+                    cat_name, config_data, available_profile_names
+                )
                 self.profiles[cat_name] = prof
 
         if self.active_profile_name not in self.profiles:
@@ -560,18 +580,18 @@ class StreamDeckManager:
 
         if not button:
             image_url = self.renderer.render_button_data_url(
-                label="",
-                state="idle",
-                led_color=(20, 20, 25)
+                label="", state="idle", led_color=(20, 20, 25)
             )
             return ("", image_url)
 
-        subtitle = f"{button.execution_time_ms:.1f}s" if button.execution_time_ms > 0 else ""
+        subtitle = (
+            f"{button.execution_time_ms:.1f}s" if button.execution_time_ms > 0 else ""
+        )
         image_url = self.renderer.render_button_data_url(
             label=button.label,
             state=button.state,
             led_color=button.led_color,
-            subtitle=subtitle
+            subtitle=subtitle,
         )
         return (button.label, image_url)
 
@@ -595,15 +615,17 @@ class StreamDeckManager:
                 "status": "profile_switched" if switched else "error",
                 "action": "profile_switch",
                 "target_profile": target,
-                "protocol_message": StreamDeckPluginProtocol.format_switch_to_profile(self.active_device_id, target)
+                "protocol_message": StreamDeckPluginProtocol.format_switch_to_profile(
+                    self.active_device_id, target
+                ),
             }
 
         elif button.action_type == "command":
             button.set_state("executing")
-            
+
             # Update key visual state immediately to executing
             title, image_url = self.render_key_visual(key_index)
-            
+
             # Execute command asynchronously or via D-Bus / shell execution
             cmd_name = button.command_name
             start_t = time.perf_counter()
@@ -627,7 +649,11 @@ class StreamDeckManager:
                     code, stdout, stderr = run_command_in_shell(cmd_template)
                     exec_time = (time.perf_counter() - start_t) * 1000.0
                     status_state = "success" if code == 0 else "error"
-                    button.set_state(status_state, output=stdout or stderr, exec_time_ms=exec_time / 1000.0)
+                    button.set_state(
+                        status_state,
+                        output=stdout or stderr,
+                        exec_time_ms=exec_time / 1000.0,
+                    )
                 else:
                     button.set_state("error")
 
@@ -638,12 +664,18 @@ class StreamDeckManager:
                 "command_name": cmd_name,
                 "button_state": button.state,
                 "title": new_title,
-                "image_data_url": new_image_url
+                "image_data_url": new_image_url,
             }
 
         return {"status": "unknown"}
 
-    def update_command_feedback(self, command_name: str, exit_code: int, success: bool, execution_time_ms: float = 0.0):
+    def update_command_feedback(
+        self,
+        command_name: str,
+        exit_code: int,
+        success: bool,
+        execution_time_ms: float = 0.0,
+    ):
         """
         Updates button visual feedback state across all profiles upon command execution signal.
         :visibility: public
@@ -651,7 +683,10 @@ class StreamDeckManager:
         for prof in self.profiles.values():
             for btn in prof.buttons.values():
                 if btn.command_name == command_name:
-                    btn.set_state("success" if success else "error", exec_time_ms=execution_time_ms / 1000.0)
+                    btn.set_state(
+                        "success" if success else "error",
+                        exec_time_ms=execution_time_ms / 1000.0,
+                    )
 
     def get_status_summary(self) -> Dict[str, Any]:
         """Returns diagnostic status of Stream Deck manager."""
@@ -660,7 +695,7 @@ class StreamDeckManager:
             "available_profiles": list(self.profiles.keys()),
             "active_device_id": self.active_device_id,
             "active_contexts_count": len(self.context_key_map),
-            "render_stats": self.renderer.stats
+            "render_stats": self.renderer.stats,
         }
 
 

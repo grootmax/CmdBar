@@ -55,12 +55,16 @@ def test_device_registration_and_auth(temp_mobile_config):
     # Test Device Auth
     dev_token = ios_device["device_token"]
     assert service.device_manager.authenticate_device("dev_ios_1", dev_token) is True
-    assert service.device_manager.authenticate_device("dev_ios_1", "wrong_token") is False
+    assert (
+        service.device_manager.authenticate_device("dev_ios_1", "wrong_token") is False
+    )
 
     # Test Push Token Update
     updated = service.device_manager.update_push_token("dev_ios_1", "new_apns_token")
     assert updated is True
-    assert service.device_manager.get_device("dev_ios_1")["push_token"] == "new_apns_token"
+    assert (
+        service.device_manager.get_device("dev_ios_1")["push_token"] == "new_apns_token"
+    )
 
     # Test Invalid Registration Inputs
     with pytest.raises(ValueError):
@@ -93,7 +97,9 @@ def test_push_notifications(temp_mobile_config):
     assert "notification" in android_notif["formatted_payload"]
 
     # Broadcast
-    broadcast_results = service.push_engine.broadcast_notification("System Update", "Reboot complete")
+    broadcast_results = service.push_engine.broadcast_notification(
+        "System Update", "Reboot complete"
+    )
     assert len(broadcast_results) == 2
 
     # History
@@ -160,7 +166,9 @@ def test_biometric_auth_flow(temp_mobile_config):
     assert "challenge" in challenge
 
     # Generate Token
-    token = service.biometric_handler.create_biometric_token("bio_dev", challenge["challenge"])
+    token = service.biometric_handler.create_biometric_token(
+        "bio_dev", challenge["challenge"]
+    )
 
     # Verify and Execute
     success_res = service.quick_action_manager.execute_quick_action(
@@ -194,7 +202,9 @@ def test_widget_provider(temp_mobile_config):
 def test_offline_queue(temp_mobile_config):
     service = MobileCompanionService()
     service.device_manager.register_device("dev_offline", "Offline Phone", "ios")
-    service.quick_action_manager.register_quick_action("qa_queued", "Queued Action", "echo queued_ok")
+    service.quick_action_manager.register_quick_action(
+        "qa_queued", "Queued Action", "echo queued_ok"
+    )
 
     # Enqueue requests when offline
     req1 = service.offline_queue.enqueue_request("dev_offline", "qa_queued")
@@ -209,7 +219,9 @@ def test_offline_queue(temp_mobile_config):
     assert results[0]["status"] == "success"
 
     # Check queue status updated
-    completed = service.offline_queue.get_queued_requests("dev_offline", status="completed")
+    completed = service.offline_queue.get_queued_requests(
+        "dev_offline", status="completed"
+    )
     assert len(completed) == 2
 
     # Clear completed requests

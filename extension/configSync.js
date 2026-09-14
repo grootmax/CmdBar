@@ -5,6 +5,7 @@
 
 import { sanitizeHistoryItem, MAX_HISTORY_ITEMS } from "./commandProcessor.js";
 import { DEFAULT_POLICY_CONFIG } from "./policyEngine.js";
+import { DEFAULT_RBAC_CONFIG } from "./rbacManager.js";
 
 export const DEFAULT_CONFIG = {
   sso: {
@@ -145,20 +146,15 @@ export const DEFAULT_CONFIG = {
   ],
   active_profile: "Development",
   policy: DEFAULT_POLICY_CONFIG,
-  cicd: {
-    github: {
-      baseUrl: "https://api.github.com",
-      token: "",
-    },
-    gitlab: {
-      baseUrl: "https://gitlab.com",
-      token: "",
-    },
-    jenkins: {
-      baseUrl: "http://localhost:8080",
-      user: "",
-      token: "",
-    },
+  yubikey: {
+    enabled: false,
+    mode: "touch",
+    default_mode: "touch",
+    require_for_sensitive: true,
+    timeout_seconds: 30,
+    keys: [],
+    registered_keys: [],
+    emergency_codes: [],
   },
   categories: [
     {
@@ -168,16 +164,6 @@ export const DEFAULT_CONFIG = {
           name: "AI Command Assistant",
           command: "/ai {prompt}",
           placeholder: "e.g. deploy latest build to staging",
-        },
-      ],
-    },
-    {
-      name: "CI/CD Automation",
-      commands: [
-        {
-          name: "CI/CD Pipeline Manager",
-          command: "/cicd {action} {provider} {target}",
-          placeholder: "e.g. status github owner/repo or trigger gitlab project_id",
         },
       ],
     },
@@ -230,6 +216,7 @@ export const DEFAULT_CONFIG = {
     },
   ],
   triggers: [],
+  rbac: DEFAULT_RBAC_CONFIG,
 };
 
 const isNode =
@@ -1294,3 +1281,14 @@ export async function saveCommandHistory(history, historyPath) {
     await releaseLock(lockPath);
   }
 }
+
+export {
+  PROJECT_TEMPLATES,
+  findGitRepositoryRoot,
+  findWorkspaceConfigPath,
+  detectProjectType,
+  initWorkspaceConfig,
+  loadWorkspaceConfig,
+  mergeConfigs,
+  WorkspaceManager
+} from "./workspaceConfig.js";

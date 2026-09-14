@@ -1,752 +1,649 @@
 /**
- * CI/CD Integration Pipeline Module for CmdBar.
- * Provides integration with GitHub Actions, GitLab CI, and Jenkins.
- * Enables triggering deployments/pipelines, monitoring status, executing rollbacks,
- * and managing secrets securely.
+ * CmdBar CI/CD Integration Pipeline Module
+ * Provides unified status monitoring, deployment triggering, rollback execution,
+ * and secret masking across GitHub Actions, GitLab CI, and Jenkins.
+ *
+ * @module cicdPipeline
  */
-
-const isNode = typeof process !== "undefined" && process.versions && process.versions.node;
 
 /**
- * Normalizes provider name strings to canonical forms ('github', 'gitlab', 'jenkins').
- * @param {string} provider
- * @returns {string}
- * @public
+ * Default provider configurations and environment variable key mappings.
  */
-export function normalizeProvider(provider) {
-  if (!provider || typeof provider !== "string") {
-    return "unknown";
-  }
-  const clean = provider.trim().toLowerCase();
-  if (clean.includes("github")) return "github";
-  if (clean.includes("gitlab")) return "gitlab";
-  if (clean.includes("jenkins")) return "jenkins";
-  return clean;
-}
+const PROVIDER_ENV_MAP = {
+  github: {
+    tokenEnv: "GITHUB_TOKEN",
+    repoEnv: "GITHUB_REPOSITORY",
+    baseUrl: "https://api.github.com",
+  },
+  gitlab: {
+    tokenEnv: "GITLAB_TOKEN",
+    projectEnv: "GITLAB_PROJECT_ID",
+    baseUrl: "https://gitlab.com/api/v4",
+  },
+  jenkins: {
+    tokenEnv: "JENKINS_API_TOKEN",
+    userEnv: "JENKINS_USER",
+    urlEnv: "JENKINS_URL",
+    baseUrl: "http://localhost:8080",
+  },
+};
 
 /**
- * Resolves authentication credentials and base URLs for CI/CD providers.
- * Checks configuration objects and environment variables securely.
- * @param {string} provider
- * @param {object} [config={}]
- * @param {object} [env=process.env]
- * @returns {{ token: string, user: string, baseUrl: string }}
+ * Normalizes CI/CD configuration options by combining explicitly provided parameters
+ * with environment variable defaults and ensuring required endpoints are present.
+ *
  * @public
+ * @param {string} provider - Provider name ('github', 'gitlab', or 'jenkins').
+ * @param {Object} [options={}] - Custom configuration parameters.
+ * @returns {Object} Normalized provider configuration.
  */
-export function resolveSecrets(provider, config = {}, env = typeof process !== "undefined" && process.env ? process.env : {}) {
-  const norm = normalizeProvider(provider);
-  const cicdCfg = (config && config.cicd && config.cicd[norm]) || {};
-  const secretsCfg = (config && config.secrets) || {};
+export function normalizeConfig(provider, options = {}) {
+  const normProvider = (provider || "github").toLowerCase().trim();
+  const mapping = PROVIDER_ENV_MAP[normProvider] || PROVIDER_ENV_MAP.github;
 
-  let token = cicdCfg.token || secretsCfg[`${norm}_token`] || (secretsCfg[norm] && secretsCfg[norm].token) || "";
-  let user = cicdCfg.user || secretsCfg[`${norm}_user`] || "";
-  let baseUrl = cicdCfg.baseUrl || cicdCfg.url || "";
+  const env = (typeof process !== "undefined" && process.env) || {};
 
-  if (norm === "github") {
-    if (!token) {
-      token = env.GITHUB_TOKEN || env.GH_TOKEN || env.GITHUB_PAT || "";
-    }
-    if (!baseUrl) {
-      baseUrl = env.GITHUB_API_URL || "https://api.github.com";
-    }
-  } else if (norm === "gitlab") {
-    if (!token) {
-      token = env.GITLAB_TOKEN || env.GL_TOKEN || env.GITLAB_PRIVATE_TOKEN || "";
-    }
-    if (!baseUrl) {
-      baseUrl = env.GITLAB_API_URL || "https://gitlab.com";
-    }
-  } else if (norm === "jenkins") {
-    if (!token) {
-      token = env.JENKINS_TOKEN || env.JENKINS_API_TOKEN || env.JENKINS_SECRET || env.JENKINS_PASSWORD || "";
-    }
-    if (!user) {
-      user = env.JENKINS_USER || env.JENKINS_USERNAME || "";
-    }
-    if (!baseUrl) {
-      baseUrl = env.JENKINS_URL || "http://localhost:8080";
-    }
-  }
-
-  baseUrl = baseUrl.replace(/\/+$/, "");
+  const token = options.token || env[mapping.tokenEnv] || "";
+  const baseUrl = (options.baseUrl || options.url || env[mapping.urlEnv] || mapping.baseUrl).replace(/\/+$/, "");
+  const repo = options.repo || options.repository || env[mapping.repoEnv] || "";
+  const projectId = options.projectId || options.project || env[mapping.projectEnv] || repo;
+  const job = options.job || options.jobName || options.workflow || "";
+  const branch = options.branch || options.ref || "main";
+  const user = options.user || options.username || env[mapping.userEnv] || "";
 
   return {
-    token: String(token).trim(),
-    user: String(user).trim(),
-    baseUrl: baseUrl.trim(),
+    provider: normProvider,
+    token,
+    baseUrl,
+    repo,
+    projectId,
+    job,
+    branch,
+    user,
+    extraHeaders: options.extraHeaders || {},
   };
 }
 
-const SENSITIVE_KEY_REGEX = /token|secret|password|auth|authorization|api_key|apikey|private_key|access_token/i;
+/**
+ * Masks sensitive tokens and secret values in output strings, URLs, or log messages.
+ *
+ * @public
+ * @param {string} text - Raw text string that may contain sensitive data.
+ * @param {string[]} [additionalSecrets=[]] - Additional secret strings to mask.
+ * @returns {string} Text with all detected or provided secrets replaced with '[REDACTED]'.
+ */
+export function maskSecrets(text, additionalSecrets = []) {
+  if (text === null || text === undefined) return "";
+  let result = String(text);
+
+  // Common pattern matches for API tokens, bearer headers, and credentials
+  const patterns = [
+    /ghp_[a-zA-Z0-9]{20,}/g,
+    /glpat-[a-zA-Z0-9_-]{15,}/g,
+    /Bearer\s+[a-zA-Z0-9._-]+/gi,
+    /token\s+[a-zA-Z0-9._-]+/gi,
+    /Basic\s+[a-zA-Z0-9+/=]+/gi,
+  ];
+
+  patterns.forEach((pattern) => {
+    result = result.replace(pattern, "[REDACTED]");
+  });
+
+  // URL basic auth
+  result = result.replace(/https?:\/\/([^:]+):([^@]+)@/g, (match, user, pass) => {
+    return match.replace(`:${pass}@`, ":[REDACTED]@");
+  });
+
+  // Explicit secrets array
+  const secrets = Array.isArray(additionalSecrets) ? additionalSecrets : [additionalSecrets];
+  secrets.forEach((secret) => {
+    if (secret && typeof secret === "string" && secret.trim().length > 2) {
+      const cleanSecret = secret.trim();
+      result = result.split(cleanSecret).join("[REDACTED]");
+    }
+  });
+
+  // Also check standard environment variable secrets
+  if (typeof process !== "undefined" && process.env) {
+    const envKeys = ["GITHUB_TOKEN", "GITLAB_TOKEN", "JENKINS_API_TOKEN", "AWS_SECRET_ACCESS_KEY"];
+    envKeys.forEach((key) => {
+      const val = process.env[key];
+      if (val && val.trim().length > 2) {
+        result = result.split(val.trim()).join("[REDACTED]");
+      }
+    });
+  }
+
+  return result;
+}
 
 /**
- * Redacts sensitive tokens, API keys, passwords, and authorization headers from strings or objects.
- * @param {string|object|Array} input
- * @param {string[]} [customSecrets=[]]
- * @returns {string|object|Array}
+ * Standardizes raw API pipeline status responses from GitHub Actions, GitLab CI, or Jenkins.
+ *
  * @public
+ * @param {string} provider - Provider name ('github', 'gitlab', 'jenkins').
+ * @param {Object} rawData - Raw JSON response object from provider API.
+ * @returns {Object} Standardized pipeline status object.
  */
-export function redactSecrets(input, customSecrets = []) {
-  if (input === null || input === undefined) {
-    return input;
-  }
+export function parsePipelineStatus(provider, rawData) {
+  const normProvider = (provider || "github").toLowerCase().trim();
+  const raw = rawData || {};
 
-  const secretsSet = new Set();
-  if (Array.isArray(customSecrets)) {
-    for (const s of customSecrets) {
-      if (s && typeof s === "string" && s.trim().length >= 3) {
-        secretsSet.add(s.trim());
-      }
-    }
-  }
+  let id = "N/A";
+  let status = "unknown";
+  let outcome = "unknown";
+  let branch = "unknown";
+  let commit = "unknown";
+  let author = "unknown";
+  let url = "";
+  let duration = "0s";
+  let timestamp = new Date().toISOString();
+  let stages = [];
 
-  const sanitizeString = (str) => {
-    let result = String(str);
-    for (const secret of secretsSet) {
-      if (secret && result.includes(secret)) {
-        const escaped = secret.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
-        result = result.replace(new RegExp(escaped, "g"), "[REDACTED]");
-      }
-    }
-    result = result.replace(/(Bearer\s+)[A-Za-z0-9_.~+-]+/gi, "$1[REDACTED]");
-    result = result.replace(/(PRIVATE-TOKEN:\s*)[A-Za-z0-9_.~+-]+/gi, "$1[REDACTED]");
-    result = result.replace(/(Basic\s+)[A-Za-z0-9+/=]+/gi, "$1[REDACTED]");
-    result = result.replace(/(token=)[A-Za-z0-9_.~+-]+/gi, "$1[REDACTED]");
-    result = result.replace(/(password=)[^&\s]+/gi, "$1[REDACTED]");
-    return result;
-  };
+  if (normProvider === "github") {
+    const run = raw.workflow_runs ? raw.workflow_runs[0] || {} : raw;
+    id = String(run.id || "N/A");
+    branch = run.head_branch || "main";
+    commit = run.head_sha ? run.head_sha.substring(0, 7) : "unknown";
+    author = (run.head_commit && run.head_commit.author && run.head_commit.author.name) ||
+             (run.actor && run.actor.login) || "unknown";
+    url = run.html_url || "";
+    timestamp = run.updated_at || run.created_at || timestamp;
 
-  if (typeof input === "string") {
-    return sanitizeString(input);
-  }
+    const rawStatus = (run.status || "").toLowerCase();
+    const rawConclusion = (run.conclusion || "").toLowerCase();
 
-  if (Array.isArray(input)) {
-    return input.map((item) => redactSecrets(item, customSecrets));
-  }
-
-  if (typeof input === "object") {
-    const redactedObj = {};
-    for (const [key, value] of Object.entries(input)) {
-      if (SENSITIVE_KEY_REGEX.test(key)) {
-        redactedObj[key] = "[REDACTED]";
+    if (rawStatus === "completed") {
+      if (rawConclusion === "success") {
+        status = "success";
+        outcome = "success";
+      } else if (["failure", "timed_out", "action_required"].includes(rawConclusion)) {
+        status = "failed";
+        outcome = rawConclusion;
+      } else if (["cancelled", "skipped"].includes(rawConclusion)) {
+        status = "cancelled";
+        outcome = rawConclusion;
       } else {
-        redactedObj[key] = redactSecrets(value, customSecrets);
+        status = rawConclusion || "completed";
+        outcome = rawConclusion;
+      }
+    } else if (["in_progress", "queued", "requested", "waiting"].includes(rawStatus)) {
+      status = rawStatus === "in_progress" ? "running" : "queued";
+      outcome = "pending";
+    }
+
+    if (run.created_at && run.updated_at) {
+      const ms = new Date(run.updated_at) - new Date(run.created_at);
+      if (!isNaN(ms) && ms >= 0) {
+        duration = `${Math.round(ms / 1000)}s`;
       }
     }
-    return redactedObj;
-  }
 
-  return input;
-}
-
-/**
- * Default fetch transport implementation.
- * @param {string} url
- * @param {object} [options={}]
- * @returns {Promise<object>} Response wrapper
- */
-async function defaultFetchTransport(url, options = {}) {
-  if (typeof globalThis.fetch === "function") {
-    const res = await globalThis.fetch(url, options);
-    const textData = await res.text();
-    let jsonData = null;
-    try {
-      jsonData = JSON.parse(textData);
-    } catch (e) {}
-    return {
-      status: res.status,
-      statusText: res.statusText,
-      ok: res.ok,
-      headers: res.headers,
-      json: async () => (jsonData !== null ? jsonData : JSON.parse(textData)),
-      text: async () => textData,
-    };
-  }
-  throw new Error("HTTP transport unavailable: globalThis.fetch is not defined.");
-}
-
-/**
- * Triggers a deployment or pipeline run for the specified CI/CD provider.
- * @param {string} provider - 'github', 'gitlab', or 'jenkins'
- * @param {object} options - Options containing target, ref, inputs, etc.
- * @param {object} [config={}] - Extension configuration
- * @param {function} [transport=null] - Optional HTTP fetch transport function
- * @returns {Promise<object>} Standardized pipeline trigger result
- * @public
- */
-export async function triggerPipeline(provider, options = {}, config = {}, transport = null) {
-  const norm = normalizeProvider(provider);
-  const secrets = resolveSecrets(norm, config);
-  const http = transport || defaultFetchTransport;
-
-  let result = null;
-
-  if (norm === "github") {
-    const repo = options.repo || options.target || "owner/repo";
-    const workflowId = options.workflowId || options.workflow || "deploy.yml";
-    const ref = options.ref || options.branch || "main";
-    const inputs = options.inputs || options.parameters || {};
-
-    const url = `${secrets.baseUrl}/repos/${repo}/actions/workflows/${workflowId}/dispatches`;
-    const headers = {
-      "Accept": "application/vnd.github+json",
-      "Content-Type": "application/json",
-      "User-Agent": "CmdBar-CICD",
-    };
-    if (secrets.token) {
-      headers["Authorization"] = `Bearer ${secrets.token}`;
-    }
-
-    const resp = await http(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ ref, inputs }),
-    });
-
-    if (resp.status >= 200 && resp.status < 300) {
-      result = {
-        id: `gh-dispatch-${Date.now()}`,
-        status: "queued",
-        provider: "github",
-        target: repo,
-        workflow: workflowId,
-        ref,
-        webUrl: `${secrets.baseUrl.replace("api.github.com", "github.com")}/${repo}/actions`,
-        createdAt: new Date().toISOString(),
-        raw: { status: resp.status, dispatched: true },
-      };
-    } else {
-      const errText = await resp.text();
-      throw new Error(`GitHub Actions trigger failed [${resp.status}]: ${redactSecrets(errText, [secrets.token])}`);
-    }
-  } else if (norm === "gitlab") {
-    const projectId = encodeURIComponent(options.projectId || options.target || "1");
-    const ref = options.ref || options.branch || "main";
-    const variables = options.variables || options.inputs || [];
-
-    const url = `${secrets.baseUrl}/api/v4/projects/${projectId}/pipeline`;
-    const headers = {
-      "Content-Type": "application/json",
-    };
-    if (secrets.token) {
-      headers["PRIVATE-TOKEN"] = secrets.token;
-    }
-
-    let varsArray = [];
-    if (Array.isArray(variables)) {
-      varsArray = variables;
-    } else if (typeof variables === "object") {
-      varsArray = Object.entries(variables).map(([k, v]) => ({ key: k, value: String(v) }));
-    }
-
-    const resp = await http(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ ref, variables: varsArray }),
-    });
-
-    if (resp.status >= 200 && resp.status < 300) {
-      const data = await resp.json();
-      result = {
-        id: String(data.id || `gl-pipeline-${Date.now()}`),
-        status: normalizeStatus(data.status || "created"),
-        provider: "gitlab",
-        target: String(options.projectId || options.target || "1"),
-        ref: data.ref || ref,
-        webUrl: data.web_url || `${secrets.baseUrl}/${options.projectId || options.target}/pipelines/${data.id}`,
-        createdAt: data.created_at || new Date().toISOString(),
-        raw: data,
-      };
-    } else {
-      const errText = await resp.text();
-      throw new Error(`GitLab CI trigger failed [${resp.status}]: ${redactSecrets(errText, [secrets.token])}`);
-    }
-  } else if (norm === "jenkins") {
-    const jobName = encodeURIComponent(options.jobName || options.target || "deploy-job");
-    const parameters = options.parameters || options.inputs || {};
-
-    const hasParams = Object.keys(parameters).length > 0;
-    const endpoint = hasParams ? "buildWithParameters" : "build";
-    const url = `${secrets.baseUrl}/job/${jobName}/${endpoint}`;
-
-    const headers = {};
-    if (secrets.user && secrets.token) {
-      const credentials = Buffer.from(`${secrets.user}:${secrets.token}`).toString("base64");
-      headers["Authorization"] = `Basic ${credentials}`;
-    } else if (secrets.token) {
-      headers["Authorization"] = `Bearer ${secrets.token}`;
-    }
-
-    const searchParams = new URLSearchParams();
-    for (const [k, v] of Object.entries(parameters)) {
-      searchParams.append(k, String(v));
-    }
-
-    const fullUrl = hasParams ? `${url}?${searchParams.toString()}` : url;
-
-    const resp = await http(fullUrl, {
-      method: "POST",
-      headers,
-    });
-
-    if (resp.status >= 200 && resp.status < 300) {
-      result = {
-        id: `jenkins-build-${Date.now()}`,
-        status: "queued",
-        provider: "jenkins",
-        target: options.jobName || options.target || "deploy-job",
-        ref: options.ref || "main",
-        webUrl: `${secrets.baseUrl}/job/${jobName}`,
-        createdAt: new Date().toISOString(),
-        raw: { status: resp.status, queued: true },
-      };
-    } else {
-      const errText = await resp.text();
-      throw new Error(`Jenkins trigger failed [${resp.status}]: ${redactSecrets(errText, [secrets.token])}`);
-    }
-  } else {
-    throw new Error(`Unsupported CI/CD provider: ${provider}`);
-  }
-
-  return redactSecrets(result, [secrets.token]);
-}
-
-/**
- * Normalizes raw platform status string to standardized CmdBar status.
- * Standardized statuses: 'success', 'failed', 'running', 'queued', 'cancelled', 'unknown'.
- * @param {string} rawStatus
- * @returns {string}
- */
-function normalizeStatus(rawStatus) {
-  if (!rawStatus || typeof rawStatus !== "string") return "unknown";
-  const s = rawStatus.toLowerCase();
-  if (["success", "successful", "completed", "passed"].includes(s)) return "success";
-  if (["failure", "failed", "error", "unstable", "timed_out"].includes(s)) return "failed";
-  if (["in_progress", "running", "building"].includes(s)) return "running";
-  if (["queued", "pending", "created", "requested", "waiting", "waiting_for_resource"].includes(s)) return "queued";
-  if (["cancelled", "canceled", "aborted"].includes(s)) return "cancelled";
-  return "unknown";
-}
-
-/**
- * Fetches current status of a pipeline run, workflow, or build.
- * @param {string} provider - 'github', 'gitlab', or 'jenkins'
- * @param {object} options - Options containing target, runId/pipelineId/buildNumber, etc.
- * @param {object} [config={}] - Extension configuration
- * @param {function} [transport=null] - Optional HTTP fetch transport function
- * @returns {Promise<object>} Standardized pipeline status result
- * @public
- */
-export async function getPipelineStatus(provider, options = {}, config = {}, transport = null) {
-  const norm = normalizeProvider(provider);
-  const secrets = resolveSecrets(norm, config);
-  const http = transport || defaultFetchTransport;
-
-  let result = null;
-
-  if (norm === "github") {
-    const repo = options.repo || options.target || "owner/repo";
-    const runId = options.runId || options.id || options.pipelineId;
-
-    let url = `${secrets.baseUrl}/repos/${repo}/actions/runs`;
-    if (runId && String(runId).indexOf("gh-dispatch-") === -1) {
-      url += `/${runId}`;
-    } else {
-      url += `?per_page=1`;
-    }
-
-    const headers = {
-      "Accept": "application/vnd.github+json",
-      "User-Agent": "CmdBar-CICD",
-    };
-    if (secrets.token) {
-      headers["Authorization"] = `Bearer ${secrets.token}`;
-    }
-
-    const resp = await http(url, { method: "GET", headers });
-    if (resp.status >= 200 && resp.status < 300) {
-      const data = await resp.json();
-      const run = data.workflow_runs ? data.workflow_runs[0] : data;
-      if (!run) {
-        throw new Error(`No GitHub Actions workflow runs found for ${repo}`);
-      }
-      const rawStatus = run.conclusion || run.status || "unknown";
-      result = {
-        id: String(run.id),
-        status: normalizeStatus(rawStatus),
-        provider: "github",
-        target: repo,
-        ref: run.head_branch || "main",
-        commit: run.head_sha || "",
-        webUrl: run.html_url || `${secrets.baseUrl}/${repo}/actions/runs/${run.id}`,
-        duration: run.updated_at && run.created_at ? (new Date(run.updated_at) - new Date(run.created_at)) / 1000 : 0,
-        steps: (run.jobs || []).map((j) => ({ name: j.name, status: normalizeStatus(j.conclusion || j.status) })),
-        raw: run,
-      };
-    } else {
-      const errText = await resp.text();
-      throw new Error(`GitHub Actions getStatus failed [${resp.status}]: ${redactSecrets(errText, [secrets.token])}`);
-    }
-  } else if (norm === "gitlab") {
-    const projectId = encodeURIComponent(options.projectId || options.target || "1");
-    const pipelineId = options.pipelineId || options.runId || options.id;
-
-    let url = `${secrets.baseUrl}/api/v4/projects/${projectId}/pipelines`;
-    if (pipelineId && String(pipelineId).indexOf("gl-pipeline-") === -1) {
-      url += `/${pipelineId}`;
-    } else {
-      url += `?per_page=1`;
-    }
-
-    const headers = {};
-    if (secrets.token) {
-      headers["PRIVATE-TOKEN"] = secrets.token;
-    }
-
-    const resp = await http(url, { method: "GET", headers });
-    if (resp.status >= 200 && resp.status < 300) {
-      const data = await resp.json();
-      const pipeline = Array.isArray(data) ? data[0] : data;
-      if (!pipeline) {
-        throw new Error(`No GitLab pipelines found for project ${options.projectId || options.target}`);
-      }
-      result = {
-        id: String(pipeline.id),
-        status: normalizeStatus(pipeline.status),
-        provider: "gitlab",
-        target: String(options.projectId || options.target || "1"),
-        ref: pipeline.ref || "main",
-        commit: pipeline.sha || "",
-        webUrl: pipeline.web_url || `${secrets.baseUrl}/${options.projectId}/pipelines/${pipeline.id}`,
-        duration: pipeline.duration || 0,
-        steps: [],
-        raw: pipeline,
-      };
-    } else {
-      const errText = await resp.text();
-      throw new Error(`GitLab CI getStatus failed [${resp.status}]: ${redactSecrets(errText, [secrets.token])}`);
-    }
-  } else if (norm === "jenkins") {
-    const jobName = encodeURIComponent(options.jobName || options.target || "deploy-job");
-    const buildNumber = options.buildNumber || options.runId || options.id || "lastBuild";
-
-    const targetBuild = String(buildNumber).includes("jenkins-build-") ? "lastBuild" : buildNumber;
-    const url = `${secrets.baseUrl}/job/${jobName}/${targetBuild}/api/json`;
-
-    const headers = {};
-    if (secrets.user && secrets.token) {
-      const credentials = Buffer.from(`${secrets.user}:${secrets.token}`).toString("base64");
-      headers["Authorization"] = `Basic ${credentials}`;
-    } else if (secrets.token) {
-      headers["Authorization"] = `Bearer ${secrets.token}`;
-    }
-
-    const resp = await http(url, { method: "GET", headers });
-    if (resp.status >= 200 && resp.status < 300) {
-      const data = await resp.json();
-      let rawStatus = "unknown";
-      if (data.building) {
-        rawStatus = "building";
-      } else if (data.result) {
-        rawStatus = data.result;
-      }
-      result = {
-        id: String(data.number || buildNumber),
-        status: normalizeStatus(rawStatus),
-        provider: "jenkins",
-        target: options.jobName || options.target || "deploy-job",
-        ref: options.ref || "main",
-        webUrl: data.url || `${secrets.baseUrl}/job/${jobName}/${data.number}`,
-        duration: (data.duration || 0) / 1000,
-        steps: (data.actions || [])
-          .filter((a) => a.causes)
-          .map((a) => ({ name: "Cause", status: a.causes[0]?.shortDescription || "triggered" })),
-        raw: data,
-      };
-    } else {
-      const errText = await resp.text();
-      throw new Error(`Jenkins getStatus failed [${resp.status}]: ${redactSecrets(errText, [secrets.token])}`);
-    }
-  } else {
-    throw new Error(`Unsupported CI/CD provider: ${provider}`);
-  }
-
-  return redactSecrets(result, [secrets.token]);
-}
-
-/**
- * Initiates a rollback deployment or retries a prior successful release run.
- * @param {string} provider - 'github', 'gitlab', or 'jenkins'
- * @param {object} options - Options containing target, targetRunId/priorVersion, environment, etc.
- * @param {object} [config={}] - Extension configuration
- * @param {function} [transport=null] - Optional HTTP fetch transport function
- * @returns {Promise<object>} Standardized rollback execution result
- * @public
- */
-export async function rollbackPipeline(provider, options = {}, config = {}, transport = null) {
-  const norm = normalizeProvider(provider);
-  const secrets = resolveSecrets(norm, config);
-  const http = transport || defaultFetchTransport;
-
-  let result = null;
-
-  if (norm === "github") {
-    const repo = options.repo || options.target || "owner/repo";
-    const targetRunId = options.targetRunId || options.runId;
-
-    if (targetRunId && String(targetRunId).indexOf("gh-dispatch-") === -1) {
-      const url = `${secrets.baseUrl}/repos/${repo}/actions/runs/${targetRunId}/rerun`;
-      const headers = {
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "CmdBar-CICD",
-      };
-      if (secrets.token) {
-        headers["Authorization"] = `Bearer ${secrets.token}`;
-      }
-
-      const resp = await http(url, { method: "POST", headers });
-      if (resp.status >= 200 && resp.status < 300) {
-        result = {
-          success: true,
-          rollbackRunId: String(targetRunId),
-          status: "triggered",
-          message: `Re-run initiated for GitHub Actions run ${targetRunId}`,
-          provider: "github",
-          target: repo,
-        };
-      } else {
-        const errText = await resp.text();
-        throw new Error(`GitHub Actions rollback re-run failed [${resp.status}]: ${redactSecrets(errText, [secrets.token])}`);
-      }
-    } else {
-      return await triggerPipeline("github", {
-        repo,
-        workflowId: options.workflowId || "deploy.yml",
-        ref: options.targetRef || options.ref || "main",
-        inputs: { rollback: "true", target_ref: options.targetRef || "previous" },
-      }, config, http).then((res) => ({
-        success: true,
-        rollbackRunId: res.id,
-        status: "triggered",
-        message: `Rollback workflow dispatched for GitHub Actions on ${repo}`,
-        provider: "github",
-        target: repo,
+    if (Array.isArray(raw.jobs)) {
+      stages = raw.jobs.map((j) => ({
+        name: j.name,
+        status: j.conclusion || j.status || "unknown",
       }));
     }
-  } else if (norm === "gitlab") {
-    const projectId = encodeURIComponent(options.projectId || options.target || "1");
-    const pipelineId = options.pipelineId || options.targetRunId || options.runId;
+  } else if (normProvider === "gitlab") {
+    const pipe = Array.isArray(raw) ? raw[0] || {} : raw;
+    id = String(pipe.id || "N/A");
+    branch = pipe.ref || "main";
+    commit = pipe.sha ? pipe.sha.substring(0, 7) : "unknown";
+    author = (pipe.user && pipe.user.name) || "unknown";
+    url = pipe.web_url || "";
+    timestamp = pipe.updated_at || pipe.created_at || timestamp;
 
-    if (pipelineId && String(pipelineId).indexOf("gl-pipeline-") === -1) {
-      const url = `${secrets.baseUrl}/api/v4/projects/${projectId}/pipelines/${pipelineId}/retry`;
-      const headers = {};
-      if (secrets.token) {
-        headers["PRIVATE-TOKEN"] = secrets.token;
-      }
+    const rawStatus = (pipe.status || "").toLowerCase();
+    if (["success", "passed"].includes(rawStatus)) {
+      status = "success";
+      outcome = "success";
+    } else if (["failed"].includes(rawStatus)) {
+      status = "failed";
+      outcome = "failed";
+    } else if (["canceled", "skipped"].includes(rawStatus)) {
+      status = "cancelled";
+      outcome = rawStatus;
+    } else if (["running", "pending", "created", "waiting_for_resource", "manual"].includes(rawStatus)) {
+      status = rawStatus === "running" ? "running" : "queued";
+      outcome = "pending";
+    }
 
-      const resp = await http(url, { method: "POST", headers });
-      if (resp.status >= 200 && resp.status < 300) {
-        const data = await resp.json();
-        result = {
-          success: true,
-          rollbackRunId: String(data.id || pipelineId),
-          status: "triggered",
-          message: `GitLab CI pipeline ${pipelineId} retried for rollback`,
-          provider: "gitlab",
-          target: String(options.projectId || options.target || "1"),
-        };
-      } else {
-        const errText = await resp.text();
-        throw new Error(`GitLab CI rollback retry failed [${resp.status}]: ${redactSecrets(errText, [secrets.token])}`);
-      }
-    } else {
-      return await triggerPipeline("gitlab", {
-        projectId: options.projectId || options.target,
-        ref: options.ref || "main",
-        variables: { ROLLBACK: "true", TARGET_VERSION: options.targetRef || "previous" },
-      }, config, http).then((res) => ({
-        success: true,
-        rollbackRunId: res.id,
-        status: "triggered",
-        message: `Rollback pipeline triggered for GitLab CI project ${options.projectId || options.target}`,
-        provider: "gitlab",
-        target: String(options.projectId || options.target || "1"),
+    if (pipe.duration) {
+      duration = `${pipe.duration}s`;
+    }
+
+    if (Array.isArray(pipe.details && pipe.details.stages)) {
+      stages = pipe.details.stages.map((s) => ({
+        name: s.name,
+        status: s.status || "unknown",
       }));
     }
-  } else if (norm === "jenkins") {
-    const jobName = encodeURIComponent(options.jobName || options.target || "deploy-job");
-    const targetBuild = options.targetBuild || options.buildNumber || options.targetRunId || "previous";
+  } else if (normProvider === "jenkins") {
+    id = String(raw.number || raw.id || "N/A");
+    branch = "main";
+    url = raw.url || "";
+    timestamp = raw.timestamp ? new Date(raw.timestamp).toISOString() : timestamp;
 
-    return await triggerPipeline("jenkins", {
-      jobName: options.jobName || options.target,
-      parameters: { ACTION: "rollback", ROLLBACK_TARGET: targetBuild },
-    }, config, http).then((res) => ({
-      success: true,
-      rollbackRunId: res.id,
-      status: "triggered",
-      message: `Rollback job triggered for Jenkins job ${options.jobName || options.target}`,
-      provider: "jenkins",
-      target: options.jobName || options.target || "deploy-job",
-    }));
-  } else {
-    throw new Error(`Unsupported CI/CD provider: ${provider}`);
-  }
-
-  return redactSecrets(result, [secrets.token]);
-}
-
-/**
- * Checks if input command string is a CI/CD pipeline command.
- * @param {string} text
- * @returns {boolean}
- * @public
- */
-export function isCICDCommand(text) {
-  if (!text || typeof text !== "string") {
-    return false;
-  }
-  return text.trim().toLowerCase().startsWith("/cicd");
-}
-
-/**
- * Parses slash command string into structured CI/CD command options.
- * @param {string} commandText
- * @returns {{ action: string, provider: string, options: object }}
- * @public
- */
-export function parseCICDCommand(commandText) {
-  if (!commandText || typeof commandText !== "string") {
-    return { action: "unknown", provider: "unknown", options: {} };
-  }
-
-  const clean = commandText.trim().replace(/^\/cicd\s*/i, "").trim();
-  const parts = clean.split(/\s+/).filter(Boolean);
-
-  if (parts.length === 0) {
-    return { action: "status", provider: "unknown", options: {} };
-  }
-
-  const action = parts[0].toLowerCase();
-  const provider = parts.length > 1 ? normalizeProvider(parts[1]) : "unknown";
-  const target = parts.length > 2 ? parts[2] : "";
-
-  const options = { target };
-
-  if (provider === "github") {
-    options.repo = target;
-  } else if (provider === "gitlab") {
-    options.projectId = target;
-  } else if (provider === "jenkins") {
-    options.jobName = target;
-  }
-
-  for (let i = 3; i < parts.length; i++) {
-    const item = parts[i];
-    if (item.includes("=")) {
-      const [k, v] = item.split("=");
-      options[k] = v;
-    } else {
-      if (!options.ref && !options.runId && !options.pipelineId && !options.buildNumber) {
-        if (action === "status" || action === "rollback") {
-          options.runId = item;
-          options.pipelineId = item;
-          options.buildNumber = item;
-          options.targetRunId = item;
-        } else {
-          options.ref = item;
+    if (raw.actions) {
+      for (const act of raw.actions) {
+        if (act.lastBuiltRevision && act.lastBuiltRevision.SHA1) {
+          commit = act.lastBuiltRevision.SHA1.substring(0, 7);
+        }
+        if (act.lastBuiltRevision && act.lastBuiltRevision.branch && act.lastBuiltRevision.branch[0]) {
+          branch = act.lastBuiltRevision.branch[0].name || branch;
+        }
+        if (act.causes && act.causes[0] && act.causes[0].userName) {
+          author = act.causes[0].userName;
         }
       }
     }
+
+    if (raw.building) {
+      status = "running";
+      outcome = "pending";
+    } else {
+      const result = (raw.result || "").toUpperCase();
+      if (result === "SUCCESS") {
+        status = "success";
+        outcome = "success";
+      } else if (["FAILURE", "UNSTABLE"].includes(result)) {
+        status = "failed";
+        outcome = result.toLowerCase();
+      } else if (result === "ABORTED") {
+        status = "cancelled";
+        outcome = "aborted";
+      }
+    }
+
+    if (raw.duration) {
+      duration = `${Math.round(raw.duration / 1000)}s`;
+    }
+
+    if (Array.isArray(raw.stages)) {
+      stages = raw.stages.map((st) => ({
+        name: st.name,
+        status: (st.status || "unknown").toLowerCase(),
+      }));
+    }
   }
 
-  return { action, provider, options };
+  return {
+    provider: normProvider,
+    id,
+    status,
+    outcome,
+    branch,
+    commit,
+    author,
+    url,
+    duration,
+    timestamp,
+    stages,
+  };
 }
 
 /**
- * High-level manager class for CI/CD integrations in CmdBar.
+ * Formats a standardized pipeline status object into a user-friendly string output.
+ *
+ * @public
+ * @param {Object} statusObj - Standardized pipeline status object.
+ * @returns {string} Formatted text display for CmdBar notifications or UI view.
  */
-export class CICDPipelineManager {
-  /**
-   * @param {object} [config={}]
-   * @param {function} [transport=null]
-   */
-  constructor(config = {}, transport = null) {
-    this.config = config;
-    this.transport = transport;
+export function formatPipelineStatusOutput(statusObj) {
+  if (!statusObj) return "No pipeline status available.";
+
+  const iconMap = {
+    success: "✅ SUCCESS",
+    failed: "❌ FAILED",
+    running: "🔄 RUNNING",
+    queued: "⏳ QUEUED",
+    cancelled: "🚫 CANCELLED",
+    unknown: "❓ UNKNOWN",
+  };
+
+  const statusTag = iconMap[statusObj.status] || `[${(statusObj.status || "UNKNOWN").toUpperCase()}]`;
+  const providerTag = (statusObj.provider || "ci").toUpperCase();
+
+  let output = `[${providerTag}] Pipeline #${statusObj.id}: ${statusTag}\n`;
+  output += `• Branch: ${statusObj.branch} (${statusObj.commit})\n`;
+  output += `• Author: ${statusObj.author}\n`;
+  output += `• Duration: ${statusObj.duration}\n`;
+
+  if (statusObj.stages && statusObj.stages.length > 0) {
+    output += `• Stages:\n`;
+    statusObj.stages.forEach((st) => {
+      const stTag = st.status === "success" || st.status === "SUCCESS" ? "✓" : st.status === "failed" ? "✗" : "•";
+      output += `   ${stTag} ${st.name}: ${st.status}\n`;
+    });
   }
 
-  /**
-   * Resolves secrets for provider.
-   * @param {string} provider
-   * @returns {{ token: string, user: string, baseUrl: string }}
-   * @public
-   */
-  resolveSecrets(provider) {
-    return resolveSecrets(provider, this.config);
+  if (statusObj.url) {
+    output += `• URL: ${maskSecrets(statusObj.url)}`;
   }
 
-  /**
-   * Redacts sensitive data.
-   * @param {*} input
-   * @returns {*}
-   * @public
-   */
-  redactSecrets(input) {
-    const norm = ["github", "gitlab", "jenkins"];
-    const tokens = norm.map((p) => this.resolveSecrets(p).token).filter(Boolean);
-    return redactSecrets(input, tokens);
+  return output.trim();
+}
+
+/**
+ * Generates an executable shell command string (e.g. curl, gh, glab) to trigger a deployment.
+ *
+ * @public
+ * @param {string} provider - Provider name ('github', 'gitlab', 'jenkins').
+ * @param {Object} [options={}] - Deployment options (repo, ref, env, inputs/vars).
+ * @returns {string} Executable shell command string.
+ */
+export function getTriggerCommand(provider, options = {}) {
+  const cfg = normalizeConfig(provider, options);
+  const ref = cfg.branch;
+  const env = options.environment || "production";
+  const inputs = options.inputs || {};
+
+  if (cfg.provider === "github") {
+    const payload = JSON.stringify({
+      ref,
+      inputs: { environment: env, ...inputs },
+    });
+    const workflow = cfg.job || "deploy.yml";
+    return maskSecrets(
+      `curl -s -X POST -H "Authorization: Bearer ${cfg.token || "$GITHUB_TOKEN"}" ` +
+      `-H "Accept: application/vnd.github.v3+json" ` +
+      `"${cfg.baseUrl}/repos/${cfg.repo}/actions/workflows/${workflow}/dispatches" ` +
+      `-d '${payload}'`,
+      [cfg.token]
+    );
+  } else if (cfg.provider === "gitlab") {
+    const payload = JSON.stringify({
+      ref,
+      variables: [
+        { key: "ENVIRONMENT", value: env },
+        ...Object.entries(inputs).map(([k, v]) => ({ key: k, value: String(v) })),
+      ],
+    });
+    return maskSecrets(
+      `curl -s -X POST -H "PRIVATE-TOKEN: ${cfg.token || "$GITLAB_TOKEN"}" ` +
+      `-H "Content-Type: application/json" ` +
+      `"${cfg.baseUrl}/projects/${encodeURIComponent(cfg.projectId)}/pipeline" ` +
+      `-d '${payload}'`,
+      [cfg.token]
+    );
+  } else if (cfg.provider === "jenkins") {
+    const job = cfg.job || "build-job";
+    const authHeader = cfg.user && cfg.token ? `-u "${cfg.user}:${cfg.token}" ` : "";
+    const paramStr = Object.entries({ ENVIRONMENT: env, ...inputs })
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+      .join("&");
+    const endpoint = paramStr ? `buildWithParameters?${paramStr}` : "build";
+
+    return maskSecrets(
+      `curl -s -X POST ${authHeader}` +
+      `"${cfg.baseUrl}/job/${encodeURIComponent(job)}/${endpoint}"`,
+      [cfg.token]
+    );
   }
 
-  /**
-   * Triggers pipeline.
-   * @param {string} provider
-   * @param {object} options
-   * @returns {Promise<object>}
-   * @public
-   */
-  async trigger(provider, options) {
-    return triggerPipeline(provider, options, this.config, this.transport);
+  return "echo 'Unsupported provider for trigger command'";
+}
+
+/**
+ * Generates an executable shell command string to query pipeline status.
+ *
+ * @public
+ * @param {string} provider - Provider name ('github', 'gitlab', 'jenkins').
+ * @param {Object} [options={}] - Pipeline query options.
+ * @returns {string} Executable shell command string.
+ */
+export function getStatusCommand(provider, options = {}) {
+  const cfg = normalizeConfig(provider, options);
+
+  if (cfg.provider === "github") {
+    return maskSecrets(
+      `curl -s -H "Authorization: Bearer ${cfg.token || "$GITHUB_TOKEN"}" ` +
+      `-H "Accept: application/vnd.github.v3+json" ` +
+      `"${cfg.baseUrl}/repos/${cfg.repo}/actions/runs?per_page=1"`,
+      [cfg.token]
+    );
+  } else if (cfg.provider === "gitlab") {
+    return maskSecrets(
+      `curl -s -H "PRIVATE-TOKEN: ${cfg.token || "$GITLAB_TOKEN"}" ` +
+      `"${cfg.baseUrl}/projects/${encodeURIComponent(cfg.projectId)}/pipelines?per_page=1"`,
+      [cfg.token]
+    );
+  } else if (cfg.provider === "jenkins") {
+    const job = cfg.job || "build-job";
+    const authHeader = cfg.user && cfg.token ? `-u "${cfg.user}:${cfg.token}" ` : "";
+    return maskSecrets(
+      `curl -s ${authHeader}` +
+      `"${cfg.baseUrl}/job/${encodeURIComponent(job)}/lastBuild/api/json"`,
+      [cfg.token]
+    );
   }
 
-  /**
-   * Fetches status.
-   * @param {string} provider
-   * @param {object} options
-   * @returns {Promise<object>}
-   * @public
-   */
-  async getStatus(provider, options) {
-    return getPipelineStatus(provider, options, this.config, this.transport);
+  return "echo 'Unsupported provider for status command'";
+}
+
+/**
+ * Generates an executable shell command string to trigger a rollback.
+ *
+ * @public
+ * @param {string} provider - Provider name ('github', 'gitlab', 'jenkins').
+ * @param {Object} [options={}] - Rollback options (targetVersion, targetCommit, etc.).
+ * @returns {string} Executable shell command string.
+ */
+export function getRollbackCommand(provider, options = {}) {
+  const targetVersion = options.targetVersion || options.targetCommit || options.version || "previous";
+  const rollbackOptions = {
+    ...options,
+    inputs: {
+      ACTION: "rollback",
+      TARGET_VERSION: targetVersion,
+      ...(options.inputs || {}),
+    },
+  };
+
+  return getTriggerCommand(provider, rollbackOptions);
+}
+
+/**
+ * Helper HTTP fetch function supporting mock handlers for unit testing and offline verification.
+ */
+async function _executeFetch(url, init, options = {}) {
+  if (typeof options.mockFetch === "function") {
+    return await options.mockFetch(url, init);
   }
 
-  /**
-   * Rolls back deployment.
-   * @param {string} provider
-   * @param {object} options
-   * @returns {Promise<object>}
-   * @public
-   */
-  async rollback(provider, options) {
-    return rollbackPipeline(provider, options, this.config, this.transport);
+  if (options.mockResponse) {
+    return {
+      ok: options.mockResponse.ok !== false,
+      status: options.mockResponse.status || 200,
+      json: async () => options.mockResponse.data || options.mockResponse,
+      text: async () => JSON.stringify(options.mockResponse.data || options.mockResponse),
+    };
   }
 
-  /**
-   * Parses and executes slash command string or UI command.
-   * @param {string} commandText
-   * @returns {Promise<object>}
-   * @public
-   */
-  async executeCommand(commandText) {
-    const { action, provider, options } = parseCICDCommand(commandText);
-
-    if (action === "trigger" || action === "deploy") {
-      return this.trigger(provider, options);
-    } else if (action === "status" || action === "view") {
-      return this.getStatus(provider, options);
-    } else if (action === "rollback" || action === "revert") {
-      return this.rollback(provider, options);
-    } else {
-      throw new Error(`Unknown CI/CD action '${action}'. Supported actions: trigger, status, rollback.`);
+  if (typeof fetch !== "undefined") {
+    const res = await fetch(url, init);
+    if (!res.ok) {
+      throw new Error(`HTTP Error ${res.status}: ${res.statusText}`);
     }
+    const data = await res.json();
+    return { ok: res.ok, status: res.status, json: async () => data, data };
+  }
+
+  throw new Error("HTTP fetch environment unavailable and no mock provided.");
+}
+
+/**
+ * Asynchronously queries the pipeline status for a given provider.
+ *
+ * @public
+ * @param {string} provider - Provider name ('github', 'gitlab', 'jenkins').
+ * @param {Object} [options={}] - Query options and credentials.
+ * @returns {Promise<Object>} Standardized pipeline status object.
+ */
+export async function getPipelineStatus(provider, options = {}) {
+  const cfg = normalizeConfig(provider, options);
+
+  try {
+    let url = "";
+    let headers = { ...cfg.extraHeaders };
+
+    if (cfg.provider === "github") {
+      url = `${cfg.baseUrl}/repos/${cfg.repo}/actions/runs?per_page=1`;
+      if (cfg.token) {
+        headers["Authorization"] = `Bearer ${cfg.token}`;
+      }
+      headers["Accept"] = "application/vnd.github.v3+json";
+    } else if (cfg.provider === "gitlab") {
+      url = `${cfg.baseUrl}/projects/${encodeURIComponent(cfg.projectId)}/pipelines?per_page=1`;
+      if (cfg.token) {
+        headers["PRIVATE-TOKEN"] = cfg.token;
+      }
+    } else if (cfg.provider === "jenkins") {
+      const job = cfg.job || "build-job";
+      url = `${cfg.baseUrl}/job/${encodeURIComponent(job)}/lastBuild/api/json`;
+      if (cfg.user && cfg.token) {
+        const auth = typeof Buffer !== "undefined"
+          ? Buffer.from(`${cfg.user}:${cfg.token}`).toString("base64")
+          : btoa(`${cfg.user}:${cfg.token}`);
+        headers["Authorization"] = `Basic ${auth}`;
+      }
+    }
+
+    const res = await _executeFetch(url, { method: "GET", headers }, options);
+    const data = res.data || (await res.json());
+
+    return parsePipelineStatus(cfg.provider, data);
+  } catch (err) {
+    return {
+      provider: cfg.provider,
+      id: "N/A",
+      status: "failed",
+      outcome: "error",
+      branch: cfg.branch,
+      commit: "unknown",
+      author: "unknown",
+      url: "",
+      duration: "0s",
+      timestamp: new Date().toISOString(),
+      stages: [],
+      error: maskSecrets(err.message, [cfg.token]),
+    };
+  }
+}
+
+/**
+ * Asynchronously triggers a deployment for a given provider.
+ *
+ * @public
+ * @param {string} provider - Provider name ('github', 'gitlab', 'jenkins').
+ * @param {Object} [options={}] - Deployment parameters and credentials.
+ * @returns {Promise<Object>} Trigger result object.
+ */
+export async function triggerDeployment(provider, options = {}) {
+  const cfg = normalizeConfig(provider, options);
+
+  try {
+    let url = "";
+    let headers = { "Content-Type": "application/json", ...cfg.extraHeaders };
+    let body = null;
+
+    if (cfg.provider === "github") {
+      const workflow = cfg.job || "deploy.yml";
+      url = `${cfg.baseUrl}/repos/${cfg.repo}/actions/workflows/${workflow}/dispatches`;
+      if (cfg.token) {
+        headers["Authorization"] = `Bearer ${cfg.token}`;
+      }
+      headers["Accept"] = "application/vnd.github.v3+json";
+      body = JSON.stringify({
+        ref: cfg.branch,
+        inputs: options.inputs || { environment: options.environment || "production" },
+      });
+    } else if (cfg.provider === "gitlab") {
+      url = `${cfg.baseUrl}/projects/${encodeURIComponent(cfg.projectId)}/pipeline`;
+      if (cfg.token) {
+        headers["PRIVATE-TOKEN"] = cfg.token;
+      }
+      body = JSON.stringify({
+        ref: cfg.branch,
+        variables: [
+          { key: "ENVIRONMENT", value: options.environment || "production" },
+          ...Object.entries(options.inputs || {}).map(([k, v]) => ({ key: k, value: String(v) })),
+        ],
+      });
+    } else if (cfg.provider === "jenkins") {
+      const job = cfg.job || "build-job";
+      url = `${cfg.baseUrl}/job/${encodeURIComponent(job)}/build`;
+      if (cfg.user && cfg.token) {
+        const auth = typeof Buffer !== "undefined"
+          ? Buffer.from(`${cfg.user}:${cfg.token}`).toString("base64")
+          : btoa(`${cfg.user}:${cfg.token}`);
+        headers["Authorization"] = `Basic ${auth}`;
+      }
+      body = JSON.stringify(options.inputs || {});
+    }
+
+    const res = await _executeFetch(url, { method: "POST", headers, body }, options);
+    const data = res.data || (await res.json().catch(() => ({})));
+
+    return {
+      success: true,
+      provider: cfg.provider,
+      buildId: data.id || data.number || "triggered",
+      status: "queued",
+      message: `Deployment triggered successfully on ${cfg.provider}.`,
+      url: maskSecrets(data.web_url || data.html_url || url, [cfg.token]),
+    };
+  } catch (err) {
+    return {
+      success: false,
+      provider: cfg.provider,
+      buildId: null,
+      status: "failed",
+      message: `Failed to trigger deployment on ${cfg.provider}: ${maskSecrets(err.message, [cfg.token])}`,
+    };
+  }
+}
+
+/**
+ * Asynchronously executes a rollback deployment for a given provider.
+ *
+ * @public
+ * @param {string} provider - Provider name ('github', 'gitlab', 'jenkins').
+ * @param {Object} [options={}] - Rollback parameters and credentials.
+ * @returns {Promise<Object>} Rollback result object.
+ */
+export async function executeRollback(provider, options = {}) {
+  const targetVersion = options.targetVersion || options.targetCommit || options.version || "previous";
+  const rollbackInputs = {
+    ACTION: "rollback",
+    TARGET_VERSION: targetVersion,
+    ...(options.inputs || {}),
+  };
+
+  const triggerRes = await triggerDeployment(provider, {
+    ...options,
+    inputs: rollbackInputs,
+  });
+
+  if (triggerRes.success) {
+    return {
+      success: true,
+      provider: triggerRes.provider,
+      rollbackVersion: targetVersion,
+      buildId: triggerRes.buildId,
+      status: "queued",
+      message: `Rollback to ${targetVersion} initiated successfully on ${triggerRes.provider}.`,
+      url: triggerRes.url,
+    };
+  } else {
+    return {
+      success: false,
+      provider: triggerRes.provider,
+      rollbackVersion: targetVersion,
+      buildId: null,
+      status: "failed",
+      message: `Rollback failed: ${triggerRes.message}`,
+    };
   }
 }

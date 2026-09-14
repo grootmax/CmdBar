@@ -16,4 +16,3 @@ __all__ = [
     "StreamDeckManager",
     "get_stream_deck_manager",
 ]
-

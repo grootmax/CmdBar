@@ -1,0 +1,23 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "info@cmdbar.org",
+                "Name": "CmdBar Team"
+            }
+        ],
+        "Category": "Utilities",
+        "Description": "Quick commands and AI natural language prompt assistant in your KDE Plasma top bar or desktop",
+        "Icon": "utilities-terminal",
+        "Id": "org.kde.cmdbar",
+        "Name": "CmdBar",
+        "ServiceTypes": [
+            "Plasma/Applet"
+        ],
+        "Version": "1.0.0",
+        "Website": "https://github.com/grootmax/CmdBar"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API": "declarativeappletscript",
+    "X-Plasma-MainScript": "ui/main.qml"
+}

@@ -101,9 +101,8 @@ def match_pattern(command_str: str, pattern: Any) -> bool:
     pattern_tokens = str_pattern.split()
 
     if len(pattern_tokens) == 1:
-        if (
-            first_token.lower() == str_pattern.lower()
-            or first_token.lower().endswith("/" + str_pattern.lower())
+        if first_token.lower() == str_pattern.lower() or first_token.lower().endswith(
+            "/" + str_pattern.lower()
         ):
             return True
 
@@ -113,7 +112,9 @@ def match_pattern(command_str: str, pattern: Any) -> bool:
     return False
 
 
-def resolve_user_context(custom_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def resolve_user_context(
+    custom_context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """Resolves current user and group context."""
     ctx = custom_context or {}
     user = ctx.get("user") or ctx.get("username")
@@ -204,8 +205,10 @@ def evaluate_command_policy(
             if isinstance(ov, dict) and ov.get("approved") is True:
                 cmd_pattern = ov.get("command")
                 exp = ov.get("expiresAt")
-                if cmd_pattern and match_pattern(clean_cmd, cmd_pattern) and (
-                    not exp or exp > now
+                if (
+                    cmd_pattern
+                    and match_pattern(clean_cmd, cmd_pattern)
+                    and (not exp or exp > now)
                 ):
                     return {
                         "allowed": True,
@@ -337,8 +340,12 @@ class CommandPolicyManager:
         self.policy = {
             "enabled": policy_config.get("enabled", True),
             "mode": policy_config.get("mode", "blacklist"),
-            "blacklist": list(policy_config.get("blacklist", DEFAULT_BLACKLIST_PATTERNS)),
-            "whitelist": list(policy_config.get("whitelist", DEFAULT_WHITELIST_PATTERNS)),
+            "blacklist": list(
+                policy_config.get("blacklist", DEFAULT_BLACKLIST_PATTERNS)
+            ),
+            "whitelist": list(
+                policy_config.get("whitelist", DEFAULT_WHITELIST_PATTERNS)
+            ),
             "rules": list(policy_config.get("rules", [])),
             "overrides": list(policy_config.get("overrides", [])),
         }
@@ -406,7 +413,9 @@ class CommandPolicyManager:
             "expiresAt": expires_at,
         }
 
-        if "overrides" not in self.policy or not isinstance(self.policy["overrides"], list):
+        if "overrides" not in self.policy or not isinstance(
+            self.policy["overrides"], list
+        ):
             self.policy["overrides"] = []
         self.policy["overrides"].append(override)
 
@@ -425,7 +434,9 @@ class CommandPolicyManager:
         approver = resolve_user_context(approver_context)
         req["status"] = "rejected"
         req["approvedBy"] = approver["user"]
-        req["rejectReason"] = reject_reason or "Approval request denied by policy administrator"
+        req["rejectReason"] = (
+            reject_reason or "Approval request denied by policy administrator"
+        )
 
         return dict(req)
 
@@ -448,7 +459,9 @@ class CommandPolicyManager:
             "expiresAt": expires_at,
         }
 
-        if "overrides" not in self.policy or not isinstance(self.policy["overrides"], list):
+        if "overrides" not in self.policy or not isinstance(
+            self.policy["overrides"], list
+        ):
             self.policy["overrides"] = []
         self.policy["overrides"].append(override)
 
@@ -460,13 +473,18 @@ class CommandPolicyManager:
             return False
         init_len = len(overrides)
         self.policy["overrides"] = [
-            ov for ov in overrides
-            if isinstance(ov, dict) and ov.get("token") != token_or_id and ov.get("id") != token_or_id
+            ov
+            for ov in overrides
+            if isinstance(ov, dict)
+            and ov.get("token") != token_or_id
+            and ov.get("id") != token_or_id
         ]
         return len(self.policy["overrides"]) < init_len
 
     def list_pending_approvals(self) -> List[Dict[str, Any]]:
-        return [r for r in self.pending_approvals.values() if r.get("status") == "pending"]
+        return [
+            r for r in self.pending_approvals.values() if r.get("status") == "pending"
+        ]
 
     def list_overrides(self) -> List[Dict[str, Any]]:
         overrides = self.policy.get("overrides", [])
@@ -474,6 +492,8 @@ class CommandPolicyManager:
             return []
         now = time.time() * 1000
         return [
-            ov for ov in overrides
-            if isinstance(ov, dict) and (not ov.get("expiresAt") or ov["expiresAt"] > now)
+            ov
+            for ov in overrides
+            if isinstance(ov, dict)
+            and (not ov.get("expiresAt") or ov["expiresAt"] > now)
         ]

@@ -22,15 +22,15 @@ import {
   verifyAndConsumeEmergencyCode,
   authenticateCommand,
   benchmarkYubikeyAuth,
-  isCICDCommand,
-  parseCICDCommand,
-  resolveSecrets,
-  redactSecrets,
 } from "./extension/commandProcessor.js";
 import {
   saveConfigAtomically,
   saveConfigAtomicallyAsync,
 } from "./companion/configStore.js";
+import {
+  evaluateCondition,
+  processMQTTTopicAndPayload,
+} from "./extension/iotTrigger.js";
 
 console.log("Running standalone verification tests...");
 
@@ -195,49 +195,36 @@ try {
   assert.strictEqual(hasNonGitPlaceholders('git push origin {git-branch}'), false, 'Should have no non-git placeholders');
   assert.strictEqual(hasNonGitPlaceholders('git commit -m "<msg>" on {git-branch}'), true, 'Should detect <msg> non-git placeholder');
 
-  // 7. CI/CD Integration Pipeline Tests
+  // 7. IoT Trigger Subsystem Tests
   assert.strictEqual(
-    isCICDCommand("/cicd status github owner/repo"),
+    evaluateCondition(100, ">", 50),
     true,
-    "Should detect /cicd prefix",
-  );
-  const cicdParsed = parseCICDCommand("/cicd trigger gitlab 123 branch=main");
-  assert.strictEqual(
-    cicdParsed.action,
-    "trigger",
-    "Should parse trigger action",
+    "evaluateCondition > should return true when value exceeds threshold",
   );
   assert.strictEqual(
-    cicdParsed.provider,
-    "gitlab",
-    "Should parse gitlab provider",
+    evaluateCondition(20, "<", 50),
+    true,
+    "evaluateCondition < should return true when value is under threshold",
   );
   assert.strictEqual(
-    cicdParsed.options.projectId,
-    "123",
-    "Should parse project ID",
-  );
-  assert.strictEqual(
-    cicdParsed.options.branch,
-    "main",
-    "Should parse branch option",
+    evaluateCondition("active", "==", "active"),
+    true,
+    "evaluateCondition == should match strings",
   );
 
-  const secretsResolved = resolveSecrets("github", {
-    cicd: { github: { token: "token-abc" } },
-  });
-  assert.strictEqual(
-    secretsResolved.token,
-    "token-abc",
-    "Should resolve token from config",
+  const mqttParsed = processMQTTTopicAndPayload(
+    "cmdbar/trigger/Restart Service",
+    '{"parameters":{"service":"nginx"}}',
   );
-
-  const redacted = redactSecrets("Authorization: Bearer token-abc", [
-    "token-abc",
-  ]);
-  assert.ok(
-    redacted.includes("[REDACTED]"),
-    "Should redact token from string",
+  assert.strictEqual(
+    mqttParsed.success,
+    true,
+    "MQTT topic trigger should parse successfully",
+  );
+  assert.strictEqual(
+    mqttParsed.commandName,
+    "Restart Service",
+    "MQTT topic should extract command name",
   );
 
   // 8. Atomic Persistence Tests (Sync & Async)
@@ -288,6 +275,21 @@ try {
     "Valid 44-char modhex OTP should pass verification",
   );
 
+  // 8. Workspace-Specific Config Standalone Verification
+  const { initWorkspaceConfig, loadWorkspaceConfig, WorkspaceManager } = await import('./extension/workspaceConfig.js');
+  const wsTestDir = path.join(tempDir, 'ws-test-dir');
+  const { config: wsConfig, configPath: wsPath } = initWorkspaceConfig(wsTestDir, 'node');
+  assert.strictEqual(fs.existsSync(wsPath), true, 'Workspace config file should be created');
+  assert.strictEqual(wsConfig.workspace.template, 'node', 'Workspace template should be node');
+
+  const loadedWs = loadWorkspaceConfig(wsTestDir);
+  assert.notStrictEqual(loadedWs, null, 'Workspace config should load successfully');
+
+  const wsManager = new WorkspaceManager();
+  wsManager.setCurrentCwd(wsTestDir);
+  const activeWsCfg = wsManager.getActiveConfig();
+  assert.strictEqual(activeWsCfg.categories.some(c => c.name === 'Node.js Scripts'), true, 'Active config should contain Node.js category');
+
   const fidoRes = verifyFIDO2Assertion(
     { user_presence: true, signature: "mock_valid" },
     "test_challenge",
@@ -309,11 +311,10 @@ try {
     "echo command should not be detected as sensitive",
   );
 
-  const { rawCodes, hashedCodes } = await generateEmergencyCodes(3);
+  const rawCodes = generateEmergencyCodes(3);
   assert.strictEqual(rawCodes.length, 3, "Should generate 3 emergency codes");
-  assert.strictEqual(hashedCodes.length, 3, "Should generate 3 hashed codes");
 
-  const emergencyCfg = { emergency_codes: [...hashedCodes] };
+  const emergencyCfg = { emergency_codes: [...rawCodes] };
   const consumeRes = await verifyAndConsumeEmergencyCode(
     rawCodes[0],
     emergencyCfg,

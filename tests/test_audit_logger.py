@@ -15,6 +15,7 @@ from companion.audit_logger import (
     clear_audit_log,
 )
 
+
 @pytest.fixture
 def temp_audit_env():
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -24,13 +25,16 @@ def temp_audit_env():
         if "CMDBAR_AUDIT_LOG_PATH" in os.environ:
             del os.environ["CMDBAR_AUDIT_LOG_PATH"]
 
+
 def test_get_audit_log_path_override(temp_audit_env):
     assert get_audit_log_path() == temp_audit_env
+
 
 def test_get_current_user():
     user = get_current_user()
     assert isinstance(user, str)
     assert len(user) > 0
+
 
 def test_is_sensitive_command():
     assert is_sensitive_command("echo mypassword") is True
@@ -40,6 +44,7 @@ def test_is_sensitive_command():
 
     cmd_obj = {"secure": True}
     assert is_sensitive_command("run-script", cmd_obj=cmd_obj) is True
+
 
 def test_log_command_success(temp_audit_env):
     config = {"audit": {"enabled": True, "privacy_mode": False}}
@@ -61,6 +66,7 @@ def test_log_command_success(temp_audit_env):
     assert entry["duration_ms"] == 120
     assert entry["user"] == "testuser"
     assert "T" in entry["timestamp"]
+
 
 def test_privacy_mode_excludes_sensitive(temp_audit_env):
     config = {"audit": {"enabled": True, "privacy_mode": True}}
@@ -84,17 +90,22 @@ def test_privacy_mode_excludes_sensitive(temp_audit_env):
     assert len(entries) == 1
     assert entries[0]["command"] == "git diff"
 
+
 def test_disabled_audit_logging(temp_audit_env):
     config = {"audit": {"enabled": False}}
     result = log_command("ls -la", 0, 5, config=config)
     assert result is False
     assert not os.path.exists(temp_audit_env)
 
+
 def test_rotate_log_if_needed(temp_audit_env):
     # Write old log entry
     os.makedirs(os.path.dirname(temp_audit_env), exist_ok=True)
     with open(temp_audit_env, "w", encoding="utf-8") as f:
-        f.write(json.dumps({"timestamp": "2026-08-01T10:00:00.000Z", "command": "old"}) + "\n")
+        f.write(
+            json.dumps({"timestamp": "2026-08-01T10:00:00.000Z", "command": "old"})
+            + "\n"
+        )
 
     # Set mtime to yesterday
     yesterday = datetime.now(timezone.utc) - timedelta(days=1)
@@ -108,6 +119,7 @@ def test_rotate_log_if_needed(temp_audit_env):
     rotated_path = f"{temp_audit_env}.{yesterday_str}"
     assert os.path.exists(rotated_path)
     assert not os.path.exists(temp_audit_env)
+
 
 def test_clear_audit_log(temp_audit_env):
     log_command("echo hello", 0, 5)

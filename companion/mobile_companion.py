@@ -49,8 +49,8 @@ def load_mobile_config(config_path: Optional[str] = None) -> dict:
         "widget_config": {
             "refresh_interval_sec": 300,
             "theme": "system",
-            "pinned_actions": []
-        }
+            "pinned_actions": [],
+        },
     }
 
 
@@ -105,8 +105,11 @@ class DeviceManager:
             "platform": platform_clean,
             "push_token": push_token or existing.get("push_token"),
             "device_token": device_token,
-            "biometric_public_key": biometric_public_key or existing.get("biometric_public_key"),
-            "biometric_enrolled": bool(biometric_public_key or existing.get("biometric_public_key")),
+            "biometric_public_key": biometric_public_key
+            or existing.get("biometric_public_key"),
+            "biometric_enrolled": bool(
+                biometric_public_key or existing.get("biometric_public_key")
+            ),
             "status": "active",
             "registered_at": existing.get("registered_at", now),
             "last_active_at": now,
@@ -221,7 +224,11 @@ class PushNotificationEngine:
         return record
 
     def broadcast_notification(
-        self, title: str, body: str, payload: Optional[dict] = None, category: Optional[str] = None
+        self,
+        title: str,
+        body: str,
+        payload: Optional[dict] = None,
+        category: Optional[str] = None,
     ) -> List[dict]:
         devices = self.service.device_manager.list_devices()
         results = []
@@ -264,7 +271,11 @@ class QuickActionManager:
         if not title or not isinstance(title, str) or not title.strip():
             raise ValueError("Title cannot be empty.")
 
-        if not command_template or not isinstance(command_template, str) or not command_template.strip():
+        if (
+            not command_template
+            or not isinstance(command_template, str)
+            or not command_template.strip()
+        ):
             raise ValueError("Command template cannot be empty.")
 
         data = self.service.load_data()
@@ -311,11 +322,17 @@ class QuickActionManager:
     ) -> dict:
         action = self.get_quick_action(action_id)
         if not action:
-            return {"status": "error", "message": f"Quick action '{action_id}' not found."}
+            return {
+                "status": "error",
+                "message": f"Quick action '{action_id}' not found.",
+            }
 
         if action.get("require_biometric"):
-            if not biometric_token or not self.service.biometric_handler.verify_biometric(
-                device_id, biometric_token
+            if (
+                not biometric_token
+                or not self.service.biometric_handler.verify_biometric(
+                    device_id, biometric_token
+                )
             ):
                 return {
                     "status": "biometric_required",
@@ -354,7 +371,11 @@ class QuickActionManager:
                 device_id,
                 title=f"Quick Action: {action.get('title')}",
                 body=f"Executed with status code {code}",
-                payload={"action_id": action_id, "exit_code": code, "stdout_summary": stdout[:100]},
+                payload={
+                    "action_id": action_id,
+                    "exit_code": code,
+                    "stdout_summary": stdout[:100],
+                },
             )
         except Exception:
             pass
@@ -367,7 +388,10 @@ class WidgetProvider:
         self.service = service
 
     def get_widget_data(
-        self, widget_type: str = "all", device_id: Optional[str] = None, size: str = "medium"
+        self,
+        widget_type: str = "all",
+        device_id: Optional[str] = None,
+        size: str = "medium",
     ) -> dict:
         widget_type = (widget_type or "all").lower()
         size = (size or "medium").lower()
@@ -389,8 +413,20 @@ class WidgetProvider:
 
         system_status = {
             "status": "online",
-            "active_devices": len([d for d in data.get("devices", {}).values() if d.get("status") == "active"]),
-            "pending_offline_queue": len([q for q in data.get("offline_queue", []) if q.get("status") == "queued"]),
+            "active_devices": len(
+                [
+                    d
+                    for d in data.get("devices", {}).values()
+                    if d.get("status") == "active"
+                ]
+            ),
+            "pending_offline_queue": len(
+                [
+                    q
+                    for q in data.get("offline_queue", [])
+                    if q.get("status") == "queued"
+                ]
+            ),
             "timestamp": time.time(),
         }
 
@@ -409,7 +445,11 @@ class WidgetProvider:
         elif widget_type == "system_status":
             return {"widget_type": "system_status", "size": size, "info": system_status}
         elif widget_type == "recent_history":
-            return {"widget_type": "recent_history", "size": size, "history": recent_history}
+            return {
+                "widget_type": "recent_history",
+                "size": size,
+                "history": recent_history,
+            }
         else:
             return {
                 "widget_type": "all",
@@ -467,7 +507,9 @@ class BiometricAuthHandler:
         if not device:
             raise ValueError("Device not found")
         key = device.get("biometric_public_key") or device.get("device_token")
-        return hmac.new(key.encode("utf-8"), challenge_nonce.encode("utf-8"), hashlib.sha256).hexdigest()
+        return hmac.new(
+            key.encode("utf-8"), challenge_nonce.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
 
     def verify_biometric(self, device_id: str, biometric_token: str) -> bool:
         data = self.service.load_data()
@@ -477,7 +519,9 @@ class BiometricAuthHandler:
             if not device or not device.get("biometric_enrolled"):
                 return False
             key = device.get("biometric_public_key") or device.get("device_token")
-            expected_fallback = hashlib.sha256(f"biometric_{key}".encode("utf-8")).hexdigest()
+            expected_fallback = hashlib.sha256(
+                f"biometric_{key}".encode("utf-8")
+            ).hexdigest()
             return hmac.compare_digest(expected_fallback, biometric_token)
 
         if time.time() > challenge_info.get("expires_at", 0):
@@ -490,7 +534,9 @@ class BiometricAuthHandler:
         if not device:
             return False
         key = device.get("biometric_public_key") or device.get("device_token")
-        expected = hmac.new(key.encode("utf-8"), nonce.encode("utf-8"), hashlib.sha256).hexdigest()
+        expected = hmac.new(
+            key.encode("utf-8"), nonce.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
 
         if hmac.compare_digest(expected, biometric_token):
             del data["biometric_challenges"][device_id]
@@ -505,7 +551,11 @@ class OfflineQueueManager:
         self.service = service
 
     def enqueue_request(
-        self, device_id: str, action_id: str, params: Optional[dict] = None, nonce: Optional[str] = None
+        self,
+        device_id: str,
+        action_id: str,
+        params: Optional[dict] = None,
+        nonce: Optional[str] = None,
     ) -> dict:
         now = time.time()
         queue_id = f"queue_{int(now * 1000)}_{secrets.token_hex(4)}"
@@ -550,7 +600,10 @@ class OfflineQueueManager:
                 break
 
         if not target_item:
-            return {"status": "error", "message": f"Queued request '{queue_id}' not found."}
+            return {
+                "status": "error",
+                "message": f"Queued request '{queue_id}' not found.",
+            }
 
         target_item["status"] = "processing"
         target_item["retry_count"] += 1
@@ -562,7 +615,9 @@ class OfflineQueueManager:
             params=target_item["params"],
         )
 
-        target_item["status"] = "completed" if res.get("status") == "success" else "failed"
+        target_item["status"] = (
+            "completed" if res.get("status") == "success" else "failed"
+        )
         target_item["processed_at"] = time.time()
         target_item["result"] = res
 
@@ -581,7 +636,9 @@ class OfflineQueueManager:
         data = self.service.load_data()
         queue = data.get("offline_queue", [])
         initial_len = len(queue)
-        data["offline_queue"] = [item for item in queue if item.get("status") == "queued"]
+        data["offline_queue"] = [
+            item for item in queue if item.get("status") == "queued"
+        ]
         self.service.save_data(data)
         return initial_len - len(data["offline_queue"])
 

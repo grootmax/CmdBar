@@ -96,10 +96,24 @@ The policy enforcement engine (`extension/policyEngine.js` and `app/policy_engin
 - **Geographic Restrictions**: Restricts command execution by country code or IP CIDR ranges.
 - **Time-Based Access Controls**: Limits command execution to designated days and time windows.
 
-### CI/CD Integration Pipeline Module
+### Workspace-Specific Configuration Module
 
-The CI/CD module (`extension/cicdPipeline.js`) provides unified pipeline management for GitHub Actions, GitLab CI, and Jenkins:
-- **Pipeline Triggers**: Triggers deployments, workflow dispatches, or parameter builds across providers.
-- **Status Monitoring**: Queries real-time pipeline, job, or build status and normalizes statuses into standard states (`success`, `failed`, `running`, `queued`, `cancelled`, `unknown`).
-- **Rollback Commands**: Executes rollback workflows or re-runs prior successful release builds.
-- **Secrets Management & Redaction**: Resolves tokens from configuration or environment variables (`GITHUB_TOKEN`, `GITLAB_TOKEN`, `JENKINS_TOKEN`) and redacts tokens and passwords from strings, previews, and objects (`[REDACTED]`).
+The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`) manages project-level configuration discovery and switching:
+- **CWD & Git Auto-Detection**: Searches upward from current working directory to Git repository root for `.cmdbar.json` or `.cmdbar/config.json`.
+- **Project Templates**: Initializes project configurations using built-in templates (`node`, `python`, `rust`, `go`, `generic`).
+- **Smooth Merging**: Merges workspace categories with global configuration, prepending project commands while avoiding command duplicates.
+- **WorkspaceManager**: High-performance active workspace manager with caching to guarantee sub-5ms lookup performance.
+
+### Team Command Sharing & Enterprise Collaboration
+
+The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
+For full details, see [Team Command Sharing Specification](team_command_sharing.md).
+
+### YubiKey 2FA Authentication Module
+
+The YubiKey authentication modules (`extension/yubikeyAuth.js` and `companion/yubikey_auth.py`) handle hardware-backed multi-factor authentication:
+- **Sensitive Command Detection**: Automatically identifies destructive or elevated commands (`sudo`, `rm -rf`, `aws ecs`, `kubectl delete`, `deploy`) or commands explicitly flagged with `sensitive: true` / `require_2fa: true`.
+- **Hardware Touch-to-Confirm**: Supports hardware presence test / touch confirmation before execution.
+- **Yubico OTP & FIDO2/U2F Assertions**: Parses 44-character ModHex OTP tokens, verifies device IDs, and validates FIDO2 assertion signatures against registered public keys.
+- **Emergency Access**: Single-use 8-character emergency recovery codes for fallback access when hardware keys are unavailable.
+- **D-Bus Interface Integration**: Exposes `VerifyYubiKey2FA`, `GetYubiKeyStatus`, `RegisterYubiKeyDevice`, and `ValidateEmergencyCode` D-Bus methods on `org.gnome.CmdBar`.

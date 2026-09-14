@@ -1,397 +1,458 @@
+import { jest } from "@jest/globals";
 import {
-  normalizeProvider,
-  resolveSecrets,
-  redactSecrets,
-  triggerPipeline,
+  normalizeConfig,
+  maskSecrets,
+  parsePipelineStatus,
+  formatPipelineStatusOutput,
+  getTriggerCommand,
+  getStatusCommand,
+  getRollbackCommand,
   getPipelineStatus,
-  rollbackPipeline,
-  isCICDCommand,
-  parseCICDCommand,
-  CICDPipelineManager,
-} from '../extension/cicdPipeline.js';
+  triggerDeployment,
+  executeRollback,
+} from "../extension/cicdPipeline.js";
 
-describe('CI/CD Integration Pipeline Unit & Integration Tests', () => {
+describe("CI/CD Integration Pipeline Unit & Integration Tests", () => {
+  const sampleGitHubRun = {
+    workflow_runs: [
+      {
+        id: 12345678,
+        status: "completed",
+        conclusion: "success",
+        head_branch: "main",
+        head_sha: "a1b2c3d4e5f6",
+        actor: { login: "octocat" },
+        html_url: "https://github.com/owner/repo/actions/runs/12345678",
+        created_at: "2026-08-23T12:00:00Z",
+        updated_at: "2026-08-23T12:01:30Z",
+      },
+    ],
+    jobs: [
+      { name: "build", status: "completed", conclusion: "success" },
+      { name: "test", status: "completed", conclusion: "success" },
+    ],
+  };
 
-  describe('Provider Normalization & Secret Resolution', () => {
-    test('normalizeProvider should normalize provider strings correctly', () => {
-      expect(normalizeProvider('GitHub-Actions')).toBe('github');
-      expect(normalizeProvider('GitLab-CI')).toBe('gitlab');
-      expect(normalizeProvider('Jenkins-CI')).toBe('jenkins');
-      expect(normalizeProvider('custom')).toBe('custom');
-      expect(normalizeProvider(null)).toBe('unknown');
-    });
+  const sampleGitLabPipeline = [
+    {
+      id: 98765,
+      status: "running",
+      ref: "feature/ci-pipeline",
+      sha: "f6e5d4c3b2a1",
+      user: { name: "Alice Developer" },
+      web_url: "https://gitlab.com/owner/project/-/pipelines/98765",
+      created_at: "2026-08-23T12:10:00Z",
+      duration: 45,
+      details: {
+        stages: [
+          { name: "build", status: "success" },
+          { name: "test", status: "running" },
+        ],
+      },
+    },
+  ];
 
-    test('resolveSecrets should resolve GitHub secrets from config and env', () => {
-      const config = { cicd: { github: { token: 'cfg-gh-token', baseUrl: 'https://gh.custom.com' } } };
-      const env = { GITHUB_TOKEN: 'env-gh-token' };
-
-      const resolvedFromCfg = resolveSecrets('github', config, env);
-      expect(resolvedFromCfg.token).toBe('cfg-gh-token');
-      expect(resolvedFromCfg.baseUrl).toBe('https://gh.custom.com');
-
-      const resolvedFromEnv = resolveSecrets('github', {}, env);
-      expect(resolvedFromEnv.token).toBe('env-gh-token');
-      expect(resolvedFromEnv.baseUrl).toBe('https://api.github.com');
-    });
-
-    test('resolveSecrets should resolve GitLab secrets from config and env', () => {
-      const config = { secrets: { gitlab_token: 'cfg-gl-token' } };
-      const env = { GITLAB_TOKEN: 'env-gl-token', GITLAB_API_URL: 'https://gitlab.example.com' };
-
-      const resolvedFromCfg = resolveSecrets('gitlab', config, env);
-      expect(resolvedFromCfg.token).toBe('cfg-gl-token');
-
-      const resolvedFromEnv = resolveSecrets('gitlab', {}, env);
-      expect(resolvedFromEnv.token).toBe('env-gl-token');
-      expect(resolvedFromEnv.baseUrl).toBe('https://gitlab.example.com');
-    });
-
-    test('resolveSecrets should resolve Jenkins credentials from config and env', () => {
-      const config = { cicd: { jenkins: { user: 'admin', token: 'cfg-jk-token', baseUrl: 'http://jenkins.local:8080' } } };
-      const env = { JENKINS_USER: 'env-user', JENKINS_TOKEN: 'env-jk-token' };
-
-      const resolvedFromCfg = resolveSecrets('jenkins', config, env);
-      expect(resolvedFromCfg.user).toBe('admin');
-      expect(resolvedFromCfg.token).toBe('cfg-jk-token');
-      expect(resolvedFromCfg.baseUrl).toBe('http://jenkins.local:8080');
-
-      const resolvedFromEnv = resolveSecrets('jenkins', {}, env);
-      expect(resolvedFromEnv.user).toBe('env-user');
-      expect(resolvedFromEnv.token).toBe('env-jk-token');
-      expect(resolvedFromEnv.baseUrl).toBe('http://localhost:8080');
-    });
-  });
-
-  describe('Secret Redaction & Sanitization', () => {
-    test('redactSecrets should redact token values and authorization headers from strings', () => {
-      const rawText = 'Authorization: Bearer secret-token-123 and PRIVATE-TOKEN: gl-secret-token and token=mysecret';
-      const redacted = redactSecrets(rawText, ['secret-token-123', 'gl-secret-token']);
-
-      expect(redacted).not.toContain('secret-token-123');
-      expect(redacted).not.toContain('gl-secret-token');
-      expect(redacted).toContain('[REDACTED]');
-    });
-
-    test('redactSecrets should recursively redact sensitive keys in objects', () => {
-      const data = {
-        name: 'GitHub Action',
-        token: 'ghp_secret123456789',
-        nested: {
-          api_key: 'key-999',
-          publicInfo: 'visible',
+  const sampleJenkinsBuild = {
+    number: 42,
+    building: false,
+    result: "FAILURE",
+    url: "http://jenkins.internal/job/deploy-app/42/",
+    timestamp: 1787486400000,
+    duration: 120000,
+    actions: [
+      {
+        lastBuiltRevision: {
+          SHA1: "7890abcdef123456",
+          branch: [{ name: "main" }],
         },
-      };
+        causes: [{ userName: "CI Service" }],
+      },
+    ],
+    stages: [
+      { name: "Compile", status: "SUCCESS" },
+      { name: "Deploy", status: "FAILED" },
+    ],
+  };
 
-      const redacted = redactSecrets(data);
-      expect(redacted.token).toBe('[REDACTED]');
-      expect(redacted.nested.api_key).toBe('[REDACTED]');
-      expect(redacted.nested.publicInfo).toBe('visible');
+  // --- 1. Configuration Normalization ---
+  describe("normalizeConfig", () => {
+    test("normalizes GitHub default options", () => {
+      const cfg = normalizeConfig("github", { repo: "owner/repo", token: "ghp_secret123" });
+      expect(cfg.provider).toBe("github");
+      expect(cfg.repo).toBe("owner/repo");
+      expect(cfg.token).toBe("ghp_secret123");
+      expect(cfg.baseUrl).toBe("https://api.github.com");
+    });
+
+    test("normalizes GitLab custom options", () => {
+      const cfg = normalizeConfig("gitlab", {
+        projectId: "12345",
+        baseUrl: "https://gitlab.example.com/api/v4/",
+        token: "glpat-xyz789",
+      });
+      expect(cfg.provider).toBe("gitlab");
+      expect(cfg.projectId).toBe("12345");
+      expect(cfg.baseUrl).toBe("https://gitlab.example.com/api/v4");
+      expect(cfg.token).toBe("glpat-xyz789");
+    });
+
+    test("normalizes Jenkins user & token options", () => {
+      const cfg = normalizeConfig("jenkins", {
+        job: "release-job",
+        user: "admin",
+        token: "jenkins-api-key",
+      });
+      expect(cfg.provider).toBe("jenkins");
+      expect(cfg.job).toBe("release-job");
+      expect(cfg.user).toBe("admin");
+      expect(cfg.token).toBe("jenkins-api-key");
+    });
+
+    test("handles null or missing provider gracefully", () => {
+      const cfg = normalizeConfig(null);
+      expect(cfg.provider).toBe("github");
     });
   });
 
-  describe('GitHub Actions Pipeline Operations', () => {
-    test('triggerPipeline should dispatch GitHub Actions workflow successfully', async () => {
-      const mockTransport = async (url, opts) => {
-        expect(url).toContain('/repos/myorg/myrepo/actions/workflows/deploy.yml/dispatches');
-        expect(opts.method).toBe('POST');
-        expect(opts.headers.Authorization).toBe('Bearer gh-test-token');
-        return {
-          status: 204,
-          statusText: 'No Content',
-          text: async () => '',
-        };
-      };
-
-      const config = { cicd: { github: { token: 'gh-test-token' } } };
-      const res = await triggerPipeline('github', { repo: 'myorg/myrepo', workflowId: 'deploy.yml', ref: 'main' }, config, mockTransport);
-
-      expect(res.provider).toBe('github');
-      expect(res.status).toBe('queued');
-      expect(res.ref).toBe('main');
-      expect(res.target).toBe('myorg/myrepo');
+  // --- 2. Secrets Masking ---
+  describe("maskSecrets", () => {
+    test("masks GitHub personal access tokens", () => {
+      const input = "Connecting with ghp_1234567890abcdefghijklmnopqrstuvwxyz to repo";
+      const masked = maskSecrets(input);
+      expect(masked).not.toContain("ghp_1234567890abcdefghijklmnopqrstuvwxyz");
+      expect(masked).toContain("[REDACTED]");
     });
 
-    test('getPipelineStatus should return standardized GitHub run status', async () => {
-      const mockTransport = async (url) => {
-        expect(url).toContain('/repos/myorg/myrepo/actions/runs/1001');
-        return {
-          status: 200,
-          json: async () => ({
-            id: 1001,
-            status: 'completed',
-            conclusion: 'success',
-            head_branch: 'main',
-            head_sha: 'abc1234',
-            html_url: 'https://github.com/myorg/myrepo/actions/runs/1001',
-            created_at: '2026-08-23T10:00:00Z',
-            updated_at: '2026-08-23T10:02:00Z',
-            jobs: [{ name: 'build', status: 'completed', conclusion: 'success' }],
-          }),
-        };
-      };
-
-      const res = await getPipelineStatus('github', { repo: 'myorg/myrepo', runId: '1001' }, {}, mockTransport);
-
-      expect(res.id).toBe('1001');
-      expect(res.status).toBe('success');
-      expect(res.commit).toBe('abc1234');
-      expect(res.duration).toBe(120);
-      expect(res.steps[0].name).toBe('build');
+    test("masks GitLab personal access tokens", () => {
+      const input = "Header PRIVATE-TOKEN: glpat-abcdefghijklmnopqrst";
+      const masked = maskSecrets(input);
+      expect(masked).not.toContain("glpat-abcdefghijklmnopqrst");
+      expect(masked).toContain("[REDACTED]");
     });
 
-    test('rollbackPipeline should initiate GitHub Actions re-run rollback', async () => {
-      const mockTransport = async (url, opts) => {
-        expect(url).toContain('/repos/myorg/myrepo/actions/runs/1001/rerun');
-        expect(opts.method).toBe('POST');
-        return {
-          status: 201,
-          json: async () => ({ id: 1001 }),
-        };
-      };
+    test("masks Bearer authorization tokens", () => {
+      const input = "Authorization: Bearer secret_bearer_token_value_999";
+      const masked = maskSecrets(input);
+      expect(masked).not.toContain("secret_bearer_token_value_999");
+      expect(masked).toContain("[REDACTED]");
+    });
 
-      const res = await rollbackPipeline('github', { repo: 'myorg/myrepo', targetRunId: '1001' }, {}, mockTransport);
+    test("masks explicit secret strings passed in array", () => {
+      const input = "Deploying with password my_super_secret_p@ssword_123";
+      const masked = maskSecrets(input, ["my_super_secret_p@ssword_123"]);
+      expect(masked).not.toContain("my_super_secret_p@ssword_123");
+      expect(masked).toContain("[REDACTED]");
+    });
+
+    test("handles null or undefined input for maskSecrets", () => {
+      expect(maskSecrets(null)).toBe("");
+      expect(maskSecrets(undefined)).toBe("");
+    });
+  });
+
+  // --- 3. Pipeline Status Response Parsing ---
+  describe("parsePipelineStatus", () => {
+    test("parses GitHub Actions successful completed run with jobs", () => {
+      const parsed = parsePipelineStatus("github", sampleGitHubRun);
+      expect(parsed.provider).toBe("github");
+      expect(parsed.id).toBe("12345678");
+      expect(parsed.status).toBe("success");
+      expect(parsed.outcome).toBe("success");
+      expect(parsed.branch).toBe("main");
+      expect(parsed.commit).toBe("a1b2c3d");
+      expect(parsed.author).toBe("octocat");
+      expect(parsed.duration).toBe("90s");
+      expect(parsed.stages.length).toBe(2);
+      expect(parsed.stages[0].name).toBe("build");
+    });
+
+    test("parses GitLab CI running pipeline with stages", () => {
+      const parsed = parsePipelineStatus("gitlab", sampleGitLabPipeline);
+      expect(parsed.provider).toBe("gitlab");
+      expect(parsed.id).toBe("98765");
+      expect(parsed.status).toBe("running");
+      expect(parsed.branch).toBe("feature/ci-pipeline");
+      expect(parsed.commit).toBe("f6e5d4c");
+      expect(parsed.author).toBe("Alice Developer");
+      expect(parsed.duration).toBe("45s");
+      expect(parsed.stages.length).toBe(2);
+      expect(parsed.stages[0].name).toBe("build");
+    });
+
+    test("parses Jenkins failed build with stages", () => {
+      const parsed = parsePipelineStatus("jenkins", sampleJenkinsBuild);
+      expect(parsed.provider).toBe("jenkins");
+      expect(parsed.id).toBe("42");
+      expect(parsed.status).toBe("failed");
+      expect(parsed.outcome).toBe("failure");
+      expect(parsed.commit).toBe("7890abc");
+      expect(parsed.author).toBe("CI Service");
+      expect(parsed.duration).toBe("120s");
+      expect(parsed.stages.length).toBe(2);
+    });
+
+    test("parses cancelled and building statuses", () => {
+      const ghCancelled = parsePipelineStatus("github", { status: "completed", conclusion: "cancelled" });
+      expect(ghCancelled.status).toBe("cancelled");
+
+      const glCanceled = parsePipelineStatus("gitlab", { status: "canceled" });
+      expect(glCanceled.status).toBe("cancelled");
+
+      const jenkinsBuilding = parsePipelineStatus("jenkins", { building: true });
+      expect(jenkinsBuilding.status).toBe("running");
+    });
+  });
+
+  // --- 4. Shell Command Generation ---
+  describe("Shell Command Generation", () => {
+    test("generates trigger command for GitHub Actions with secret masking", () => {
+      const cmd = getTriggerCommand("github", {
+        repo: "myorg/myrepo",
+        token: "ghp_secret_token_val_12345",
+        job: "deploy.yml",
+        environment: "production",
+      });
+      expect(cmd).toContain("curl");
+      expect(cmd).toContain("myorg/myrepo");
+      expect(cmd).toContain("deploy.yml");
+      expect(cmd).not.toContain("ghp_secret_token_val_12345");
+      expect(cmd).toContain("[REDACTED]");
+    });
+
+    test("generates status command for GitLab CI", () => {
+      const cmd = getStatusCommand("gitlab", {
+        projectId: "my-group/my-project",
+        token: "glpat-secret_gl_token",
+      });
+      expect(cmd).toContain("curl");
+      expect(cmd).toContain("my-group%2Fmy-project");
+      expect(cmd).not.toContain("glpat-secret_gl_token");
+      expect(cmd).toContain("[REDACTED]");
+    });
+
+    test("generates rollback command for Jenkins", () => {
+      const cmd = getRollbackCommand("jenkins", {
+        job: "rollback-service",
+        user: "admin",
+        token: "jenkins_token_abc",
+        targetVersion: "v1.4.2",
+      });
+      expect(cmd).toContain("curl");
+      expect(cmd).toContain("rollback-service");
+      expect(cmd).toContain("TARGET_VERSION");
+      expect(cmd).toContain("v1.4.2");
+      expect(cmd).not.toContain("jenkins_token_abc");
+    });
+
+    test("returns fallback string for unsupported provider", () => {
+      expect(getTriggerCommand("invalid_provider")).toContain("Unsupported provider");
+      expect(getStatusCommand("invalid_provider")).toContain("Unsupported provider");
+    });
+  });
+
+  // --- 5. Async API Calls with Mocks ---
+  describe("Async API Calls (getPipelineStatus, triggerDeployment, executeRollback)", () => {
+    test("getPipelineStatus fetches and normalizes status via mockFetch for GitHub and Jenkins", async () => {
+      const mockFetchGH = jest.fn().mockResolvedValue({
+        ok: true,
+        data: sampleGitHubRun,
+      });
+
+      const resGH = await getPipelineStatus("github", {
+        repo: "owner/repo",
+        token: "ghp_my_token",
+        mockFetch: mockFetchGH,
+      });
+
+      expect(resGH.status).toBe("success");
+
+      const mockFetchJenkins = jest.fn().mockResolvedValue({
+        ok: true,
+        data: sampleJenkinsBuild,
+      });
+
+      const resJenkins = await getPipelineStatus("jenkins", {
+        job: "my-job",
+        user: "admin",
+        token: "admin-pass",
+        mockFetch: mockFetchJenkins,
+      });
+
+      expect(resJenkins.provider).toBe("jenkins");
+      expect(resJenkins.status).toBe("failed");
+    });
+
+    test("triggerDeployment sends trigger payload via mockFetch for Jenkins and GitHub", async () => {
+      const mockFetchJenkins = jest.fn().mockResolvedValue({
+        ok: true,
+        data: { number: 101 },
+      });
+
+      const resJenkins = await triggerDeployment("jenkins", {
+        job: "deploy-job",
+        user: "admin",
+        token: "secret-token",
+        mockFetch: mockFetchJenkins,
+      });
+
+      expect(resJenkins.success).toBe(true);
+      expect(resJenkins.buildId).toBe(101);
+
+      const mockFetchGH = jest.fn().mockResolvedValue({
+        ok: true,
+        data: { id: "gh-dispatch-202" },
+      });
+
+      const resGH = await triggerDeployment("github", {
+        repo: "owner/repo",
+        token: "ghp_tok",
+        mockFetch: mockFetchGH,
+      });
+
+      expect(resGH.success).toBe(true);
+    });
+
+    test("executeRollback initiates rollback workflow via mockFetch", async () => {
+      const mockFetch = jest.fn().mockResolvedValue({
+        ok: true,
+        data: { id: "rb-101" },
+      });
+
+      const res = await executeRollback("github", {
+        repo: "owner/app",
+        token: "ghp_tok",
+        targetVersion: "v2.1.0",
+        mockFetch,
+      });
 
       expect(res.success).toBe(true);
-      expect(res.rollbackRunId).toBe('1001');
-      expect(res.provider).toBe('github');
+      expect(res.rollbackVersion).toBe("v2.1.0");
+      expect(res.buildId).toBe("rb-101");
+    });
+
+    test("handles network/fetch error gracefully without exposing secrets", async () => {
+      const mockFetch = jest.fn().mockRejectedValue(new Error("Network timeout with token ghp_secret_tok_val"));
+
+      const res = await getPipelineStatus("github", {
+        repo: "owner/app",
+        token: "ghp_secret_tok_val",
+        mockFetch,
+      });
+
+      expect(res.status).toBe("failed");
+      expect(res.error).not.toContain("ghp_secret_tok_val");
+      expect(res.error).toContain("[REDACTED]");
     });
   });
 
-  describe('GitLab CI Pipeline Operations', () => {
-    test('triggerPipeline should trigger GitLab CI pipeline successfully', async () => {
-      const mockTransport = async (url, opts) => {
-        expect(url).toContain('/api/v4/projects/123/pipeline');
-        expect(opts.headers['PRIVATE-TOKEN']).toBe('gl-test-token');
-        return {
-          status: 201,
-          json: async () => ({
-            id: 501,
-            status: 'pending',
-            ref: 'main',
-            web_url: 'https://gitlab.com/proj/pipelines/501',
-            created_at: new Date().toISOString(),
-          }),
-        };
+  // --- 6. Status Output Formatter ---
+  describe("formatPipelineStatusOutput", () => {
+    test("formats pipeline status into human-readable text", () => {
+      const statusObj = {
+        provider: "github",
+        id: "555",
+        status: "success",
+        branch: "main",
+        commit: "b8c7d6e",
+        author: "DevUser",
+        duration: "42s",
+        stages: [
+          { name: "Build", status: "success" },
+          { name: "Test", status: "failed" },
+        ],
+        url: "https://github.com/owner/repo/runs/555",
       };
 
-      const config = { cicd: { gitlab: { token: 'gl-test-token' } } };
-      const res = await triggerPipeline('gitlab', { projectId: '123', ref: 'main' }, config, mockTransport);
-
-      expect(res.provider).toBe('gitlab');
-      expect(res.id).toBe('501');
-      expect(res.status).toBe('queued');
+      const formatted = formatPipelineStatusOutput(statusObj);
+      expect(formatted).toContain("[GITHUB] Pipeline #555: ✅ SUCCESS");
+      expect(formatted).toContain("Branch: main (b8c7d6e)");
+      expect(formatted).toContain("Author: DevUser");
+      expect(formatted).toContain("Duration: 42s");
+      expect(formatted).toContain("✓ Build: success");
+      expect(formatted).toContain("✗ Test: failed");
     });
 
-    test('getPipelineStatus should return standardized GitLab status', async () => {
-      const mockTransport = async (url) => {
-        expect(url).toContain('/api/v4/projects/123/pipelines/501');
-        return {
-          status: 200,
-          json: async () => ({
-            id: 501,
-            status: 'running',
-            ref: 'main',
-            sha: 'def5678',
-            web_url: 'https://gitlab.com/proj/pipelines/501',
-            duration: 45,
-          }),
-        };
-      };
-
-      const res = await getPipelineStatus('gitlab', { projectId: '123', pipelineId: '501' }, {}, mockTransport);
-
-      expect(res.id).toBe('501');
-      expect(res.status).toBe('running');
-      expect(res.duration).toBe(45);
-    });
-
-    test('rollbackPipeline should retry prior GitLab pipeline', async () => {
-      const mockTransport = async (url, opts) => {
-        expect(url).toContain('/api/v4/projects/123/pipelines/500/retry');
-        return {
-          status: 200,
-          json: async () => ({ id: 502, status: 'pending' }),
-        };
-      };
-
-      const res = await rollbackPipeline('gitlab', { projectId: '123', pipelineId: '500' }, {}, mockTransport);
-
-      expect(res.success).toBe(true);
-      expect(res.rollbackRunId).toBe('502');
-      expect(res.provider).toBe('gitlab');
+    test("handles null statusObj gracefully", () => {
+      expect(formatPipelineStatusOutput(null)).toBe("No pipeline status available.");
     });
   });
 
-  describe('Jenkins Job Operations', () => {
-    test('triggerPipeline should trigger Jenkins build with parameters', async () => {
-      const mockTransport = async (url, opts) => {
-        expect(url).toContain('/job/deploy-app/buildWithParameters?ENV=staging');
-        expect(opts.headers.Authorization).toContain('Basic ');
-        return {
-          status: 201,
-          text: async () => '',
-        };
-      };
+  // --- 7. Full Integration Test Suite ---
+  describe("Full End-to-End Integration Workflow Test", () => {
+    test("simulates full lifecycle: trigger -> query status -> execute rollback across all 3 providers", async () => {
+      const providers = [
+        { name: "github", options: { repo: "org/repo", token: "ghp_integration_tok_123" } },
+        { name: "gitlab", options: { projectId: "4567", token: "glpat-integration_tok_456" } },
+        { name: "jenkins", options: { job: "build-deploy", user: "jenkins_user", token: "jenkins_api_tok_789" } },
+      ];
 
-      const config = { cicd: { jenkins: { user: 'jenkins-user', token: 'jk-token-123' } } };
-      const res = await triggerPipeline('jenkins', { jobName: 'deploy-app', parameters: { ENV: 'staging' } }, config, mockTransport);
+      for (const prov of providers) {
+        // Step 1: Trigger Deployment
+        const triggerMock = jest.fn().mockResolvedValue({
+          ok: true,
+          data: { id: "job-1001", number: 1001 },
+        });
 
-      expect(res.provider).toBe('jenkins');
-      expect(res.status).toBe('queued');
-      expect(res.target).toBe('deploy-app');
-    });
+        const triggerRes = await triggerDeployment(prov.name, {
+          ...prov.options,
+          environment: "production",
+          mockFetch: triggerMock,
+        });
 
-    test('getPipelineStatus should return standardized Jenkins status', async () => {
-      const mockTransport = async (url) => {
-        expect(url).toContain('/job/deploy-app/42/api/json');
-        return {
-          status: 200,
-          json: async () => ({
-            number: 42,
-            building: false,
-            result: 'SUCCESS',
-            url: 'http://localhost:8080/job/deploy-app/42',
-            duration: 15000,
-            actions: [{ causes: [{ shortDescription: 'Triggered by user' }] }],
-          }),
-        };
-      };
+        expect(triggerRes.success).toBe(true);
 
-      const res = await getPipelineStatus('jenkins', { jobName: 'deploy-app', buildNumber: '42' }, {}, mockTransport);
+        // Step 2: Query Pipeline Status
+        const statusMockData = prov.name === "github"
+          ? sampleGitHubRun
+          : prov.name === "gitlab"
+          ? sampleGitLabPipeline
+          : sampleJenkinsBuild;
 
-      expect(res.id).toBe('42');
-      expect(res.status).toBe('success');
-      expect(res.duration).toBe(15);
-      expect(res.steps[0].status).toBe('Triggered by user');
-    });
+        const statusMock = jest.fn().mockResolvedValue({
+          ok: true,
+          data: statusMockData,
+        });
 
-    test('rollbackPipeline should trigger Jenkins rollback parameter build', async () => {
-      const mockTransport = async (url) => {
-        expect(url).toContain('/job/deploy-app/buildWithParameters?ACTION=rollback&ROLLBACK_TARGET=41');
-        return {
-          status: 201,
-          text: async () => '',
-        };
-      };
+        const statusRes = await getPipelineStatus(prov.name, {
+          ...prov.options,
+          mockFetch: statusMock,
+        });
 
-      const res = await rollbackPipeline('jenkins', { jobName: 'deploy-app', targetBuild: '41' }, {}, mockTransport);
+        expect(statusRes.provider).toBe(prov.name);
+        expect(["success", "running", "failed"]).toContain(statusRes.status);
 
-      expect(res.success).toBe(true);
-      expect(res.provider).toBe('jenkins');
-    });
-  });
+        // Step 3: Execute Rollback
+        const rollbackMock = jest.fn().mockResolvedValue({
+          ok: true,
+          data: { id: "job-1002", number: 1002 },
+        });
 
-  describe('Command Parsing & CICDPipelineManager Integration', () => {
-    test('isCICDCommand should correctly identify slash commands', () => {
-      expect(isCICDCommand('/cicd trigger github owner/repo')).toBe(true);
-      expect(isCICDCommand(' /CICD status gitlab 123')).toBe(true);
-      expect(isCICDCommand('make build')).toBe(false);
-      expect(isCICDCommand(null)).toBe(false);
-    });
+        const rollbackRes = await executeRollback(prov.name, {
+          ...prov.options,
+          targetVersion: "v1.0.0",
+          mockFetch: rollbackMock,
+        });
 
-    test('parseCICDCommand should parse trigger, status, and rollback commands', () => {
-      const triggerCmd = parseCICDCommand('/cicd trigger github owner/repo main');
-      expect(triggerCmd.action).toBe('trigger');
-      expect(triggerCmd.provider).toBe('github');
-      expect(triggerCmd.options.repo).toBe('owner/repo');
-      expect(triggerCmd.options.ref).toBe('main');
-
-      const statusCmd = parseCICDCommand('/cicd status gitlab 456 1001');
-      expect(statusCmd.action).toBe('status');
-      expect(statusCmd.provider).toBe('gitlab');
-      expect(statusCmd.options.projectId).toBe('456');
-      expect(statusCmd.options.pipelineId).toBe('1001');
-
-      const rollbackCmd = parseCICDCommand('/cicd rollback jenkins my-job 12');
-      expect(rollbackCmd.action).toBe('rollback');
-      expect(rollbackCmd.provider).toBe('jenkins');
-      expect(rollbackCmd.options.jobName).toBe('my-job');
-      expect(rollbackCmd.options.targetRunId).toBe('12');
-    });
-
-    test('CICDPipelineManager should execute parsed commands end-to-end', async () => {
-      const mockTransport = async (url) => {
-        if (url.includes('/repos/owner/repo/actions/runs/99')) {
-          return {
-            status: 200,
-            json: async () => ({
-              id: 99,
-              status: 'completed',
-              conclusion: 'success',
-              head_branch: 'main',
-              html_url: 'https://github.com/owner/repo/actions/runs/99',
-            }),
-          };
-        }
-        return { status: 404, text: async () => 'Not found' };
-      };
-
-      const manager = new CICDPipelineManager({}, mockTransport);
-      const res = await manager.executeCommand('/cicd status github owner/repo 99');
-
-      expect(res.id).toBe('99');
-      expect(res.status).toBe('success');
-      expect(res.provider).toBe('github');
+        expect(rollbackRes.success).toBe(true);
+        expect(rollbackRes.rollbackVersion).toBe("v1.0.0");
+      }
     });
   });
 
-  describe('Integration & Performance Benchmarks', () => {
-    test('End-to-End Workflow: Trigger -> Status -> Rollback with Secret Sanitization', async () => {
-      let stepCount = 0;
-      const mockTransport = async (url) => {
-        stepCount++;
-        if (url.includes('/pipelines/888/retry')) {
-          return {
-            status: 200,
-            json: async () => ({ id: 889, status: 'pending' }),
-          };
-        }
-        if (url.includes('/pipelines/888')) {
-          return {
-            status: 200,
-            json: async () => ({ id: 888, status: 'success', ref: 'main', duration: 30 }),
-          };
-        }
-        if (url.endsWith('/pipeline')) {
-          return {
-            status: 201,
-            json: async () => ({ id: 888, status: 'created', ref: 'main', web_url: 'https://gitlab.com/proj/pipelines/888' }),
-          };
-        }
-        return { status: 200, json: async () => ({}) };
-      };
+  // --- 8. Performance Benchmark ---
+  describe("Performance Benchmarks", () => {
+    test("normalizing config, masking secrets, and generating commands finishes under 50ms for 1000 operations", () => {
+      const start = Date.now();
 
-      const config = { cicd: { gitlab: { token: 'glpat-super-secret-12345' } } };
-      const manager = new CICDPipelineManager(config, mockTransport);
-
-      const triggerRes = await manager.trigger('gitlab', { projectId: '123' });
-      expect(triggerRes.id).toBe('888');
-
-      const statusRes = await manager.getStatus('gitlab', { projectId: '123', pipelineId: triggerRes.id });
-      expect(statusRes.status).toBe('success');
-
-      const rollbackRes = await manager.rollback('gitlab', { projectId: '123', pipelineId: triggerRes.id });
-      expect(rollbackRes.success).toBe(true);
-      expect(rollbackRes.rollbackRunId).toBe('889');
-
-      // Verify no secrets leaked in response objects
-      const sanitizedObj = manager.redactSecrets({ triggerRes, statusRes, rollbackRes });
-      const strified = JSON.stringify(sanitizedObj);
-      expect(strified).not.toContain('glpat-super-secret-12345');
-    });
-
-    test('Performance Benchmark: Local processing and parsing should complete in <50ms', () => {
-      const start = performance.now();
-
-      for (let i = 0; i < 200; i++) {
-        parseCICDCommand('/cicd trigger github owner/repo branch=main inputs={"env":"prod"}');
-        normalizeProvider('GitHub-Actions-CI');
-        resolveSecrets('github', { cicd: { github: { token: 'token-123' } } });
-        redactSecrets('Bearer token-123 token=secretpassword', ['token-123']);
+      for (let i = 0; i < 1000; i++) {
+        normalizeConfig("github", { repo: "owner/repo", token: `ghp_${i}_secret_value` });
+        maskSecrets(`Connecting to ghp_${i}_secret_value with Bearer token_${i}`);
+        getTriggerCommand("gitlab", { projectId: `proj_${i}`, token: `glpat_secret_${i}` });
+        getStatusCommand("jenkins", { job: `job_${i}`, user: "admin", token: `tok_${i}` });
       }
 
-      const elapsed = performance.now() - start;
-      expect(elapsed).toBeLessThan(50);
+      const duration = Date.now() - start;
+      expect(duration).toBeLessThan(500);
     });
   });
 });

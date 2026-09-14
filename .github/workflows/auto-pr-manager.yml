@@ -53,9 +53,9 @@ jobs:
             --state open \
             --json number,title,headRefName,headRefOid,baseRefName,isDraft,createdAt \
             --limit 100 |
-            jq 'sort_by(.number)' > /tmp/all-prs.json
+            jq 'if type == "array" then sort_by(.number) else [] end' > /tmp/all-prs.json || echo "[]" > /tmp/all-prs.json
 
-          TOTAL_PR_COUNT=$(jq 'length' /tmp/all-prs.json)
+          TOTAL_PR_COUNT=$(jq 'if type == "array" then length else 0 end' /tmp/all-prs.json 2>/dev/null || echo "0")
 
           # ==================================================
           # 2. NO PRs
@@ -86,13 +86,17 @@ jobs:
           # ==================================================
 
           jq '
-            [
-              .[]
-              | select(.headRefName | startswith("jules/"))
-            ]
-          ' /tmp/all-prs.json > /tmp/jules-prs.json
+            if type == "array" then
+              [
+                .[]?
+                | select((.headRefName // "") | startswith("jules/"))
+              ]
+            else
+              []
+            end
+          ' /tmp/all-prs.json > /tmp/jules-prs.json || echo "[]" > /tmp/jules-prs.json
 
-          JULES_PR_COUNT=$(jq 'length' /tmp/jules-prs.json)
+          JULES_PR_COUNT=$(jq 'if type == "array" then length else 0 end' /tmp/jules-prs.json 2>/dev/null || echo "0")
 
           # ==================================================
           # 4. NO JULES PRs
@@ -116,9 +120,13 @@ jobs:
           echo "Processing order:"
 
           jq -r '
-            .[]
-            | "#\(.number) - \(.headRefName)"
-          ' /tmp/jules-prs.json
+            if type == "array" then
+              .[]?
+              | "#\(.number) - \(.headRefName)"
+            else
+              empty
+            end
+          ' /tmp/jules-prs.json || true
 
           echo ""
 
@@ -132,17 +140,21 @@ jobs:
           # We process them strictly in this order.
           # ==================================================
 
-          jq -c '.[]' /tmp/jules-prs.json | while read -r PR; do
+          mapfile -t JULES_PRS < <(jq -c 'if type == "array" then .[]? else empty end' /tmp/jules-prs.json 2>/dev/null || echo "")
+          for PR in "${JULES_PRS[@]}"; do
+            if [ -z "$PR" ]; then
+              continue
+            fi
 
-            PR_NUMBER=$(echo "$PR" | jq -r '.number')
-            TITLE=$(echo "$PR" | jq -r '.title')
-            HEAD_BRANCH=$(echo "$PR" | jq -r '.headRefName')
-            HEAD_SHA=$(echo "$PR" | jq -r '.headRefOid // empty')
+            PR_NUMBER=$(echo "$PR" | jq -r '.number // empty' 2>/dev/null || echo "")
+            TITLE=$(echo "$PR" | jq -r '.title // empty' 2>/dev/null || echo "")
+            HEAD_BRANCH=$(echo "$PR" | jq -r '.headRefName // empty' 2>/dev/null || echo "")
+            HEAD_SHA=$(echo "$PR" | jq -r '.headRefOid // empty' 2>/dev/null || echo "")
             if [ -z "$HEAD_SHA" ] || [ "$HEAD_SHA" = "null" ]; then
               HEAD_SHA="$HEAD_BRANCH"
             fi
-            BASE_BRANCH=$(echo "$PR" | jq -r '.baseRefName')
-            IS_DRAFT=$(echo "$PR" | jq -r '.isDraft')
+            BASE_BRANCH=$(echo "$PR" | jq -r '.baseRefName // empty' 2>/dev/null || echo "")
+            IS_DRAFT=$(echo "$PR" | jq -r '.isDraft // false' 2>/dev/null || echo "false")
 
             echo ""
             echo "=========================================="
@@ -203,11 +215,11 @@ jobs:
               MERGEABLE=$(gh pr view "$PR_NUMBER" \
                 --repo "$GH_REPO" \
                 --json mergeable \
-                --jq '.mergeable' 2>/dev/null || echo "UNKNOWN")
+                --jq '.mergeable // "UNKNOWN"' 2>/dev/null || echo "UNKNOWN")
 
               echo "Attempt $ATTEMPT: mergeable=$MERGEABLE"
 
-              if [ "$MERGEABLE" != "UNKNOWN" ] && [ -n "$MERGEABLE" ]; then
+              if [ "$MERGEABLE" != "UNKNOWN" ]; then
                 break
               fi
 
@@ -267,15 +279,11 @@ jobs:
               echo ""
               echo "Cloning repository..."
 
-              if ! git clone \
+              git clone \
                 "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" \
-                "$WORKDIR"; then
-                echo "ERROR: Failed to clone repository."
-                rm -rf "$WORKDIR" || true
-                break
-              fi
+                "$WORKDIR"
 
-              cd "$WORKDIR" || { rm -rf "$WORKDIR" || true; break; }
+              cd "$WORKDIR"
 
               # ==================================================
               # CONFIGURE GIT
@@ -283,11 +291,11 @@ jobs:
 
               git config \
                 user.name \
-                "github-actions[bot]" || true
+                "github-actions[bot]"
 
               git config \
                 user.email \
-                "41898282+github-actions[bot]@users.noreply.github.com" || true
+                "41898282+github-actions[bot]@users.noreply.github.com"
 
               # ==================================================
               # FETCH BRANCHES
@@ -296,21 +304,11 @@ jobs:
               echo ""
               echo "Fetching base branch..."
 
-              if ! git fetch origin "$BASE_BRANCH"; then
-                echo "ERROR: Failed to fetch base branch."
-                cd /
-                rm -rf "$WORKDIR" || true
-                break
-              fi
+              git fetch origin "$BASE_BRANCH"
 
               echo "Fetching Jules branch..."
 
-              if ! git fetch origin "$HEAD_BRANCH"; then
-                echo "ERROR: Failed to fetch Jules branch."
-                cd /
-                rm -rf "$WORKDIR" || true
-                break
-              fi
+              git fetch origin "$HEAD_BRANCH"
 
               # ==================================================
               # CHECKOUT JULES BRANCH
@@ -319,14 +317,9 @@ jobs:
               echo ""
               echo "Checking out Jules branch..."
 
-              if ! git checkout -B \
+              git checkout -B \
                 "$HEAD_BRANCH" \
-                "origin/$HEAD_BRANCH"; then
-                echo "ERROR: Failed to checkout Jules branch."
-                cd /
-                rm -rf "$WORKDIR" || true
-                break
-              fi
+                "origin/$HEAD_BRANCH"
 
               # ==================================================
               # MERGE BASE INTO JULES BRANCH
@@ -385,23 +378,17 @@ jobs:
                 # this means we keep the base/main version.
                 # --------------------------------------------------
 
-                mapfile -t CONFLICTED_FILES < <(
-                  git diff \
-                    --name-only \
-                    --diff-filter=U
-                )
-
+                readarray -t CONFLICTED_FILES <<< "$(git diff --name-only --diff-filter=U)"
                 for FILE in "${CONFLICTED_FILES[@]}"; do
+                  if [ -n "$FILE" ]; then
+                    echo "Resolving conflict:"
+                    echo "  $FILE"
 
-                  [ -z "$FILE" ] && continue
-
-                  echo "Resolving conflict:"
-                  echo "  $FILE"
-
-                  if git checkout --theirs -- "$FILE" 2>/dev/null; then
-                    git add -- "$FILE" 2>/dev/null || true
-                  else
-                    git rm --cached -f "$FILE" 2>/dev/null || git rm -f -- "$FILE" 2>/dev/null || true
+                    if git checkout --theirs -- "$FILE" 2>/dev/null; then
+                      git add -- "$FILE"
+                    else
+                      git rm -f -- "$FILE" 2>/dev/null || true
+                    fi
                   fi
                 done
 
@@ -412,7 +399,7 @@ jobs:
                 REMAINING_CONFLICTS=$(git diff \
                   --name-only \
                   --diff-filter=U |
-                  wc -l)
+                  wc -l | tr -d ' ')
 
                 if [ "$REMAINING_CONFLICTS" -ne 0 ]; then
 
@@ -444,10 +431,8 @@ jobs:
                 echo ""
                 echo "Committing conflict resolution..."
 
-                if ! git diff --quiet || ! git diff --cached --quiet || [ -f .git/MERGE_HEAD ]; then
-                  git commit \
-                    -m "chore: auto-resolve merge conflicts" || true
-                fi
+                git commit \
+                  -m "chore: auto-resolve merge conflicts" || true
 
               fi
 
@@ -458,19 +443,7 @@ jobs:
               echo ""
               echo "Pushing updated Jules branch..."
 
-              if ! git push origin "$HEAD_BRANCH"; then
-
-                echo ""
-                echo "ERROR: Failed to push updated branch for PR #$PR_NUMBER."
-                echo "Stopping processing."
-
-                cd /
-
-                rm -rf "$WORKDIR"
-
-                break
-
-              fi
+              git push origin "$HEAD_BRANCH"
 
               cd /
 
@@ -521,33 +494,12 @@ jobs:
               echo "Checking status checks for PR #$PR_NUMBER..."
 
               CHECK_OUTPUT=$(
-                gh pr view "$PR_NUMBER" \
-                  --repo "$GH_REPO" \
-                  --json statusCheckRollup \
-                  --jq '.statusCheckRollup' \
+                gh api "repos/$GH_REPO/commits/$HEAD_SHA/check-runs" \
+                  --jq '[.check_runs[]? | {name: (.name? // ""), status: (.status? // ""), conclusion: (.conclusion? // ""), workflow: (.app?.name? // ""), bucket: (if (.status? // "") != "completed" then "pending" elif ((.conclusion? // "") == "failure" or (.conclusion? // "") == "cancelled" or (.conclusion? // "") == "timed_out" or (.conclusion? // "") == "action_required") then "fail" else "pass" end)}]' \
                   2>/dev/null || echo "[]"
               )
 
-              if [ -z "$CHECK_OUTPUT" ] || [ "$CHECK_OUTPUT" = "null" ] || [ "$CHECK_OUTPUT" = "[]" ]; then
-                HEAD_SHA=$(
-                  gh pr view "$PR_NUMBER" \
-                    --repo "$GH_REPO" \
-                    --json headRefOid \
-                    --jq '.headRefOid' \
-                    2>/dev/null || echo ""
-                )
-                if [ -n "$HEAD_SHA" ]; then
-                  CHECK_OUTPUT=$(
-                    gh api "repos/$GH_REPO/commits/$HEAD_SHA/check-runs" \
-                      --jq '.check_runs' \
-                      2>/dev/null || echo "[]"
-                  )
-                else
-                  CHECK_OUTPUT="[]"
-                fi
-              fi
-
-              if [ -z "$CHECK_OUTPUT" ] || [ "$CHECK_OUTPUT" = "null" ]; then
+              if ! echo "$CHECK_OUTPUT" | jq -e 'type == "array"' >/dev/null 2>&1; then
                 CHECK_OUTPUT="[]"
               fi
 
@@ -557,18 +509,22 @@ jobs:
 
               # Filter for dedicated accessibility check
               A11Y_CHECK=$(echo "$CHECK_OUTPUT" | jq '
-                [
-                  .[]
-                  | select(
-                      ((.name // .context // "") | ascii_downcase | contains("accessibility"))
-                      or ((.name // .context // "") | ascii_downcase | contains("a11y"))
-                      or (((.workflowName // .workflow // "") | ascii_downcase) | contains("accessibility"))
-                      or (((.workflowName // .workflow // "") | ascii_downcase) | contains("a11y"))
-                    )
-                ]
-              ')
+                if type == "array" then
+                  [
+                    .[]?
+                    | select(
+                        ((.name? // "") | ascii_downcase | contains("accessibility"))
+                        or ((.name? // "") | ascii_downcase | contains("a11y"))
+                        or (((.workflow | if type == "object" then .name else . end) // "") | ascii_downcase | contains("accessibility"))
+                        or (((.workflow | if type == "object" then .name else . end) // "") | ascii_downcase | contains("a11y"))
+                      )
+                  ]
+                else
+                  []
+                end
+              ' 2>/dev/null || echo "[]")
 
-              A11Y_COUNT=$(echo "$A11Y_CHECK" | jq 'length')
+              A11Y_COUNT=$(echo "$A11Y_CHECK" | jq 'if type == "array" then length else 0 end' 2>/dev/null || echo "0")
 
               # --------------------------------------------------
               # ACCESSIBILITY CHECK MISSING (NOT REPORTED YET)
@@ -586,15 +542,16 @@ jobs:
               # ACCESSIBILITY CHECK FAILED
               # --------------------------------------------------
               A11Y_FAILED=$(echo "$A11Y_CHECK" | jq '
-                [
-                  .[]
-                  | select(
-                      (.conclusion // .state // .bucket // "") | ascii_downcase |
-                      (contains("fail") or contains("cancel") or contains("time") or contains("error"))
-                    )
-                ]
-                | length
-              ')
+                if type == "array" then
+                  [
+                    .[]?
+                    | select((.bucket? // "") == "fail" or (.bucket? // "") == "cancel")
+                  ]
+                  | length
+                else
+                  0
+                end
+              ' 2>/dev/null || echo "0")
 
               if [ "$A11Y_FAILED" -gt 0 ]; then
                 echo ""
@@ -609,15 +566,16 @@ jobs:
               # ACCESSIBILITY CHECK PENDING
               # --------------------------------------------------
               A11Y_PENDING=$(echo "$A11Y_CHECK" | jq '
-                [
-                  .[]
-                  | select(
-                      ((.status // "") | ascii_downcase | (contains("in_progress") or contains("queued") or contains("waiting") or contains("pending")))
-                      or (((.status // "") | ascii_downcase != "completed") and ((.conclusion // .state // "") | ascii_downcase == ""))
-                    )
-                ]
-                | length
-              ')
+                if type == "array" then
+                  [
+                    .[]?
+                    | select((.bucket? // "") == "pending")
+                  ]
+                  | length
+                else
+                  0
+                end
+              ' 2>/dev/null || echo "0")
 
               if [ "$A11Y_PENDING" -gt 0 ]; then
                 echo ""
@@ -632,36 +590,38 @@ jobs:
               # CHECK OTHER CHECKS FOR FAILURE / PENDING
               # --------------------------------------------------
               OTHER_FAILED=$(echo "$CHECK_OUTPUT" | jq '
-                [
-                  .[]
-                  | select(
-                      ((.name // .context // "") | ascii_downcase | contains("process jules prs") | not) and
-                      ((.name // .context // "") | ascii_downcase | contains("auto jules pr manager") | not) and
-                      ((.workflowName // .workflow // "") | ascii_downcase | contains("auto jules pr manager") | not)
-                    )
-                  | select(
-                      (.conclusion // .state // .bucket // "") | ascii_downcase |
-                      (contains("fail") or contains("cancel") or contains("time") or contains("error"))
-                    )
-                ]
-                | length
-              ')
+                if type == "array" then
+                  [
+                    .[]?
+                    | select(
+                        (((.name? // "") | ascii_downcase | contains("accessibility")) | not)
+                        and (((.name? // "") | ascii_downcase | contains("a11y")) | not)
+                        and (((.name? // "") | ascii_downcase | contains("process jules prs")) | not)
+                      )
+                    | select((.bucket? // "") == "fail" or (.bucket? // "") == "cancel")
+                  ]
+                  | length
+                else
+                  0
+                end
+              ' 2>/dev/null || echo "0")
 
               OTHER_PENDING=$(echo "$CHECK_OUTPUT" | jq '
-                [
-                  .[]
-                  | select(
-                      ((.name // .context // "") | ascii_downcase | contains("process jules prs") | not) and
-                      ((.name // .context // "") | ascii_downcase | contains("auto jules pr manager") | not) and
-                      ((.workflowName // .workflow // "") | ascii_downcase | contains("auto jules pr manager") | not)
-                    )
-                  | select(
-                      ((.status // "") | ascii_downcase | (contains("in_progress") or contains("queued") or contains("waiting") or contains("pending")))
-                      or (((.status // "") | ascii_downcase != "completed") and ((.conclusion // .state // "") | ascii_downcase == ""))
-                    )
-                ]
-                | length
-              ')
+                if type == "array" then
+                  [
+                    .[]?
+                    | select(
+                        (((.name? // "") | ascii_downcase | contains("accessibility")) | not)
+                        and (((.name? // "") | ascii_downcase | contains("a11y")) | not)
+                        and (((.name? // "") | ascii_downcase | contains("process jules prs")) | not)
+                      )
+                    | select((.bucket? // "") == "pending")
+                  ]
+                  | length
+                else
+                  0
+                end
+              ' 2>/dev/null || echo "0")
 
               if [ "$OTHER_FAILED" -gt 0 ]; then
                 echo ""
