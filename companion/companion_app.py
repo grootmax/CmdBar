@@ -1485,12 +1485,15 @@ def main():
         "--port",
         type=int,
         default=8080,
-        help="Port for the Web Dashboard server (default: 8080)",
+        help="Port for the Web Dashboard / Headless server (default: 8080)",
     )
     parser.add_argument("--branding", action="store_true", help="Print current branding configuration")
     parser.add_argument("--enable-white-label", action="store_true", help="Enable enterprise white labeling")
     parser.add_argument("--disable-white-label", action="store_true", help="Disable enterprise white labeling")
     parser.add_argument("--set-app-name", type=str, help="Set white label application name")
+    parser.add_argument("--server", "--headless-server", action="store_true", dest="server", help="Run in Headless Server Mode (REST API & WebSocket)")
+    parser.add_argument("--host", default="127.0.0.1", help="Host address for headless server (default: 127.0.0.1)")
+    parser.add_argument("--auth-token", default=None, help="Authentication token for headless server API")
     args = parser.parse_args()
 
     # Initialize config directory/file
@@ -1517,6 +1520,9 @@ def main():
         if args.branding:
             print(json.dumps(branding, indent=2))
         return
+    elif args.server:
+        from companion.server import run_server
+        run_server(host=args.host, port=args.port, config_path=get_config_path(), auth_token=args.auth_token)
     elif args.dashboard:
         from companion.web_dashboard import start_dashboard_server
 
