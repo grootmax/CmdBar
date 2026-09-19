@@ -3,7 +3,6 @@ import json
 import os
 import sys
 import subprocess
-import time
 from companion.companion_app import load_config, save_config, run_command_in_shell
 from app.config_schema import validate_branding_config, get_effective_branding
 from companion.sso_manager import SSOManager, SSOProviderConfig
@@ -22,7 +21,8 @@ from app.workspace_config import (
     detect_project_type,
     PROJECT_TEMPLATES,
 )
-from companion.tiling_wm import TilingWMManager
+from companion.stream_deck import get_stream_deck_manager
+from companion.iot_service import IoTTriggerManager
 
 
 class CmdBarDBusService:
@@ -30,9 +30,9 @@ class CmdBarDBusService:
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, GetWMInfo, GetWMRules,
-    ExecuteCommandWithWMContext, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
-    CommandOutput, and EventTriggered.
+    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management,
+    TriggerIoTEvent, GetIoTTriggers, RegisterIoTTrigger,
+    and manages signals for CommandExecuted, CommandOutput, and EventTriggered.
     :visibility: public
     """
 
@@ -47,9 +47,13 @@ class CmdBarDBusService:
         self._event_triggered_listeners = []
         self.trigger_engine = EventTriggerEngine()
         self.workspace_manager = WorkspaceManager()
-        self.wm_manager = TilingWMManager()
-        self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
+        try:
+            from companion.stream_deck import get_stream_deck_manager
+            self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
+        except Exception:
+            self.stream_deck_manager = None
         self.active_terminal_sessions = {}
+        self.iot_manager = IoTTriggerManager(config_path=config_path, dbus_service=self)
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:
@@ -260,6 +264,7 @@ class CmdBarDBusService:
                         "category": cat_name,
                         "placeholder": c.get("placeholder", ""),
                         "parameters": c.get("parameters", {}),
+                        "sensitive": bool(c.get("sensitive") or c.get("require_2fa") or c.get("require_yubikey")),
                     }
                 )
         return all_cmds
@@ -463,64 +468,16 @@ class CmdBarDBusService:
     def get_workspace_templates(self) -> dict:
         return PROJECT_TEMPLATES
 
-    def get_wm_info(self) -> str:
-        """
-        Returns JSON string of active window manager status and tiling info.
-        """
-        return json.dumps(self.wm_manager.get_wm_info())
-
-    def get_wm_rules(self) -> str:
-        """
-        Returns window rule configuration string for floating/centering CmdBar popups.
-        """
-        return json.dumps(self.wm_manager.get_window_rules())
-
-    def execute_command_with_wm_context(self, name: str) -> bool:
-        """
-        Executes named command injecting active WM tiling context variables.
-        """
-        if not name or not str(name).strip():
-            return False
-        clean_name = str(name).strip()
-        config = load_config()
-
-        found_cmd = None
-        for cat in config.get("categories", []):
-            for c in cat.get("commands", []):
-                if c.get("name") == clean_name or c.get("template") == clean_name or c.get("command") == clean_name:
-                    found_cmd = c
-                    break
-            if found_cmd:
-                break
-
-        cmd_name = found_cmd.get("name") if found_cmd else clean_name
-        cmd_str = found_cmd.get("template", found_cmd.get("command", clean_name)) if found_cmd else clean_name
-
-        code, stdout, stderr = self.wm_manager.execute_command_with_context(cmd_str)
-        success = (code == 0)
-
-        for listener in self._output_listeners:
-            try:
-                listener(cmd_name, stdout, stderr)
-            except Exception:
-                pass
-
-        for listener in self._executed_listeners:
-            try:
-                listener(cmd_name, code, success)
-            except Exception:
-                pass
-
-        return True
-
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
         if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
             summary = self.stream_deck_manager.get_status_summary()
-            return json.dumps({
-                "active_profile": summary["active_profile"],
-                "profiles": summary["available_profiles"]
-            })
+            return json.dumps(
+                {
+                    "active_profile": summary["active_profile"],
+                    "profiles": summary["available_profiles"],
+                }
+            )
         return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
 
     def set_stream_deck_profile(self, profile_name: str) -> bool:
@@ -559,3 +516,107 @@ class CmdBarDBusService:
     def get_terminal_sharing_sessions(self) -> str:
         sessions_info = [s.get_metrics() for s in self.active_terminal_sessions.values()]
         return json.dumps(sessions_info)
+
+    def get_stream_deck_profiles(self) -> str:
+        """Returns JSON string containing available Stream Deck profiles and active profile."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            summary = self.stream_deck_manager.get_status_summary()
+            return json.dumps({
+                "active_profile": summary["active_profile"],
+                "profiles": summary["available_profiles"]
+            })
+        return json.dumps({"active_profile": "Default", "profiles": ["Default"]})
+
+    def set_stream_deck_profile(self, profile_name: str) -> bool:
+        """Switches the active Stream Deck profile."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            return self.stream_deck_manager.switch_profile(profile_name)
+        return False
+
+    def get_stream_deck_status(self) -> str:
+        """Returns diagnostic status JSON summary for Stream Deck integration."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            return json.dumps(self.stream_deck_manager.get_status_summary())
+        return json.dumps({})
+
+    def trigger_stream_deck_button(self, key_index: int) -> bool:
+        """Simulates key press on active Stream Deck grid."""
+        if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
+            res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
+            return res.get("status") in ("executed", "profile_switched")
+        return False
+
+    def verify_yubikey_2fa(self, command_json: str, auth_data_json: str) -> bool:
+        try:
+            from companion.yubikey_auth import YubiKeyAuthManager
+            config = load_config()
+            manager = YubiKeyAuthManager(config)
+
+            try:
+                cmd_obj = json.loads(command_json) if command_json else {}
+            except Exception:
+                cmd_obj = {"command": command_json}
+
+            try:
+                auth_data = json.loads(auth_data_json) if auth_data_json else {}
+            except Exception:
+                auth_data = {}
+
+            res = manager.authenticate_command(cmd_obj, auth_data)
+            if res.get("success") and "remainingEmergencyCodes" in res:
+                config.setdefault("yubikey", {})["emergency_codes"] = res["remainingEmergencyCodes"]
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus verify_yubikey_2fa error: {e}\n")
+            return False
+
+    def get_yubikey_status(self) -> str:
+        try:
+            config = load_config()
+            yubikey_cfg = config.get("yubikey") or {}
+            return json.dumps({
+                "enabled": bool(yubikey_cfg.get("enabled")),
+                "mode": yubikey_cfg.get("mode", "touch"),
+                "key_count": len(yubikey_cfg.get("keys", [])) if isinstance(yubikey_cfg.get("keys"), list) else 0,
+                "emergency_code_count": len(yubikey_cfg.get("emergency_codes", [])) if isinstance(yubikey_cfg.get("emergency_codes"), list) else 0,
+                "require_for_sensitive": yubikey_cfg.get("require_for_sensitive") is not False
+            })
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus get_yubikey_status error: {e}\n")
+            return json.dumps({"enabled": False, "mode": "touch", "key_count": 0, "emergency_code_count": 0})
+
+    def register_yubikey_device(self, device_json: str) -> bool:
+        try:
+            from companion.yubikey_auth import register_device
+            config = load_config()
+            yubi_cfg = config.setdefault("yubikey", {})
+
+            try:
+                dev_info = json.loads(device_json)
+            except Exception:
+                return False
+
+            res = register_device(dev_info, yubi_cfg.get("keys", []))
+            if res.get("success"):
+                yubi_cfg["keys"] = res.get("keys", [])
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus register_yubikey_device error: {e}\n")
+            return False
+
+    def validate_emergency_code(self, code: str) -> bool:
+        try:
+            from companion.yubikey_auth import verify_emergency_code
+            config = load_config()
+            yubi_cfg = config.setdefault("yubikey", {})
+
+            res = verify_emergency_code(code, yubi_cfg.get("emergency_codes", []))
+            if res.get("success"):
+                yubi_cfg["emergency_codes"] = res.get("remainingCodes", [])
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus validate_emergency_code error: {e}\n")
+            return False
