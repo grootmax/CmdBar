@@ -395,6 +395,7 @@ DEFAULT_CONFIG = {
         "sensor_triggers": [],
     },
     "triggers": [],
+    "notes": [],
 }
 
 
