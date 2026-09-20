@@ -21,11 +21,11 @@ import {
   ROLES,
 } from "./teamSharing.js";
 import {
-  captureScreenshot,
-  annotateScreenshot,
-  shareScreenshotUrl,
-  stripMetadata,
-} from "./screenshotManager.js";
+  processMQTTTopicAndPayload,
+  processWebhookRequest,
+  processHomeAutomationEvent,
+  evaluateSensorRules,
+} from "./iotTrigger.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -101,6 +101,16 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="code" type="s" direction="in"/>
       <arg name="success" type="b" direction="out"/>
     </method>
+    <method name="ExportEnvironmentSnapshot">
+      <arg name="file_path" type="s" direction="in"/>
+      <arg name="description" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="ImportEnvironmentSnapshot">
+      <arg name="file_path" type="s" direction="in"/>
+      <arg name="merge" type="b" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
     <method name="StartTerminalSharing">
       <arg name="session_id" type="s" direction="in"/>
       <arg name="title" type="s" direction="in"/>
@@ -144,24 +154,33 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="GetConfigHistory">
       <arg name="json_history" type="s" direction="out"/>
     </method>
-    <method name="CaptureScreenshot">
-      <arg name="mode" type="s" direction="in"/>
-      <arg name="save_path" type="s" direction="in"/>
-      <arg name="copy_to_clipboard" type="b" direction="in"/>
-      <arg name="annotate_json" type="s" direction="in"/>
-      <arg name="share" type="b" direction="in"/>
-      <arg name="strip_metadata" type="b" direction="in"/>
-      <arg name="result_json" type="s" direction="out"/>
+    <method name="VerifyYubiKey2FA">
+      <arg name="command_json" type="s" direction="in"/>
+      <arg name="auth_data_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
     </method>
-    <method name="AnnotateScreenshot">
-      <arg name="image_base64" type="s" direction="in"/>
-      <arg name="annotate_json" type="s" direction="in"/>
-      <arg name="result_json" type="s" direction="out"/>
+    <method name="GetYubiKeyStatus">
+      <arg name="status_json" type="s" direction="out"/>
     </method>
-    <method name="UploadScreenshot">
-      <arg name="image_base64" type="s" direction="in"/>
-      <arg name="options_json" type="s" direction="in"/>
-      <arg name="result_json" type="s" direction="out"/>
+    <method name="RegisterYubiKeyDevice">
+      <arg name="device_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="ValidateEmergencyCode">
+      <arg name="code" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="StartTerminalSharing">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="title" type="s" direction="in"/>
+      <arg name="json_session_info" type="s" direction="out"/>
+    </method>
+    <method name="StopTerminalSharing">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetTerminalSharingSessions">
+      <arg name="json_sessions" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -226,6 +245,7 @@ export class CmdBarDBusService {
     this.workspaceManager = new WorkspaceManager();
     this._teamSharingService = new TeamSharingService({ baseDir: "/tmp/cmdbar-dbus-team" });
     this._terminalSessions = new Map();
+    this.activeTerminalSessions = this._terminalSessions;
   }
 
   /**
@@ -424,6 +444,7 @@ export class CmdBarDBusService {
                 category: cat.name,
                 placeholder: c.placeholder || "",
                 parameters: c.parameters || {},
+                sensitive: Boolean(c.sensitive || c.require_2fa || c.require_yubikey),
               });
             });
           }
@@ -504,6 +525,17 @@ export class CmdBarDBusService {
       return isSensitiveCommand(foundCmd || cleanName, config.yubikey);
     } catch (e) {
       console.error(`CmdBar D-Bus IsYubiKeyRequired error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async ExportEnvironmentSnapshot(filePath, description) {
+    try {
+      const { exportSnapshotToFile } = await import("./environmentSnapshot.js");
+      await exportSnapshotToFile(filePath, { description: description || "Exported via D-Bus" });
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ExportEnvironmentSnapshot error: ${e.message}`);
       return false;
     }
   }
@@ -632,6 +664,20 @@ export class CmdBarDBusService {
     }
   }
 
+  async ImportEnvironmentSnapshot(filePath, merge) {
+    try {
+      const { importSnapshotFromFile } = await import("./environmentSnapshot.js");
+      await importSnapshotFromFile(filePath, { mode: merge ? "merge" : "overwrite" });
+      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        this._indicator._reloadMenu();
+      }
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ImportEnvironmentSnapshot error: ${e.message}`);
+      return false;
+    }
+  }
+
   async GetEffectiveAppName() {
     try {
       const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
@@ -664,32 +710,6 @@ export class CmdBarDBusService {
       }
       return JSON.stringify(result);
     } catch (e) {
-      console.error(`CmdBar D-Bus SSOLogin error: ${e.message}`);
-      return JSON.stringify({ success: false, error: e.message });
-    }
-  }
-
-  async CaptureScreenshot(mode, savePath, copyToClipboard, annotateJson, share, stripMeta) {
-    try {
-      let annotate = [];
-      if (annotateJson) {
-        try {
-          annotate = JSON.parse(annotateJson);
-        } catch (e) {}
-      }
-
-      const res = await captureScreenshot({
-        mode,
-        savePath: savePath || null,
-        copyToClipboard: Boolean(copyToClipboard),
-        annotate,
-        share: Boolean(share),
-        stripMetadata: Boolean(stripMeta),
-      });
-
-      return JSON.stringify(res);
-    } catch (e) {
-      console.error(`CmdBar D-Bus CaptureScreenshot error: ${e.message}`);
       return JSON.stringify({ success: false, error: e.message });
     }
   }
@@ -888,11 +908,6 @@ export class CmdBarDBusService {
     }
   }
 
-  /**
-   * Gets configuration revision history over D-Bus.
-   * @returns {Promise<string>} JSON string of revision history.
-   * @public
-   */
   async GetConfigHistory() {
     try {
       const history = await this._teamSharingService.versionControl.getHistory();
@@ -933,39 +948,106 @@ export class CmdBarDBusService {
     return JSON.stringify(sessionsInfo);
   }
 
-  async AnnotateScreenshot(imageBase64, annotateJson) {
+  async VerifyYubiKey2FA(commandJson, authDataJson) {
     try {
-      let annotate = [];
-      if (annotateJson) {
-        try {
-          annotate = JSON.parse(annotateJson);
-        } catch (e) {}
-      }
+      const { YubiKeyAuthManager } = await import("./yubikeyAuth.js");
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const manager = new YubiKeyAuthManager(config);
 
-      const res = annotateScreenshot(imageBase64, annotate);
-      return JSON.stringify({ success: true, ...res });
+      let cmdObj = {};
+      try { cmdObj = JSON.parse(commandJson); } catch (e) { cmdObj = { command: commandJson }; }
+
+      let authData = {};
+      try { authData = JSON.parse(authDataJson); } catch (e) { authData = {}; }
+
+      const res = await manager.authenticateCommand(cmdObj, authData);
+      if (res.success && res.remainingEmergencyCodes) {
+        config.yubikey = config.yubikey || {};
+        config.yubikey.emergency_codes = res.remainingEmergencyCodes;
+        await saveConfig(config, configPath);
+      }
+      return res.success;
     } catch (e) {
-      console.error(`CmdBar D-Bus AnnotateScreenshot error: ${e.message}`);
-      return JSON.stringify({ success: false, error: e.message });
+      console.error(`CmdBar D-Bus VerifyYubiKey2FA error: ${e.message}`);
+      return false;
     }
   }
 
-  async UploadScreenshot(imageBase64, optionsJson) {
+  async GetYubiKeyStatus() {
     try {
-      let options = {};
-      if (optionsJson) {
-        try {
-          options = JSON.parse(optionsJson);
-        } catch (e) {}
-      }
-
-      const res = await shareScreenshotUrl(imageBase64, options);
-      return JSON.stringify(res);
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const yubikeyCfg = config.yubikey || { enabled: false, mode: "touch", keys: [], emergency_codes: [] };
+      return JSON.stringify({
+        enabled: Boolean(yubikeyCfg.enabled),
+        mode: yubikeyCfg.mode || "touch",
+        key_count: Array.isArray(yubikeyCfg.keys) ? yubikeyCfg.keys.length : 0,
+        emergency_code_count: Array.isArray(yubikeyCfg.emergency_codes) ? yubikeyCfg.emergency_codes.length : 0,
+        require_for_sensitive: yubikeyCfg.require_for_sensitive !== false,
+      });
     } catch (e) {
-      console.error(`CmdBar D-Bus UploadScreenshot error: ${e.message}`);
-      return JSON.stringify({ success: false, error: e.message });
+      console.error(`CmdBar D-Bus GetYubiKeyStatus error: ${e.message}`);
+      return JSON.stringify({ enabled: false, mode: "touch", key_count: 0, emergency_code_count: 0 });
     }
   }
+
+  async RegisterYubiKeyDevice(deviceJson) {
+    try {
+      const { registerDevice } = await import("./yubikeyAuth.js");
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      config.yubikey = config.yubikey || {};
+
+      let devInfo = {};
+      try { devInfo = JSON.parse(deviceJson); } catch (e) { return false; }
+
+      const res = registerDevice(devInfo, config.yubikey.keys || []);
+      if (res.success) {
+        config.yubikey.keys = res.keys;
+        await saveConfig(config, configPath);
+      }
+      return res.success;
+    } catch (e) {
+      console.error(`CmdBar D-Bus RegisterYubiKeyDevice error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async ValidateEmergencyCode(code) {
+    try {
+      const { verifyEmergencyCode } = await import("./yubikeyAuth.js");
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      config.yubikey = config.yubikey || {};
+
+      const res = await verifyEmergencyCode(code, config.yubikey.emergency_codes || []);
+      if (res.success) {
+        config.yubikey.emergency_codes = res.remainingCodes;
+        await saveConfig(config, configPath);
+      }
+      return res.success;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ValidateEmergencyCode error: ${e.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Emits CommandExecuted signal.
+   * @param {string} name - Command name.
+   * @param {number} exitCode - Exit code.
+   * @param {boolean} success - Success flag.
+   * @public
+   */
   emitCommandExecuted(name, exitCode, success) {
     if (this._dbusImpl && GLib) {
       try {
@@ -1053,6 +1135,36 @@ export class CmdBarDBusService {
     }
   }
 
+  async StartTerminalSharing(sessionId, title) {
+    try {
+      const session = new TerminalSharingSession({
+        sessionId: sessionId || undefined,
+        title: title || "CmdBar Shared Terminal",
+      });
+      session.start();
+      this._terminalSessions.set(session.sessionId, session);
+      return JSON.stringify(session.getMetrics());
+    } catch (e) {
+      console.error(`CmdBar D-Bus StartTerminalSharing error: ${e.message}`);
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async StopTerminalSharing(sessionId) {
+    if (this._terminalSessions.has(sessionId)) {
+      const session = this._terminalSessions.get(sessionId);
+      session.endSession();
+      this._terminalSessions.delete(sessionId);
+      return true;
+    }
+    return false;
+  }
+
+  async GetTerminalSharingSessions() {
+    const sessionsInfo = Array.from(this._terminalSessions.values()).map((s) => s.getMetrics());
+    return JSON.stringify(sessionsInfo);
+  }
+
   emitEventTriggered(triggerId, eventType, command, success) {
     if (this._dbusImpl && GLib) {
       try {
@@ -1063,6 +1175,42 @@ export class CmdBarDBusService {
       } catch (e) {
         console.error(`CmdBar D-Bus emitEventTriggered error: ${e.message}`);
       }
+    }
+  }
+
+  async StartTerminalSharing(sessionId, title) {
+    try {
+      const session = new TerminalSharingSession({ sessionId, title });
+      session.start();
+      this.activeTerminalSessions = this.activeTerminalSessions || new Map();
+      this.activeTerminalSessions.set(session.sessionId, session);
+      return JSON.stringify(session.getMetrics());
+    } catch (e) {
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async StopTerminalSharing(sessionId) {
+    try {
+      if (this.activeTerminalSessions && this.activeTerminalSessions.has(sessionId)) {
+        const session = this.activeTerminalSessions.get(sessionId);
+        session.endSession();
+        this.activeTerminalSessions.delete(sessionId);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async GetTerminalSharingSessions() {
+    try {
+      if (!this.activeTerminalSessions) return JSON.stringify([]);
+      const sessions = Array.from(this.activeTerminalSessions.values()).map(s => s.getMetrics());
+      return JSON.stringify(sessions);
+    } catch (e) {
+      return JSON.stringify([]);
     }
   }
 }

@@ -74,19 +74,19 @@ The Security Policy Engine (`extension/commandPolicy.js` and `app/policy_manager
 
 1. **Policy Evaluation Priority**:
    - **Active Override Token**: Valid override tokens skip policy evaluation and permit execution.
-   - **User & Group Rules**: Evaluates scoped `deny` or `allow` rules matching the user/group context.
-   - **Blacklist Filter**: Rejects command if matching blacklisted patterns in `blacklist` or `combined` modes.
+   - **User & Group Rules**: Evaluates scoped `deny` or `allow` rules matching the user/group context (`users`, `groups`).
+   - **Blacklist Filter**: Rejects command if matching blacklisted patterns in `blacklist` or `combined` modes using pattern strategies (`exact`, `substring`, `glob`, `regex`, `binary`).
    - **Whitelist Filter**: Rejects command if not matching whitelisted patterns in `whitelist` or `combined` modes.
 
 2. **Pattern Matching Engine**:
    - `globToRegex(pattern)`: Converts wildcards (`*`, `?`) to regexes.
-   - `matchPattern(cmd, pattern)`: Handles exact, glob, `regex:`, and binary prefix matching.
+   - `matchPattern(cmd, pattern, strategy)`: Handles exact, substring, glob, regex, and binary matching.
 
-3. **Approval Request Lifecycle**:
+3. **Approval Request Lifecycle & Overrides**:
    - `requestApproval(commandStr, requesterContext, reason)`: Instantiates request object with unique ID.
-   - `approveRequest(requestId, approverContext, ttlMs)`: Issues time-bound `token_appr_*` token.
+   - `approveRequest(requestId, approverContext, ttlMs)`: Issues time-bound approval token.
    - `rejectRequest(requestId, approverContext, reason)`: Marks request rejected.
-   - `grantOverride(commandPattern, approverContext, ttlMs)`: Directly issues `token_dir_*` token for command pattern.
+   - `grantOverride(commandPattern, approverContext, ttlMs)`: Directly issues override token (`token_dir_*`) or grant for command pattern (`createApprovalToken` / `grantApprovalOverride`).
 
 ### Policy Enforcement Engine Module
 
@@ -109,12 +109,11 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
 For full details, see [Team Command Sharing Specification](team_command_sharing.md).
 
-### Screenshot & Screen Capture Engine
+### YubiKey 2FA Authentication Module
 
-The screenshot module (`extension/screenshotManager.js` and `companion/screenshot_service.py`) provides quick screen capture functionality across GNOME Shell and the Python companion:
-- **Capture Modes**: Fullscreen, active window, and region (area selection) captures.
-- **Destination Options**: Save to file with timestamped filenames, auto-copy to system clipboard, or both.
-- **Annotation Engine**: Vector overlays supporting text notes, bounding boxes, directional arrows/lines, and color highlights.
-- **Metadata Removal**: Automated EXIF/PNG chunk stripping (`tEXt`, `zTXt`, `iTXt`, `tIME`, `pHYs`, `APP1 EXIF`) to sanitize images for privacy prior to saving or sharing.
-- **Share via URL**: Service integration generating unique shareable links with expiration metadata.
-- **D-Bus Integration**: Exposes `CaptureScreenshot`, `AnnotateScreenshot`, and `UploadScreenshot` over D-Bus interface `org.gnome.CmdBar`.
+The YubiKey authentication modules (`extension/yubikeyAuth.js` and `companion/yubikey_auth.py`) handle hardware-backed multi-factor authentication:
+- **Sensitive Command Detection**: Automatically identifies destructive or elevated commands (`sudo`, `rm -rf`, `aws ecs`, `kubectl delete`, `deploy`) or commands explicitly flagged with `sensitive: true` / `require_2fa: true`.
+- **Hardware Touch-to-Confirm**: Supports hardware presence test / touch confirmation before execution.
+- **Yubico OTP & FIDO2/U2F Assertions**: Parses 44-character ModHex OTP tokens, verifies device IDs, and validates FIDO2 assertion signatures against registered public keys.
+- **Emergency Access**: Single-use 8-character emergency recovery codes for fallback access when hardware keys are unavailable.
+- **D-Bus Interface Integration**: Exposes `VerifyYubiKey2FA`, `GetYubiKeyStatus`, `RegisterYubiKeyDevice`, and `ValidateEmergencyCode` D-Bus methods on `org.gnome.CmdBar`.

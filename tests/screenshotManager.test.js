@@ -1,208 +1,357 @@
-/**
- * @file tests/screenshotManager.test.js
- * @description Unit and integration tests for Screenshot and Screen Capture module.
- */
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { jest } from '@jest/globals';
 
-import {
-  normalizeCaptureOptions,
-  generateScreenshotFilename,
-  stripMetadata,
-  annotateScreenshot,
-  shareScreenshotUrl,
+const mockSetText = jest.fn();
+
+jest.unstable_mockModule('gi', () => ({
+  St: {
+    Clipboard: {
+      get_default: () => ({ set_text: mockSetText }),
+    },
+    ClipboardType: { CLIPBOARD: 1 },
+  },
+  Gio: {
+    DBusNodeInfo: { new_for_xml: () => ({ interfaces: [{}] }) },
+    DBusExportedObject: {
+      wrapJSObject: () => ({
+        export: jest.fn(),
+        unexport: jest.fn(),
+        emit_signal: jest.fn(),
+      }),
+    },
+    BusType: { SESSION: 1 },
+    BusNameOwnerFlags: { NONE: 0 },
+    bus_own_name: jest.fn(() => 123),
+    bus_unown_name: jest.fn(),
+  },
+  GLib: {
+    Variant: class {
+      constructor(type, value) {
+        this.type = type;
+        this.value = value;
+      }
+    },
+    getenv: jest.fn(),
+  },
+}), { virtual: true });
+
+const {
   captureScreenshot,
-  ScreenshotManager,
+  captureMode,
+  generateScreenshotFilename,
+  getScreenshotDirectory,
+  stripMetadata,
+  applyAnnotations,
+  copyScreenshotToClipboard,
+  shareScreenshotUrl,
+  getScreenshotShortcuts,
+  setScreenshotShortcut,
+  parseScreenshotCommand,
+  isScreenshotCommand,
+  handleScreenshotCommandExecution,
   DEFAULT_SCREENSHOT_SHORTCUTS,
-} from "../extension/screenshotManager.js";
+} = await import('../extension/screenshotManager.js');
 
-describe("Screenshot & Screen Capture Options Normalization", () => {
-  test("normalizeCaptureOptions applies defaults for empty options", () => {
-    const opts = normalizeCaptureOptions({});
-    expect(opts.mode).toBe("fullscreen");
-    expect(opts.format).toBe("png");
-    expect(opts.copyToClipboard).toBe(true);
-    expect(opts.stripMetadata).toBe(true);
-    expect(opts.share).toBe(false);
-    expect(opts.annotate).toEqual([]);
-    expect(opts.region).toBeNull();
+const { CmdBarDBusService } = await import('../extension/dbusService.js');
+
+describe('Screenshot Manager Unit Tests', () => {
+  let tempDir;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmdbar-screenshot-test-'));
   });
 
-  test("normalizeCaptureOptions parses region array and object", () => {
-    const optsArr = normalizeCaptureOptions({ mode: "region", region: [10, 20, 300, 200] });
-    expect(optsArr.mode).toBe("region");
-    expect(optsArr.region).toEqual({ x: 10, y: 20, width: 300, height: 200 });
-
-    const optsObj = normalizeCaptureOptions({
-      mode: "region",
-      region: { x: 50, y: 60, width: 400, height: 300 },
-    });
-    expect(optsObj.region).toEqual({ x: 50, y: 60, width: 400, height: 300 });
+  afterEach(() => {
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
-  test("normalizeCaptureOptions supports JPEG format and custom share URL", () => {
-    const opts = normalizeCaptureOptions({ format: "jpeg", shareServiceUrl: "https://custom.share/api" });
-    expect(opts.format).toBe("jpeg");
-    expect(opts.shareServiceUrl).toBe("https://custom.share/api");
-  });
-});
-
-describe("Screenshot Filename Generator", () => {
-  test("generateScreenshotFilename produces timestamped filename with extension", () => {
-    const d = new Date(2026, 7, 23, 14, 30, 15); // Aug 23, 2026 14:30:15
-    const namePng = generateScreenshotFilename(d, "png");
-    expect(namePng).toBe("screenshot_20260823_143015.png");
-
-    const nameJpg = generateScreenshotFilename(d, "jpeg");
-    expect(nameJpg).toBe("screenshot_20260823_143015.jpg");
-  });
-});
-
-describe("Metadata Stripping (Privacy & Sanitization)", () => {
-  test("stripMetadata removes PNG textual/time metadata chunks", () => {
-    // PNG header + IHDR + tEXt metadata + IEND
-    const pngWithMeta = new Uint8Array([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // Header
-      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, // IHDR
-      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89,
-      0x00, 0x00, 0x00, 0x0f, 0x74, 0x45, 0x58, 0x74, // tEXt chunk (len 15)
-      0x53, 0x6f, 0x66, 0x74, 0x77, 0x61, 0x72, 0x65,
-      0x00, 0x43, 0x6d, 0x64, 0x42, 0x61, 0x72,
-      0x00, 0x00, 0x00, 0x00,                        // CRC
-      0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, // IEND chunk
-      0xae, 0x42, 0x60, 0x82,
-    ]);
-
-    const sanitized = stripMetadata(pngWithMeta);
-    expect(sanitized.length).toBeLessThan(pngWithMeta.length);
-
-    // Verify tEXt is removed
-    const str = String.fromCharCode(...sanitized);
-    expect(str).not.toContain("tEXt");
-    expect(str).not.toContain("Software");
-  });
-
-  test("stripMetadata handles JPEG EXIF segments", () => {
-    // JPEG SOI + APP1 (EXIF) + EOI
-    const jpegWithExif = new Uint8Array([
-      0xff, 0xd8, // SOI
-      0xff, 0xe1, 0x00, 0x08, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, // APP1 EXIF
-      0xff, 0xd9, // EOI
-    ]);
-
-    const sanitized = stripMetadata(jpegWithExif);
-    expect(sanitized.length).toBeLessThan(jpegWithExif.length);
-  });
-
-  test("stripMetadata returns untouched for non-image or empty buffers", () => {
-    expect(stripMetadata(null)).toBeNull();
-    const plain = new Uint8Array([1, 2, 3, 4]);
-    expect(stripMetadata(plain)).toBe(plain);
-  });
-});
-
-describe("Screenshot Annotation Engine", () => {
-  test("annotateScreenshot processes text, rectangle, arrow, and highlight annotations", () => {
-    const rawBuffer = new Uint8Array([1, 2, 3, 4]);
-    const annotations = [
-      { type: "text", text: "Test Note", x: 10, y: 20, color: "#ff0000", fontSize: 18 },
-      { type: "rectangle", x: 10, y: 10, width: 100, height: 50, color: "#00ff00" },
-      { type: "arrow", x1: 0, y1: 0, x2: 50, y2: 50, color: "#0000ff" },
-      { type: "highlight", x: 20, y: 20, width: 80, height: 30, color: "#ffff00", opacity: 0.5 },
-    ];
-
-    const res = annotateScreenshot(rawBuffer, annotations);
-    expect(res.annotationsApplied).toBe(4);
-    expect(res.annotationsList.length).toBe(4);
-    expect(res.annotationsList[0].text).toBe("Test Note");
-    expect(res.annotationsList[1].type).toBe("rectangle");
-    expect(res.annotationsList[2].type).toBe("arrow");
-    expect(res.annotationsList[3].type).toBe("highlight");
-  });
-
-  test("annotateScreenshot returns original buffer when empty annotations provided", () => {
-    const buf = new Uint8Array([10, 20]);
-    const res = annotateScreenshot(buf, []);
-    expect(res.annotationsApplied).toBe(0);
-    expect(res.annotatedBuffer).toBe(buf);
-  });
-});
-
-describe("Screenshot URL Sharing", () => {
-  test("shareScreenshotUrl generates valid share URL and metadata", async () => {
-    const buf = new Uint8Array([1, 2, 3]);
-    const shareRes = await shareScreenshotUrl(buf, { shareServiceUrl: "https://share.cmdbar.org" });
-
-    expect(shareRes.success).toBe(true);
-    expect(shareRes.shareUrl).toContain("https://share.cmdbar.org/scr_");
-    expect(shareRes.shareId).toMatch(/^scr_/);
-    expect(shareRes.timestamp).toBeDefined();
-    expect(shareRes.expiresAt).toBeDefined();
-  });
-});
-
-describe("Full Capture Execution Pipeline", () => {
-  test("captureScreenshot executes fullscreen capture with annotations and metadata stripping", async () => {
-    const res = await captureScreenshot({
-      mode: "fullscreen",
-      annotate: [{ type: "text", text: "System State", x: 10, y: 10 }],
-      stripMetadata: true,
-      share: true,
-      copyToClipboard: true,
+  describe('Directory and Filename Generation', () => {
+    test('getScreenshotDirectory returns custom directory when specified', () => {
+      const dir = getScreenshotDirectory(tempDir);
+      expect(dir).toBe(tempDir);
     });
 
-    expect(res.success).toBe(true);
-    expect(res.mode).toBe("fullscreen");
-    expect(res.savePath).toContain(".png");
-    expect(res.copyToClipboard).toBe(true);
-    expect(res.annotationsCount).toBe(1);
-    expect(res.metadataStripped).toBe(true);
-    expect(res.shareUrl).toContain("https://cmdbar.share/upload/scr_");
-    expect(res.durationMs).toBeGreaterThanOrEqual(0);
-  });
-
-  test("captureScreenshot executes region mode capture with specified bounding box", async () => {
-    const res = await captureScreenshot({
-      mode: "region",
-      region: [100, 150, 600, 400],
-      copyToClipboard: false,
+    test('getScreenshotDirectory fallback returns valid path string', () => {
+      const dir = getScreenshotDirectory();
+      expect(typeof dir).toBe('string');
+      expect(dir.length).toBeGreaterThan(0);
     });
 
-    expect(res.success).toBe(true);
-    expect(res.mode).toBe("region");
-    expect(res.region).toEqual({ x: 100, y: 150, width: 600, height: 400 });
-    expect(res.copyToClipboard).toBe(false);
+    test('generateScreenshotFilename formats default PNG filename correctly', () => {
+      const filename = generateScreenshotFilename('TestCapture', 'png');
+      expect(filename).toMatch(/^TestCapture_\d{4}-\d{2}-\d{2}_\d{6}\.png$/);
+    });
   });
 
-  test("captureScreenshot executes window mode capture", async () => {
-    const res = await captureScreenshot({
-      mode: "window",
-      windowId: "win_12345",
+  describe('Capture Modes & Destinations', () => {
+    test('captures full screen screenshot and saves to file and clipboard', async () => {
+      const result = await captureScreenshot({
+        mode: 'fullscreen',
+        saveTo: 'both',
+        directory: tempDir,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.mode).toBe('fullscreen');
+      expect(result.filePath).toBeDefined();
+      expect(fs.existsSync(result.filePath)).toBe(true);
+      expect(result.inClipboard).toBe(true);
     });
 
-    expect(res.success).toBe(true);
-    expect(res.mode).toBe("window");
+    test('captures active window screenshot', async () => {
+      const result = await captureMode('window', {
+        directory: tempDir,
+        saveTo: 'file',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.mode).toBe('window');
+      expect(result.filePath).toBeDefined();
+      expect(fs.existsSync(result.filePath)).toBe(true);
+    });
+
+    test('captures selected region screenshot', async () => {
+      const result = await captureMode('region', {
+        directory: tempDir,
+        saveTo: 'file',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.mode).toBe('region');
+      expect(result.filePath).toBeDefined();
+      expect(fs.existsSync(result.filePath)).toBe(true);
+    });
+
+    test('captures to clipboard only', async () => {
+      const result = await captureScreenshot({
+        mode: 'fullscreen',
+        saveTo: 'clipboard',
+        directory: tempDir,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.filePath).toBeNull();
+      expect(result.inClipboard).toBe(true);
+    });
   });
-});
 
-describe("ScreenshotManager Class", () => {
-  test("ScreenshotManager exposes mode shortcuts and capture execution", async () => {
-    const mgr = new ScreenshotManager({
-      saveDir: "/tmp/screenshots",
-      stripMetadata: true,
-      autoCopy: true,
+  describe('Image Annotations', () => {
+    test('applies text, shape, blur, and crop annotations', async () => {
+      const annotations = [
+        { type: 'text', text: 'Bug Here', x: 50, y: 50, fontSize: 18, color: '#ff0000' },
+        { type: 'rectangle', x: 40, y: 40, width: 100, height: 60, strokeColor: '#00ff00' },
+        { type: 'arrow', startX: 10, startY: 10, endX: 40, endY: 40, color: '#ff0000' },
+        { type: 'blur', x: 200, y: 200, width: 80, height: 40, radius: 10 },
+        { type: 'crop', x: 0, y: 0, width: 500, height: 500 },
+      ];
+
+      const result = await captureScreenshot({
+        mode: 'fullscreen',
+        directory: tempDir,
+        annotations,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.annotationsApplied).toBe(5);
     });
 
-    expect(mgr.getShortcut("fullscreen")).toBe("Super+Shift+3");
-    expect(mgr.getShortcut("window")).toBe("Super+Shift+4");
-    expect(mgr.getShortcut("region")).toBe("Super+Shift+5");
+    test('applyAnnotations handles object data structures', () => {
+      const objData = { width: 1000, height: 800, annotations: [] };
+      const updated = applyAnnotations(objData, [
+        { type: 'highlight', x: 10, y: 10, width: 100, height: 20 },
+      ]);
 
-    const setSuccess = mgr.setShortcut("fullscreen", "Ctrl+Alt+S");
-    expect(setSuccess).toBe(true);
-    expect(mgr.getShortcut("fullscreen")).toBe("Ctrl+Alt+S");
+      expect(updated.annotationsApplied).toBe(1);
+      expect(updated.annotations.length).toBe(1);
+      expect(updated.annotations[0].type).toBe('highlight');
+    });
+  });
 
-    const captureRes = await mgr.capture("window", { copyToClipboard: true });
-    expect(captureRes.success).toBe(true);
-    expect(captureRes.mode).toBe("window");
-    expect(captureRes.savePath).toContain("/tmp/screenshots/screenshot_");
+  describe('Metadata Removal (Privacy & Security)', () => {
+    test('strips metadata from PNG buffer chunks', () => {
+      // Construct sample PNG buffer with tEXt metadata chunk
+      const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+      // IHDR chunk
+      const ihdrChunk = Buffer.alloc(25);
+      ihdrChunk.writeUInt32BE(13, 0);
+      ihdrChunk.write('IHDR', 4);
+
+      // tEXt chunk (metadata)
+      const textData = Buffer.from('Software\0CmdBar ScreenCapture', 'utf8');
+      const textChunk = Buffer.alloc(12 + textData.length);
+      textChunk.writeUInt32BE(textData.length, 0);
+      textChunk.write('tEXt', 4);
+      textData.copy(textChunk, 8);
+
+      // IEND chunk
+      const iendChunk = Buffer.alloc(12);
+      iendChunk.writeUInt32BE(0, 0);
+      iendChunk.write('IEND', 4);
+
+      const fullPng = Buffer.concat([pngHeader, ihdrChunk, textChunk, iendChunk]);
+
+      const stripped = stripMetadata(fullPng);
+      expect(stripped.length).toBeLessThan(fullPng.length);
+      expect(stripped.includes(Buffer.from('tEXt'))).toBe(false);
+      expect(stripped.includes(Buffer.from('IHDR'))).toBe(true);
+      expect(stripped.includes(Buffer.from('IEND'))).toBe(true);
+    });
+
+    test('strips metadata from JPEG EXIF APP1 marker', () => {
+      const jpegHeader = Buffer.from([0xff, 0xd8]); // SOI
+
+      // APP1 (EXIF) segment
+      const exifData = Buffer.from('Exif\0\0Location: Latitude 37', 'utf8');
+      const app1Segment = Buffer.alloc(4 + exifData.length);
+      app1Segment[0] = 0xff;
+      app1Segment[1] = 0xe1;
+      app1Segment.writeUInt16BE(2 + exifData.length, 2);
+      exifData.copy(app1Segment, 4);
+
+      // EOI segment
+      const eoiSegment = Buffer.from([0xff, 0xd9]);
+
+      const fullJpeg = Buffer.concat([jpegHeader, app1Segment, eoiSegment]);
+
+      const stripped = stripMetadata(fullJpeg);
+      expect(stripped.includes(Buffer.from('Exif'))).toBe(false);
+      expect(stripped[0]).toBe(0xff);
+      expect(stripped[1]).toBe(0xd8);
+    });
+
+    test('strips metadata object properties from JavaScript object representation', () => {
+      const rawData = {
+        exif: { location: 'GPS 123' },
+        timestamp: 12345678,
+        device_info: 'Linux GNOME',
+        width: 1920,
+        height: 1080,
+      };
+
+      const cleaned = stripMetadata(rawData);
+      expect(cleaned.exif).toBeUndefined();
+      expect(cleaned.device_info).toBeUndefined();
+      expect(cleaned.width).toBe(1920);
+      expect(cleaned.metadataRemoved).toBe(true);
+    });
+  });
+
+  describe('Share via URL', () => {
+    test('shareScreenshotUrl returns upload share URL', async () => {
+      const res = await shareScreenshotUrl(Buffer.from('TEST_IMAGE_BYTES'), {
+        serviceUrl: 'https://share.cmdbar.org/upload',
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.url).toMatch(/^https:\/\/share\.cmdbar\.org\/s\/[a-z0-9]+$/);
+    });
+
+    test('captureScreenshot with share flag includes shareUrl in output', async () => {
+      const result = await captureScreenshot({
+        mode: 'fullscreen',
+        directory: tempDir,
+        share: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.shareUrl).toBeDefined();
+      expect(result.shareUrl).toContain('share.cmdbar.org');
+    });
+  });
+
+  describe('Shortcuts Configuration', () => {
+    test('DEFAULT_SCREENSHOT_SHORTCUTS contains keybindings for all modes', () => {
+      expect(DEFAULT_SCREENSHOT_SHORTCUTS.fullscreen).toBe('<Super><Shift>3');
+      expect(DEFAULT_SCREENSHOT_SHORTCUTS.window).toBe('<Super><Shift>4');
+      expect(DEFAULT_SCREENSHOT_SHORTCUTS.region).toBe('<Super><Shift>5');
+    });
+
+    test('getScreenshotShortcuts extracts shortcuts from config or defaults', () => {
+      const config = {
+        screenshot: {
+          shortcuts: {
+            fullscreen: '<Control><Alt>s',
+            window: '<Super><Shift>4',
+            region: '<Super><Shift>5',
+          },
+        },
+      };
+
+      const shortcuts = getScreenshotShortcuts(config);
+      expect(shortcuts.fullscreen).toBe('<Control><Alt>s');
+      expect(shortcuts.window).toBe('<Super><Shift>4');
+    });
+
+    test('setScreenshotShortcut updates action shortcut in config', () => {
+      const updated = setScreenshotShortcut('region', '<Super><Shift>r', {});
+      expect(updated.screenshot.shortcuts.region).toBe('<Super><Shift>r');
+    });
+
+    test('setScreenshotShortcut throws error for invalid action', () => {
+      expect(() => setScreenshotShortcut('invalid', 'Ctrl+S')).toThrow();
+    });
+  });
+
+  describe('CLI Command Parsing & Execution', () => {
+    test('parseScreenshotCommand parses mode and flag options', () => {
+      const parsed = parseScreenshotCommand('/screenshot region --share --clipboard');
+      expect(parsed.mode).toBe('region');
+      expect(parsed.options.share).toBe(true);
+      expect(parsed.options.saveTo).toBe('clipboard');
+    });
+
+    test('isScreenshotCommand identifies /screenshot and /capture triggers', () => {
+      expect(isScreenshotCommand('/screenshot window')).toBe(true);
+      expect(isScreenshotCommand('/capture region')).toBe(true);
+      expect(isScreenshotCommand('echo hello')).toBe(false);
+    });
+
+    test('handleScreenshotCommandExecution executes parsed screenshot command', async () => {
+      const result = await handleScreenshotCommandExecution('/screenshot window --share', {
+        screenshot: { directory: tempDir },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.mode).toBe('window');
+      expect(result.shareUrl).toBeDefined();
+    });
+  });
+
+  describe('D-Bus Interface Integration', () => {
+    test('CaptureScreenshot D-Bus method returns valid JSON output', async () => {
+      const service = new CmdBarDBusService({});
+      const jsonStr = await service.CaptureScreenshot('fullscreen', 'both', JSON.stringify({ directory: tempDir }));
+
+      const res = JSON.parse(jsonStr);
+      expect(res.success).toBe(true);
+      expect(res.mode).toBe('fullscreen');
+      expect(res.filePath).toBeDefined();
+    });
+  });
+
+  describe('Performance Benchmarks', () => {
+    test('executes capture, annotation, and metadata stripping pipeline in <100ms', async () => {
+      const start = performance.now();
+
+      const result = await captureScreenshot({
+        mode: 'fullscreen',
+        directory: tempDir,
+        removeMetadata: true,
+        annotations: [
+          { type: 'text', text: 'Benchmark', x: 10, y: 10 },
+          { type: 'rectangle', x: 0, y: 0, width: 100, height: 100 },
+        ],
+      });
+
+      const elapsed = performance.now() - start;
+
+      expect(result.success).toBe(true);
+      expect(elapsed).toBeLessThan(100); // Must meet <100ms benchmark
+    });
   });
 });

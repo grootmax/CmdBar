@@ -38,6 +38,10 @@ import {
   formatBytes,
   formatRate,
 } from "./systemResourceMonitor.js";
+import {
+  isScreenshotCommand,
+  handleScreenshotCommandExecution,
+} from "./screenshotManager.js";
 
 export const globalCacheStore = new CommandCacheStore();
 globalCacheStore.init().catch(() => {});
@@ -986,11 +990,23 @@ const CommandInputMenuItem = GObject.registerClass(
                 let argv = substituteTokens(tokens, placeholderMap);
                 let fullCmdStr = argv.join(" ");
 
-                if (
-                  isAICommand(fullCmdStr) ||
-                  isAICommand(this._commandTemplate) ||
-                  isAICommand(text)
-                ) {
+                if (isScreenshotCommand(fullCmdStr) || isScreenshotCommand(this._commandTemplate) || isScreenshotCommand(text)) {
+                  let cmdText = isScreenshotCommand(text) ? text : fullCmdStr;
+                  handleScreenshotCommandExecution(
+                    cmdText,
+                    this._indicator ? this._indicator._cachedConfig : {}
+                  );
+                  if (
+                    this._indicator &&
+                    this._indicator.menu &&
+                    typeof this._indicator.menu.close === "function"
+                  ) {
+                    this._indicator.menu.close();
+                  }
+                  return;
+                }
+
+                if (isAICommand(fullCmdStr) || isAICommand(this._commandTemplate) || isAICommand(text)) {
                   let promptText = isAICommand(text) ? text : fullCmdStr;
                   handleAICommandExecution(
                     promptText,
@@ -1582,7 +1598,7 @@ const CmdBarIndicator = GObject.registerClass(
       if (this._icon) {
         if (branding.enabled && branding.logo_path && branding.logo_path.trim()) {
           const logo = branding.logo_path.trim();
-          if (logo.includes("/") && Gio.File && Gio.File.new_for_path(logo).query_exists(null)) {
+          if (logo.includes("/") && Gio && Gio.File && Gio.File.new_for_path(logo).query_exists(null)) {
             try {
               let gicon = new Gio.FileIcon({ file: Gio.File.new_for_path(logo) });
               this._icon.gicon = gicon;
@@ -1852,6 +1868,51 @@ const CmdBarIndicator = GObject.registerClass(
         }
       } catch (e) {
         console.error(`CmdBar: error reloading menu: ${e.message}`);
+      }
+    }
+
+    async toggleFavorite(cmdObj) {
+      if (!cmdObj) return;
+      try {
+        let configPath = this._getConfigPath();
+        let extensionPath = this._extension && this._extension.dir ? this._extension.dir.get_path() : null;
+        let config = await loadConfig(configPath, extensionPath);
+
+        if (!config || !config.categories) return;
+
+        let found = false;
+        let newFavState = false;
+
+        for (let cat of config.categories) {
+          if (!cat.commands) continue;
+          for (let cmd of cat.commands) {
+            if (
+              cmd === cmdObj ||
+              (cmd.name === cmdObj.name && cmd.command === cmdObj.command)
+            ) {
+              const current = Boolean(cmd.favorite || cmd.pinned);
+              cmd.favorite = !current;
+              cmd.pinned = !current;
+              newFavState = !current;
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
+        }
+
+        if (found) {
+          await saveConfig(config, configPath);
+          this._cachedConfig = config;
+          await this._reloadMenu();
+          let stateText = newFavState ? "added to" : "removed from";
+          this._showNotification(
+            "Command Favorites",
+            `'${cmdObj.name}' ${stateText} Favorites.`,
+          );
+        }
+      } catch (e) {
+        console.error(`CmdBar: error toggling favorite: ${e.message}`);
       }
     }
 

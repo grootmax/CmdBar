@@ -3,7 +3,13 @@ import json
 import os
 import sys
 import subprocess
-from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.companion_app import (
+    load_config,
+    save_config,
+    run_command_in_shell,
+    evaluate_command_policy,
+    grant_approval_override,
+)
 from app.config_schema import validate_branding_config, get_effective_branding
 from companion.sso_manager import SSOManager, SSOProviderConfig
 from companion.stream_deck import get_stream_deck_manager
@@ -22,7 +28,7 @@ from app.workspace_config import (
     PROJECT_TEMPLATES,
 )
 from companion.stream_deck import get_stream_deck_manager
-from companion.screenshot_service import ScreenshotService, annotate_image, generate_share_url, strip_metadata
+from companion.iot_service import IoTTriggerManager
 
 
 class CmdBarDBusService:
@@ -30,8 +36,9 @@ class CmdBarDBusService:
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, terminal sharing, CaptureScreenshot, and manages signals for CommandExecuted,
-    CommandOutput, and EventTriggered.
+    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management,
+    TriggerIoTEvent, GetIoTTriggers, RegisterIoTTrigger,
+    and manages signals for CommandExecuted, CommandOutput, and EventTriggered.
     :visibility: public
     """
 
@@ -46,13 +53,13 @@ class CmdBarDBusService:
         self._event_triggered_listeners = []
         self.trigger_engine = EventTriggerEngine()
         self.workspace_manager = WorkspaceManager()
-        self.active_terminal_sessions = {}
-        self._screenshot_service = ScreenshotService(config_path=config_path)
         try:
             from companion.stream_deck import get_stream_deck_manager
             self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
         except Exception:
             self.stream_deck_manager = None
+        self.active_terminal_sessions = {}
+        self.iot_manager = IoTTriggerManager(config_path=config_path, dbus_service=self)
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:
@@ -224,6 +231,27 @@ class CmdBarDBusService:
             else clean_name
         )
 
+        eval_res = evaluate_command_policy(
+            cmd_str,
+            None,
+            config.get("policy") or config.get("security_policy"),
+            config.get("overrides")
+        )
+
+        if not eval_res.get("allowed"):
+            err_msg = f"Execution blocked by security policy: {eval_res.get('reason')}"
+            for listener in self._output_listeners:
+                try:
+                    listener(cmd_name, "", err_msg)
+                except Exception:
+                    pass
+            for listener in self._executed_listeners:
+                try:
+                    listener(cmd_name, 126, False)
+                except Exception:
+                    pass
+            return False
+
         import time
 
         start_time = time.perf_counter()
@@ -250,6 +278,25 @@ class CmdBarDBusService:
 
         return True
 
+    def evaluate_policy(self, command: str, user: str = None) -> str:
+        config = load_config()
+        user_ctx = {"username": user} if user else None
+        res = evaluate_command_policy(
+            command,
+            user_ctx,
+            config.get("policy") or config.get("security_policy"),
+            config.get("overrides")
+        )
+        return json.dumps(res)
+
+    def grant_override(self, command: str, approver: str = "admin", expires_in_sec: int = 3600) -> bool:
+        if not command or not str(command).strip():
+            return False
+        config = load_config()
+        overrides = config.setdefault("overrides", {})
+        grant_approval_override(overrides, str(command).strip(), approver, expires_in_sec)
+        return save_config(config)
+
     def get_commands(self) -> list:
         config = load_config()
         all_cmds = []
@@ -263,6 +310,7 @@ class CmdBarDBusService:
                         "category": cat_name,
                         "placeholder": c.get("placeholder", ""),
                         "parameters": c.get("parameters", {}),
+                        "sensitive": bool(c.get("sensitive") or c.get("require_2fa") or c.get("require_yubikey")),
                     }
                 )
         return all_cmds
@@ -466,6 +514,22 @@ class CmdBarDBusService:
     def get_workspace_templates(self) -> dict:
         return PROJECT_TEMPLATES
 
+    def export_environment_snapshot(self, file_path: str, description: str = "Exported via D-Bus") -> bool:
+        try:
+            from companion.environment_snapshot import export_snapshot_to_file
+            export_snapshot_to_file(file_path, description=description)
+            return True
+        except Exception:
+            return False
+
+    def import_environment_snapshot(self, file_path: str, merge: bool = False) -> bool:
+        try:
+            from companion.environment_snapshot import import_snapshot_from_file
+            import_snapshot_from_file(file_path, mode="merge" if merge else "overwrite")
+            return True
+        except Exception:
+            return False
+
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
         if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
@@ -515,64 +579,6 @@ class CmdBarDBusService:
         sessions_info = [s.get_metrics() for s in self.active_terminal_sessions.values()]
         return json.dumps(sessions_info)
 
-    def capture_screenshot(
-        self,
-        mode: str = "fullscreen",
-        save_path: str = "",
-        copy_to_clipboard: bool = True,
-        annotate_json: str = "",
-        share: bool = False,
-        strip_meta: bool = True
-    ) -> str:
-        """
-        D-Bus handler for CaptureScreenshot.
-        """
-        annotate = []
-        if annotate_json:
-            try:
-                annotate = json.loads(annotate_json)
-            except Exception:
-                pass
-
-        res = self._screenshot_service.capture(
-            mode=mode,
-            save_path=save_path or None,
-            copy_to_clipboard=copy_to_clipboard,
-            annotate=annotate,
-            share=share,
-            strip_meta=strip_meta
-        )
-        return json.dumps(res)
-
-    def annotate_screenshot(self, image_base64: str, annotate_json: str) -> str:
-        """
-        D-Bus handler for AnnotateScreenshot.
-        """
-        annotate = []
-        if annotate_json:
-            try:
-                annotate = json.loads(annotate_json)
-            except Exception:
-                pass
-        sample_bytes = image_base64.encode('utf-8') if isinstance(image_base64, str) else b''
-        annotated_bytes, count, lst = annotate_image(sample_bytes, annotate)
-        return json.dumps({"success": True, "annotations_applied": count, "annotations_list": lst})
-
-    def upload_screenshot(self, image_base64: str, options_json: str) -> str:
-        """
-        D-Bus handler for UploadScreenshot.
-        """
-        opts = {}
-        if options_json:
-            try:
-                opts = json.loads(options_json)
-            except Exception:
-                pass
-        service_url = opts.get("service_url", "https://cmdbar.share/upload")
-        sample_bytes = image_base64.encode('utf-8') if isinstance(image_base64, str) else b''
-        res = generate_share_url(sample_bytes, service_url=service_url)
-        return json.dumps(res)
-
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
         if hasattr(self, "stream_deck_manager") and self.stream_deck_manager:
@@ -601,3 +607,78 @@ class CmdBarDBusService:
             res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
             return res.get("status") in ("executed", "profile_switched")
         return False
+
+    def verify_yubikey_2fa(self, command_json: str, auth_data_json: str) -> bool:
+        try:
+            from companion.yubikey_auth import YubiKeyAuthManager
+            config = load_config()
+            manager = YubiKeyAuthManager(config)
+
+            try:
+                cmd_obj = json.loads(command_json) if command_json else {}
+            except Exception:
+                cmd_obj = {"command": command_json}
+
+            try:
+                auth_data = json.loads(auth_data_json) if auth_data_json else {}
+            except Exception:
+                auth_data = {}
+
+            res = manager.authenticate_command(cmd_obj, auth_data)
+            if res.get("success") and "remainingEmergencyCodes" in res:
+                config.setdefault("yubikey", {})["emergency_codes"] = res["remainingEmergencyCodes"]
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus verify_yubikey_2fa error: {e}\n")
+            return False
+
+    def get_yubikey_status(self) -> str:
+        try:
+            config = load_config()
+            yubikey_cfg = config.get("yubikey") or {}
+            return json.dumps({
+                "enabled": bool(yubikey_cfg.get("enabled")),
+                "mode": yubikey_cfg.get("mode", "touch"),
+                "key_count": len(yubikey_cfg.get("keys", [])) if isinstance(yubikey_cfg.get("keys"), list) else 0,
+                "emergency_code_count": len(yubikey_cfg.get("emergency_codes", [])) if isinstance(yubikey_cfg.get("emergency_codes"), list) else 0,
+                "require_for_sensitive": yubikey_cfg.get("require_for_sensitive") is not False
+            })
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus get_yubikey_status error: {e}\n")
+            return json.dumps({"enabled": False, "mode": "touch", "key_count": 0, "emergency_code_count": 0})
+
+    def register_yubikey_device(self, device_json: str) -> bool:
+        try:
+            from companion.yubikey_auth import register_device
+            config = load_config()
+            yubi_cfg = config.setdefault("yubikey", {})
+
+            try:
+                dev_info = json.loads(device_json)
+            except Exception:
+                return False
+
+            res = register_device(dev_info, yubi_cfg.get("keys", []))
+            if res.get("success"):
+                yubi_cfg["keys"] = res.get("keys", [])
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus register_yubikey_device error: {e}\n")
+            return False
+
+    def validate_emergency_code(self, code: str) -> bool:
+        try:
+            from companion.yubikey_auth import verify_emergency_code
+            config = load_config()
+            yubi_cfg = config.setdefault("yubikey", {})
+
+            res = verify_emergency_code(code, yubi_cfg.get("emergency_codes", []))
+            if res.get("success"):
+                yubi_cfg["emergency_codes"] = res.get("remainingCodes", [])
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus validate_emergency_code error: {e}\n")
+            return False
