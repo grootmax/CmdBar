@@ -104,13 +104,16 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 - **Smooth Merging**: Merges workspace categories with global configuration, prepending project commands while avoiding command duplicates.
 - **WorkspaceManager**: High-performance active workspace manager with caching to guarantee sub-5ms lookup performance.
 
-### Screenshot & Screen Capture Module (`extension/screenshotManager.js`)
+### Team Command Sharing & Enterprise Collaboration
 
-The screenshot manager module provides screen capture, image editing, metadata stripping, and URL sharing capabilities:
-- **Capture Modes**: Fullscreen, Window, and Region modes (`captureScreenshot`, `captureMode`).
-- **Destinations**: Save to filesystem (default `~/Pictures/Screenshots`), copy to system clipboard, or both.
-- **Annotations**: Supports text overlays, shapes (rectangles, arrows, highlights), blur/redact areas, and cropping (`applyAnnotations`).
-- **Metadata Removal**: Strips EXIF chunks and headers (tEXt, zTXt, iTXt, tIME, pHYs, eXIf in PNG; APP1 / COM in JPEG) before saving or sharing (`stripMetadata`).
-- **URL Sharing**: Uploads screenshot data to URL endpoints and returns share links (`shareScreenshotUrl`).
-- **Configurable Shortcuts**: Default accelerators (`Super+Shift+3`, `Super+Shift+4`, `Super+Shift+5`) managed via `getScreenshotShortcuts` and `setScreenshotShortcut`.
-- **D-Bus API Integration**: Exposes `CaptureScreenshot(s mode, s saveTo, s optionsJson)` and emits signal `ScreenshotCaptured(s filePath, s shareUrl, b success)` on `org.gnome.CmdBar`.
+The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
+For full details, see [Team Command Sharing Specification](team_command_sharing.md).
+
+### YubiKey 2FA Authentication Module
+
+The YubiKey authentication modules (`extension/yubikeyAuth.js` and `companion/yubikey_auth.py`) handle hardware-backed multi-factor authentication:
+- **Sensitive Command Detection**: Automatically identifies destructive or elevated commands (`sudo`, `rm -rf`, `aws ecs`, `kubectl delete`, `deploy`) or commands explicitly flagged with `sensitive: true` / `require_2fa: true`.
+- **Hardware Touch-to-Confirm**: Supports hardware presence test / touch confirmation before execution.
+- **Yubico OTP & FIDO2/U2F Assertions**: Parses 44-character ModHex OTP tokens, verifies device IDs, and validates FIDO2 assertion signatures against registered public keys.
+- **Emergency Access**: Single-use 8-character emergency recovery codes for fallback access when hardware keys are unavailable.
+- **D-Bus Interface Integration**: Exposes `VerifyYubiKey2FA`, `GetYubiKeyStatus`, `RegisterYubiKeyDevice`, and `ValidateEmergencyCode` D-Bus methods on `org.gnome.CmdBar`.

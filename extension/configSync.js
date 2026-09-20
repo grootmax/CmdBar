@@ -5,6 +5,7 @@
 
 import { sanitizeHistoryItem, MAX_HISTORY_ITEMS } from "./commandProcessor.js";
 import { DEFAULT_POLICY_CONFIG } from "./policyEngine.js";
+import { DEFAULT_RBAC_CONFIG } from "./rbacManager.js";
 
 export const DEFAULT_CONFIG = {
   sso: {
@@ -145,15 +146,15 @@ export const DEFAULT_CONFIG = {
   ],
   active_profile: "Development",
   policy: DEFAULT_POLICY_CONFIG,
-  screenshot: {
-    directory: "",
-    save_to: "both",
-    remove_metadata: true,
-    shortcuts: {
-      fullscreen: "<Super><Shift>3",
-      window: "<Super><Shift>4",
-      region: "<Super><Shift>5",
-    },
+  yubikey: {
+    enabled: false,
+    mode: "touch",
+    default_mode: "touch",
+    require_for_sensitive: true,
+    timeout_seconds: 30,
+    keys: [],
+    registered_keys: [],
+    emergency_codes: [],
   },
   categories: [
     {
@@ -163,26 +164,6 @@ export const DEFAULT_CONFIG = {
           name: "AI Command Assistant",
           command: "/ai {prompt}",
           placeholder: "e.g. deploy latest build to staging",
-        },
-      ],
-    },
-    {
-      name: "Screenshot & Screen Capture",
-      commands: [
-        {
-          name: "Capture Fullscreen",
-          command: "/screenshot fullscreen",
-          shortcut: "<Super><Shift>3",
-        },
-        {
-          name: "Capture Window",
-          command: "/screenshot window",
-          shortcut: "<Super><Shift>4",
-        },
-        {
-          name: "Capture Region",
-          command: "/screenshot region",
-          shortcut: "<Super><Shift>5",
         },
       ],
     },
@@ -235,6 +216,7 @@ export const DEFAULT_CONFIG = {
     },
   ],
   triggers: [],
+  rbac: DEFAULT_RBAC_CONFIG,
 };
 
 const isNode =
