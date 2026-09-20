@@ -3,7 +3,6 @@ import json
 import os
 import sys
 import subprocess
-import time
 from companion.companion_app import load_config, save_config, run_command_in_shell
 from app.config_schema import validate_branding_config, get_effective_branding
 from companion.sso_manager import SSOManager, SSOProviderConfig
@@ -23,13 +22,7 @@ from app.workspace_config import (
     PROJECT_TEMPLATES,
 )
 from companion.stream_deck import get_stream_deck_manager
-from companion.notes import (
-    create_note,
-    search_notes,
-    get_note_by_id,
-    generate_share_link,
-    parse_share_link,
-)
+from companion.iot_service import IoTTriggerManager
 
 
 class CmdBarDBusService:
@@ -37,8 +30,9 @@ class CmdBarDBusService:
     Python D-Bus Service implementation for CmdBar.
     Exposes AddCommand, RemoveCommand, ExecuteCommand, GetCommands,
     TriggerEvent, GetTriggers, AddTrigger, RemoveTrigger,
-    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management, and manages signals for CommandExecuted,
-    CommandOutput, and EventTriggered.
+    SSO authentication methods, YubiKey 2FA Methods, Stream Deck APIs, workspace management,
+    TriggerIoTEvent, GetIoTTriggers, RegisterIoTTrigger,
+    and manages signals for CommandExecuted, CommandOutput, and EventTriggered.
     :visibility: public
     """
 
@@ -53,8 +47,13 @@ class CmdBarDBusService:
         self._event_triggered_listeners = []
         self.trigger_engine = EventTriggerEngine()
         self.workspace_manager = WorkspaceManager()
-        self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
+        try:
+            from companion.stream_deck import get_stream_deck_manager
+            self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
+        except Exception:
+            self.stream_deck_manager = None
         self.active_terminal_sessions = {}
+        self.iot_manager = IoTTriggerManager(config_path=config_path, dbus_service=self)
 
     def is_yubikey_required(self, name: str) -> bool:
         if not name:
@@ -265,6 +264,7 @@ class CmdBarDBusService:
                         "category": cat_name,
                         "placeholder": c.get("placeholder", ""),
                         "parameters": c.get("parameters", {}),
+                        "sensitive": bool(c.get("sensitive") or c.get("require_2fa") or c.get("require_yubikey")),
                     }
                 )
         return all_cmds
@@ -516,63 +516,6 @@ class CmdBarDBusService:
     def get_terminal_sharing_sessions(self) -> str:
         sessions_info = [s.get_metrics() for s in self.active_terminal_sessions.values()]
         return json.dumps(sessions_info)
-    def get_notes(self) -> list:
-        config = load_config()
-        return config.get("notes", [])
-
-    def get_notes_json(self) -> str:
-        return json.dumps(self.get_notes())
-
-    def add_note(self, title: str, content: str = "", tags_str: str = "", attached_command: str = None) -> dict:
-        config = load_config()
-        notes = config.setdefault("notes", [])
-
-        tags = []
-        if tags_str:
-            try:
-                tags = json.loads(tags_str)
-            except Exception:
-                tags = [t.strip() for t in str(tags_str).split(",") if t.strip()]
-
-        note = create_note(
-            title=title or "Untitled Note",
-            content=content or "",
-            tags=tags,
-            attached_command=attached_command or None,
-        )
-        notes.append(note)
-        save_config(config)
-        return note
-
-    def add_note_json(self, title: str, content: str = "", tags_str: str = "", attached_command: str = None) -> str:
-        return json.dumps(self.add_note(title, content, tags_str, attached_command))
-
-    def search_notes(self, query: str) -> list:
-        config = load_config()
-        return search_notes(config.get("notes", []), query)
-
-    def search_notes_json(self, query: str) -> str:
-        return json.dumps(self.search_notes(query))
-
-    def share_note_link(self, note_id: str) -> str:
-        config = load_config()
-        note = get_note_by_id(config.get("notes", []), note_id)
-        if not note:
-            return ""
-        return generate_share_link(note)
-
-    def import_note_link(self, link: str) -> dict:
-        imported = parse_share_link(link)
-        if not imported:
-            return {}
-        config = load_config()
-        notes = config.setdefault("notes", [])
-        notes.append(imported)
-        save_config(config)
-        return imported
-
-    def import_note_link_json(self, link: str) -> str:
-        return json.dumps(self.import_note_link(link))
 
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""
@@ -602,3 +545,78 @@ class CmdBarDBusService:
             res = self.stream_deck_manager.handle_key_down("simulated_ctx", key_index)
             return res.get("status") in ("executed", "profile_switched")
         return False
+
+    def verify_yubikey_2fa(self, command_json: str, auth_data_json: str) -> bool:
+        try:
+            from companion.yubikey_auth import YubiKeyAuthManager
+            config = load_config()
+            manager = YubiKeyAuthManager(config)
+
+            try:
+                cmd_obj = json.loads(command_json) if command_json else {}
+            except Exception:
+                cmd_obj = {"command": command_json}
+
+            try:
+                auth_data = json.loads(auth_data_json) if auth_data_json else {}
+            except Exception:
+                auth_data = {}
+
+            res = manager.authenticate_command(cmd_obj, auth_data)
+            if res.get("success") and "remainingEmergencyCodes" in res:
+                config.setdefault("yubikey", {})["emergency_codes"] = res["remainingEmergencyCodes"]
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus verify_yubikey_2fa error: {e}\n")
+            return False
+
+    def get_yubikey_status(self) -> str:
+        try:
+            config = load_config()
+            yubikey_cfg = config.get("yubikey") or {}
+            return json.dumps({
+                "enabled": bool(yubikey_cfg.get("enabled")),
+                "mode": yubikey_cfg.get("mode", "touch"),
+                "key_count": len(yubikey_cfg.get("keys", [])) if isinstance(yubikey_cfg.get("keys"), list) else 0,
+                "emergency_code_count": len(yubikey_cfg.get("emergency_codes", [])) if isinstance(yubikey_cfg.get("emergency_codes"), list) else 0,
+                "require_for_sensitive": yubikey_cfg.get("require_for_sensitive") is not False
+            })
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus get_yubikey_status error: {e}\n")
+            return json.dumps({"enabled": False, "mode": "touch", "key_count": 0, "emergency_code_count": 0})
+
+    def register_yubikey_device(self, device_json: str) -> bool:
+        try:
+            from companion.yubikey_auth import register_device
+            config = load_config()
+            yubi_cfg = config.setdefault("yubikey", {})
+
+            try:
+                dev_info = json.loads(device_json)
+            except Exception:
+                return False
+
+            res = register_device(dev_info, yubi_cfg.get("keys", []))
+            if res.get("success"):
+                yubi_cfg["keys"] = res.get("keys", [])
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus register_yubikey_device error: {e}\n")
+            return False
+
+    def validate_emergency_code(self, code: str) -> bool:
+        try:
+            from companion.yubikey_auth import verify_emergency_code
+            config = load_config()
+            yubi_cfg = config.setdefault("yubikey", {})
+
+            res = verify_emergency_code(code, yubi_cfg.get("emergency_codes", []))
+            if res.get("success"):
+                yubi_cfg["emergency_codes"] = res.get("remainingCodes", [])
+                save_config(config)
+            return bool(res.get("success"))
+        except Exception as e:
+            sys.stderr.write(f"CmdBar D-Bus validate_emergency_code error: {e}\n")
+            return False

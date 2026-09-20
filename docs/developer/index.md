@@ -109,13 +109,11 @@ The workspace module (`extension/workspaceConfig.js` / `app/workspace_config.py`
 The team sharing module (`extension/teamSharing.js`) provides URL sharing, team repositories, role-based access control (RBAC), approval workflows, version control for configs, and activity logging.
 For full details, see [Team Command Sharing Specification](team_command_sharing.md).
 
-### Quick Notes & Scratchpad Module
+### YubiKey 2FA Authentication Module
 
-The notes manager module (`extension/notesManager.js` and `companion/notes.py`) provides quick plain-text scratchpad notes:
-- **Note Data Model**: `id`, `title`, `content`, `tags`, `attachedCommand`, `pinned`, `createdAt`, `updatedAt`.
-- **Markdown & Plain Text**: Renders Markdown to Pango markup for GNOME Shell and HTML for companion/web views.
-- **Tag Organization**: Groups notes by tag, supports tag filtering and tag summaries.
-- **Attached Commands**: Notes can have executable command templates with parameter substitution (`executeAttachedCommand`).
-- **Share Links**: Generates and parses shareable links (`cmdbar://note/share?data=...`).
-- **D-Bus Integration**: Exposes `GetNotes`, `AddNote`, `SearchNotes`, `ShareNoteLink`, `ImportNoteLink` on `org.gnome.CmdBar`.
-- **Atomic Sync**: `syncNotes` resolves conflicts using last-write-wins based on `updatedAt`.
+The YubiKey authentication modules (`extension/yubikeyAuth.js` and `companion/yubikey_auth.py`) handle hardware-backed multi-factor authentication:
+- **Sensitive Command Detection**: Automatically identifies destructive or elevated commands (`sudo`, `rm -rf`, `aws ecs`, `kubectl delete`, `deploy`) or commands explicitly flagged with `sensitive: true` / `require_2fa: true`.
+- **Hardware Touch-to-Confirm**: Supports hardware presence test / touch confirmation before execution.
+- **Yubico OTP & FIDO2/U2F Assertions**: Parses 44-character ModHex OTP tokens, verifies device IDs, and validates FIDO2 assertion signatures against registered public keys.
+- **Emergency Access**: Single-use 8-character emergency recovery codes for fallback access when hardware keys are unavailable.
+- **D-Bus Interface Integration**: Exposes `VerifyYubiKey2FA`, `GetYubiKeyStatus`, `RegisterYubiKeyDevice`, and `ValidateEmergencyCode` D-Bus methods on `org.gnome.CmdBar`.

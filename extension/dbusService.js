@@ -21,12 +21,11 @@ import {
   ROLES,
 } from "./teamSharing.js";
 import {
-  createNote,
-  searchNotes,
-  getNoteById,
-  generateShareLink,
-  parseShareLink,
-} from "./notesManager.js";
+  processMQTTTopicAndPayload,
+  processWebhookRequest,
+  processHomeAutomationEvent,
+  evaluateSensorRules,
+} from "./iotTrigger.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -145,27 +144,33 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="GetConfigHistory">
       <arg name="json_history" type="s" direction="out"/>
     </method>
-    <method name="GetNotes">
-      <arg name="json_notes" type="s" direction="out"/>
+    <method name="VerifyYubiKey2FA">
+      <arg name="command_json" type="s" direction="in"/>
+      <arg name="auth_data_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
     </method>
-    <method name="AddNote">
+    <method name="GetYubiKeyStatus">
+      <arg name="status_json" type="s" direction="out"/>
+    </method>
+    <method name="RegisterYubiKeyDevice">
+      <arg name="device_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="ValidateEmergencyCode">
+      <arg name="code" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="StartTerminalSharing">
+      <arg name="session_id" type="s" direction="in"/>
       <arg name="title" type="s" direction="in"/>
-      <arg name="content" type="s" direction="in"/>
-      <arg name="tags" type="s" direction="in"/>
-      <arg name="attached_command" type="s" direction="in"/>
-      <arg name="json_note" type="s" direction="out"/>
+      <arg name="json_session_info" type="s" direction="out"/>
     </method>
-    <method name="SearchNotes">
-      <arg name="query" type="s" direction="in"/>
-      <arg name="json_notes" type="s" direction="out"/>
+    <method name="StopTerminalSharing">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
     </method>
-    <method name="ShareNoteLink">
-      <arg name="id" type="s" direction="in"/>
-      <arg name="link" type="s" direction="out"/>
-    </method>
-    <method name="ImportNoteLink">
-      <arg name="link" type="s" direction="in"/>
-      <arg name="json_note" type="s" direction="out"/>
+    <method name="GetTerminalSharingSessions">
+      <arg name="json_sessions" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -230,6 +235,7 @@ export class CmdBarDBusService {
     this.workspaceManager = new WorkspaceManager();
     this._teamSharingService = new TeamSharingService({ baseDir: "/tmp/cmdbar-dbus-team" });
     this._terminalSessions = new Map();
+    this.activeTerminalSessions = this._terminalSessions;
   }
 
   /**
@@ -428,6 +434,7 @@ export class CmdBarDBusService {
                 category: cat.name,
                 placeholder: c.placeholder || "",
                 parameters: c.parameters || {},
+                sensitive: Boolean(c.sensitive || c.require_2fa || c.require_yubikey),
               });
             });
           }
@@ -720,105 +727,6 @@ export class CmdBarDBusService {
     }
   }
 
-  async GetNotes() {
-    try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
-      const config = await loadConfig(configPath);
-      return JSON.stringify(config.notes || []);
-    } catch (e) {
-      console.error(`CmdBar D-Bus GetNotes error: ${e.message}`);
-      return JSON.stringify([]);
-    }
-  }
-
-  async AddNote(title, content, tagsStr, attachedCommand) {
-    try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
-      const config = await loadConfig(configPath);
-      if (!Array.isArray(config.notes)) {
-        config.notes = [];
-      }
-
-      let tags = [];
-      if (tagsStr) {
-        try {
-          tags = JSON.parse(tagsStr);
-        } catch (e) {
-          tags = tagsStr.split(",").map((s) => s.trim()).filter(Boolean);
-        }
-      }
-
-      const note = createNote({
-        title: title || "Untitled Note",
-        content: content || "",
-        tags,
-        attachedCommand: attachedCommand || null,
-      });
-
-      config.notes.push(note);
-      await saveConfig(configPath, config);
-      return JSON.stringify(note);
-    } catch (e) {
-      console.error(`CmdBar D-Bus AddNote error: ${e.message}`);
-      return JSON.stringify({});
-    }
-  }
-
-  async SearchNotes(query) {
-    try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
-      const config = await loadConfig(configPath);
-      const results = searchNotes(config.notes || [], query);
-      return JSON.stringify(results);
-    } catch (e) {
-      console.error(`CmdBar D-Bus SearchNotes error: ${e.message}`);
-      return JSON.stringify([]);
-    }
-  }
-
-  async ShareNoteLink(id) {
-    try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
-      const config = await loadConfig(configPath);
-      const note = getNoteById(config.notes || [], id);
-      if (!note) return "";
-      return generateShareLink(note);
-    } catch (e) {
-      console.error(`CmdBar D-Bus ShareNoteLink error: ${e.message}`);
-      return "";
-    }
-  }
-
-  async ImportNoteLink(link) {
-    try {
-      const importedNote = parseShareLink(link);
-      if (!importedNote) return JSON.stringify({});
-
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
-      const config = await loadConfig(configPath);
-      if (!Array.isArray(config.notes)) {
-        config.notes = [];
-      }
-
-      config.notes.push(importedNote);
-      await saveConfig(configPath, config);
-      return JSON.stringify(importedNote);
-    } catch (e) {
-      console.error(`CmdBar D-Bus ImportNoteLink error: ${e.message}`);
-      return JSON.stringify({});
-    }
-  }
-
   async GetResourceMetrics() {
     try {
       if (this._indicator && this._indicator._resourceMonitor) {
@@ -965,11 +873,6 @@ export class CmdBarDBusService {
     }
   }
 
-  /**
-   * Gets configuration revision history over D-Bus.
-   * @returns {Promise<string>} JSON string of revision history.
-   * @public
-   */
   async GetConfigHistory() {
     try {
       const history = await this._teamSharingService.versionControl.getHistory();
@@ -1008,6 +911,99 @@ export class CmdBarDBusService {
   async GetTerminalSharingSessions() {
     const sessionsInfo = Array.from(this._terminalSessions.values()).map((s) => s.getMetrics());
     return JSON.stringify(sessionsInfo);
+  }
+
+  async VerifyYubiKey2FA(commandJson, authDataJson) {
+    try {
+      const { YubiKeyAuthManager } = await import("./yubikeyAuth.js");
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const manager = new YubiKeyAuthManager(config);
+
+      let cmdObj = {};
+      try { cmdObj = JSON.parse(commandJson); } catch (e) { cmdObj = { command: commandJson }; }
+
+      let authData = {};
+      try { authData = JSON.parse(authDataJson); } catch (e) { authData = {}; }
+
+      const res = await manager.authenticateCommand(cmdObj, authData);
+      if (res.success && res.remainingEmergencyCodes) {
+        config.yubikey = config.yubikey || {};
+        config.yubikey.emergency_codes = res.remainingEmergencyCodes;
+        await saveConfig(config, configPath);
+      }
+      return res.success;
+    } catch (e) {
+      console.error(`CmdBar D-Bus VerifyYubiKey2FA error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async GetYubiKeyStatus() {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const yubikeyCfg = config.yubikey || { enabled: false, mode: "touch", keys: [], emergency_codes: [] };
+      return JSON.stringify({
+        enabled: Boolean(yubikeyCfg.enabled),
+        mode: yubikeyCfg.mode || "touch",
+        key_count: Array.isArray(yubikeyCfg.keys) ? yubikeyCfg.keys.length : 0,
+        emergency_code_count: Array.isArray(yubikeyCfg.emergency_codes) ? yubikeyCfg.emergency_codes.length : 0,
+        require_for_sensitive: yubikeyCfg.require_for_sensitive !== false,
+      });
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetYubiKeyStatus error: ${e.message}`);
+      return JSON.stringify({ enabled: false, mode: "touch", key_count: 0, emergency_code_count: 0 });
+    }
+  }
+
+  async RegisterYubiKeyDevice(deviceJson) {
+    try {
+      const { registerDevice } = await import("./yubikeyAuth.js");
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      config.yubikey = config.yubikey || {};
+
+      let devInfo = {};
+      try { devInfo = JSON.parse(deviceJson); } catch (e) { return false; }
+
+      const res = registerDevice(devInfo, config.yubikey.keys || []);
+      if (res.success) {
+        config.yubikey.keys = res.keys;
+        await saveConfig(config, configPath);
+      }
+      return res.success;
+    } catch (e) {
+      console.error(`CmdBar D-Bus RegisterYubiKeyDevice error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async ValidateEmergencyCode(code) {
+    try {
+      const { verifyEmergencyCode } = await import("./yubikeyAuth.js");
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      config.yubikey = config.yubikey || {};
+
+      const res = await verifyEmergencyCode(code, config.yubikey.emergency_codes || []);
+      if (res.success) {
+        config.yubikey.emergency_codes = res.remainingCodes;
+        await saveConfig(config, configPath);
+      }
+      return res.success;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ValidateEmergencyCode error: ${e.message}`);
+      return false;
+    }
   }
 
   /**
@@ -1114,6 +1110,42 @@ export class CmdBarDBusService {
       } catch (e) {
         console.error(`CmdBar D-Bus emitEventTriggered error: ${e.message}`);
       }
+    }
+  }
+
+  async StartTerminalSharing(sessionId, title) {
+    try {
+      const session = new TerminalSharingSession({ sessionId, title });
+      session.start();
+      this.activeTerminalSessions = this.activeTerminalSessions || new Map();
+      this.activeTerminalSessions.set(session.sessionId, session);
+      return JSON.stringify(session.getMetrics());
+    } catch (e) {
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async StopTerminalSharing(sessionId) {
+    try {
+      if (this.activeTerminalSessions && this.activeTerminalSessions.has(sessionId)) {
+        const session = this.activeTerminalSessions.get(sessionId);
+        session.endSession();
+        this.activeTerminalSessions.delete(sessionId);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async GetTerminalSharingSessions() {
+    try {
+      if (!this.activeTerminalSessions) return JSON.stringify([]);
+      const sessions = Array.from(this.activeTerminalSessions.values()).map(s => s.getMetrics());
+      return JSON.stringify(sessions);
+    } catch (e) {
+      return JSON.stringify([]);
     }
   }
 }

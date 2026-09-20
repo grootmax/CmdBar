@@ -146,6 +146,16 @@ export const DEFAULT_CONFIG = {
   ],
   active_profile: "Development",
   policy: DEFAULT_POLICY_CONFIG,
+  yubikey: {
+    enabled: false,
+    mode: "touch",
+    default_mode: "touch",
+    require_for_sensitive: true,
+    timeout_seconds: 30,
+    keys: [],
+    registered_keys: [],
+    emergency_codes: [],
+  },
   categories: [
     {
       name: "AI Assistant",
