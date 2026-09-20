@@ -19,10 +19,34 @@ from app.template_manager import (
 )
 from companion.audit_logger import log_command, read_audit_logs, clear_audit_log, get_audit_log_path
 try:
-    from app.config_schema import get_profiles, get_active_profile_name, get_profile_env, is_command_visible_in_profile, merge_environment
+    from app.config_schema import (
+        get_profiles,
+        get_active_profile_name,
+        get_profile_env,
+        is_command_visible_in_profile,
+        merge_environment,
+        match_pattern,
+        is_user_in_context,
+        create_approval_token,
+        validate_approval_token,
+        grant_approval_override,
+        evaluate_command_policy,
+    )
 except ImportError:
     try:
-        from config_schema import get_profiles, get_active_profile_name, get_profile_env, is_command_visible_in_profile, merge_environment
+        from config_schema import (
+            get_profiles,
+            get_active_profile_name,
+            get_profile_env,
+            is_command_visible_in_profile,
+            merge_environment,
+            match_pattern,
+            is_user_in_context,
+            create_approval_token,
+            validate_approval_token,
+            grant_approval_override,
+            evaluate_command_policy,
+        )
     except ImportError:
         def get_profiles(cfg): return []
         def get_active_profile_name(cfg): return None
@@ -35,7 +59,17 @@ from app.workspace_config import (
     find_workspace_config_path,
     detect_project_type,
     load_workspace_config,
-    PROJECT_TEMPLATES
+    PROJECT_TEMPLATES,
+)
+from companion.notes import (
+    create_note,
+    update_note,
+    delete_note,
+    search_notes,
+    organize_by_tag,
+    render_markdown,
+    generate_share_link,
+    parse_share_link,
 )
 
 def canonical_json(obj):
@@ -128,11 +162,11 @@ def get_config_path():
     return os.path.expanduser("~/.config/cmdbar/config.json")
 
 
-def init_config(path=None):
+def init_config():
     """
     Initializes the configuration directory and file with default values if it doesn't exist.
     """
-    config_path = path if path else get_config_path()
+    config_path = get_config_path()
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
     if not os.path.exists(config_path):
         default_config = {
@@ -159,9 +193,10 @@ def init_config(path=None):
                         },
                     ],
                 }
-            ]
+            ],
+            "notes": []
         }
-        save_config(default_config, config_path)
+        save_config(default_config)
     return config_path
 
 
@@ -169,7 +204,7 @@ def load_config(path=None):
     """
     Loads and parses the configuration file, verifying its signature.
     """
-    config_path = init_config(path)
+    config_path = path if path else init_config()
     key_path = get_key_path(config_path)
     key = get_or_create_signing_key(key_path)
     try:
@@ -480,11 +515,10 @@ def run_cli_mode():
         print("9. Custom Branding & White Label")
         print("10. View Command Audit Log")
         print("11. Workspace Config Management")
-        print("12. Export Environment Snapshot")
-        print("13. Import Environment Snapshot")
-        print("14. Exit")
+        print("12. Quick Notes & Scratchpad")
+        print("13. Exit")
         
-        choice = input("\nEnter choice [1-14]: ").strip()
+        choice = input("\nEnter choice [1-13]: ").strip()
         if choice == "1":
             list_categories_and_commands(config_data)
         elif choice == "2":
@@ -508,19 +542,8 @@ def run_cli_mode():
         elif choice == "11":
             manage_workspace_configs()
         elif choice == "12":
-            out_path = input("Enter output snapshot file path: ").strip()
-            if out_path:
-                from companion.environment_snapshot import export_snapshot_to_file
-                export_snapshot_to_file(out_path)
-                print(f"Exported snapshot to {out_path}")
+            manage_notes_cli(config_data)
         elif choice == "13":
-            in_path = input("Enter input snapshot file path: ").strip()
-            mode = input("Enter mode [overwrite/merge] (default: overwrite): ").strip().lower() or "overwrite"
-            if in_path:
-                from companion.environment_snapshot import import_snapshot_from_file
-                import_snapshot_from_file(in_path, mode=mode)
-                print(f"Imported snapshot from {in_path}")
-        elif choice == "14":
             print("Goodbye!")
             break
         else:
@@ -660,6 +683,72 @@ def manage_branding(config_data):
         config_data["branding"] = branding
         save_config(config_data)
         print(f"Domain alias set to: {domain}")
+
+
+def manage_notes_cli(config_data):
+    notes = config_data.setdefault("notes", [])
+    print("\n--- Quick Notes & Scratchpad ---")
+    print("1. List / Search Notes")
+    print("2. Add Note")
+    print("3. Edit Note")
+    print("4. Delete Note")
+    print("5. Share Note Link")
+    print("6. Import Note Link")
+    
+    choice = input("\nEnter choice [1-6]: ").strip()
+    if choice == "1":
+        q = input("Enter search query or tag filter (e.g. tag:work or blank for all): ").strip()
+        results = search_notes(notes, q)
+        if not results:
+            print("No notes found.")
+            return
+        for i, n in enumerate(results, 1):
+            tags_str = f" [{', '.join(n.get('tags', []))}]" if n.get('tags') else ""
+            cmd_str = f" (Cmd: {n.get('attachedCommand')})" if n.get('attachedCommand') else ""
+            print(f"[{i}] {n.get('title')}{tags_str}{cmd_str}")
+            print(f"    Content: {n.get('content')[:100]}...")
+    elif choice == "2":
+        title = input("Note Title: ").strip()
+        content = input("Note Content (Markdown): ").strip()
+        tags_raw = input("Tags (comma separated): ").strip()
+        cmd = input("Attached Command (optional): ").strip()
+        tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+        new_note = create_note(title=title, content=content, tags=tags, attached_command=cmd)
+        notes.append(new_note)
+        save_config(config_data)
+        print("Note created successfully!")
+    elif choice == "3":
+        note_id = input("Enter Note ID to edit: ").strip()
+        title = input("New Title (leave blank to keep): ").strip()
+        content = input("New Content (leave blank to keep): ").strip()
+        updates = {}
+        if title: updates["title"] = title
+        if content: updates["content"] = content
+        config_data["notes"] = update_note(notes, note_id, updates)
+        save_config(config_data)
+        print("Note updated!")
+    elif choice == "4":
+        note_id = input("Enter Note ID to delete: ").strip()
+        config_data["notes"] = delete_note(notes, note_id)
+        save_config(config_data)
+        print("Note deleted!")
+    elif choice == "5":
+        note_id = input("Enter Note ID to share: ").strip()
+        for n in notes:
+            if n.get("id") == note_id:
+                link = generate_share_link(n)
+                print(f"Share Link: {link}")
+                return
+        print("Note not found.")
+    elif choice == "6":
+        link = input("Enter share link: ").strip()
+        imported = parse_share_link(link)
+        if imported:
+            notes.append(imported)
+            save_config(config_data)
+            print("Note imported successfully!")
+        else:
+            print("Invalid share link.")
 
 
 def list_categories_and_commands(config_data):
@@ -1487,6 +1576,7 @@ if GUI_AVAILABLE:
 
 
 def main():
+    from companion.tiling_wm import TilingWMManager
     parser = argparse.ArgumentParser(description="CmdBar Companion App")
     parser.add_argument(
         "--cli",
@@ -1506,56 +1596,47 @@ def main():
     parser.add_argument("--enable-white-label", action="store_true", help="Enable enterprise white labeling")
     parser.add_argument("--disable-white-label", action="store_true", help="Disable enterprise white labeling")
     parser.add_argument("--set-app-name", type=str, help="Set white label application name")
-    parser.add_argument("--export-snapshot", type=str, help="Export environment snapshot to JSON file")
-    parser.add_argument("--import-snapshot", type=str, help="Import environment snapshot from JSON file")
-    parser.add_argument("--snapshot-mode", type=str, choices=["overwrite", "merge"], default="overwrite", help="Snapshot import mode")
-    parser.add_argument("--create-backup", type=str, nargs="?", const="default", help="Create environment backup snapshot")
-    parser.add_argument("--restore-backup", type=str, help="Restore environment from backup snapshot file")
-    parser.add_argument("--cloud-share", action="store_true", help="Share environment snapshot to cloud")
-    parser.add_argument("--cloud-fetch", type=str, help="Fetch and import environment snapshot from cloud ID/URL")
+    parser.add_argument("--wm-info", action="store_true", help="Output active window manager status and tiling JSON info")
+    parser.add_argument("--wm-rules", action="store_true", help="Output window rules snippet for Hyprland and Sway/i3")
+    parser.add_argument("--exec-wm", type=str, metavar="NAME", help="Execute command by name injecting tiling WM context")
     args = parser.parse_args()
 
     # Initialize config directory/file
     init_config()
 
-    if args.export_snapshot:
-        from companion.environment_snapshot import export_snapshot_to_file
-        export_snapshot_to_file(args.export_snapshot)
-        print(f"Exported environment snapshot to {args.export_snapshot}")
+    if args.wm_info:
+        wm = TilingWMManager()
+        print(json.dumps(wm.get_wm_info(), indent=2))
         sys.exit(0)
 
-    if args.import_snapshot:
-        from companion.environment_snapshot import import_snapshot_from_file
-        import_snapshot_from_file(args.import_snapshot, mode=args.snapshot_mode)
-        print(f"Imported environment snapshot from {args.import_snapshot} (mode: {args.snapshot_mode})")
+    if args.wm_rules:
+        wm = TilingWMManager()
+        rules = wm.get_window_rules()
+        print("=== Hyprland Rules ===")
+        print(rules.get("hyprland", ""))
+        print("=== Sway / i3 Rules ===")
+        print(rules.get("sway", ""))
         sys.exit(0)
 
-    if args.create_backup is not None:
-        from companion.environment_snapshot import create_backup
-        b_dir = None if args.create_backup == "default" else args.create_backup
-        b_path = create_backup(backup_dir=b_dir)
-        print(f"Created environment backup snapshot at {b_path}")
-        sys.exit(0)
+    if args.exec_wm:
+        wm = TilingWMManager()
+        cfg = load_config()
+        found_cmd = None
+        for cat in cfg.get("categories", []):
+            for c in cat.get("commands", []):
+                if c.get("name") == args.exec_wm or c.get("template") == args.exec_wm:
+                    found_cmd = c
+                    break
+            if found_cmd:
+                break
+        template = found_cmd.get("template", args.exec_wm) if found_cmd else args.exec_wm
+        code, stdout, stderr = wm.execute_command_with_context(template)
+        if stdout:
+            print(stdout, end="")
+        if stderr:
+            print(stderr, file=sys.stderr, end="")
+        sys.exit(code)
 
-    if args.restore_backup:
-        from companion.environment_snapshot import restore_backup
-        restore_backup(args.restore_backup)
-        print(f"Restored environment from backup snapshot {args.restore_backup}")
-        sys.exit(0)
-
-    if args.cloud_share:
-        from companion.environment_snapshot import create_snapshot, share_snapshot_to_cloud
-        snap = create_snapshot()
-        res = share_snapshot_to_cloud(snap)
-        print(f"Shared snapshot to cloud: {res['url']} (ID: {res['share_id']})")
-        sys.exit(0)
-
-    if args.cloud_fetch:
-        from companion.environment_snapshot import fetch_snapshot_from_cloud
-        fetch_snapshot_from_cloud(args.cloud_fetch, auto_import=True)
-        print(f"Fetched and imported cloud snapshot {args.cloud_fetch}")
-        sys.exit(0)
-    
     if args.branding or args.enable_white_label or args.disable_white_label or args.set_app_name:
         from app.config_schema import get_effective_branding
         config = load_config()

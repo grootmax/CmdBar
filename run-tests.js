@@ -11,6 +11,10 @@ import {
   rankCommands,
   detectFormat,
   formatOutput,
+  matchPattern,
+  evaluateCommandPolicy,
+  createApprovalToken,
+  validateApprovalToken,
   detectGitRepo,
   getGitStateSync,
   substituteGitPlaceholders,
@@ -27,6 +31,10 @@ import {
   saveConfigAtomically,
   saveConfigAtomicallyAsync,
 } from "./companion/configStore.js";
+import {
+  evaluateCondition,
+  processMQTTTopicAndPayload,
+} from "./extension/iotTrigger.js";
 
 console.log("Running standalone verification tests...");
 
@@ -191,7 +199,39 @@ try {
   assert.strictEqual(hasNonGitPlaceholders('git push origin {git-branch}'), false, 'Should have no non-git placeholders');
   assert.strictEqual(hasNonGitPlaceholders('git commit -m "<msg>" on {git-branch}'), true, 'Should detect <msg> non-git placeholder');
 
-  // 7. Atomic Persistence Tests (Sync & Async)
+  // 7. IoT Trigger Subsystem Tests
+  assert.strictEqual(
+    evaluateCondition(100, ">", 50),
+    true,
+    "evaluateCondition > should return true when value exceeds threshold",
+  );
+  assert.strictEqual(
+    evaluateCondition(20, "<", 50),
+    true,
+    "evaluateCondition < should return true when value is under threshold",
+  );
+  assert.strictEqual(
+    evaluateCondition("active", "==", "active"),
+    true,
+    "evaluateCondition == should match strings",
+  );
+
+  const mqttParsed = processMQTTTopicAndPayload(
+    "cmdbar/trigger/Restart Service",
+    '{"parameters":{"service":"nginx"}}',
+  );
+  assert.strictEqual(
+    mqttParsed.success,
+    true,
+    "MQTT topic trigger should parse successfully",
+  );
+  assert.strictEqual(
+    mqttParsed.commandName,
+    "Restart Service",
+    "MQTT topic should extract command name",
+  );
+
+  // 8. Atomic Persistence Tests (Sync & Async)
   const tempDir = path.join(
     os.tmpdir(),
     `cmdbar-standalone-test-${Date.now()}`,
@@ -228,7 +268,38 @@ try {
     "Written data should match source data (async)",
   );
 
-  // 7. YubiKey 2FA Verification Tests
+  // 8. Command Whitelist & Blacklist Policy Engine Tests
+  assert.strictEqual(
+    matchPattern("rm -rf /tmp", "rm -rf *", "glob"),
+    true,
+    "Glob pattern matching should work",
+  );
+
+  const policy = { enabled: true, blacklist: ["rm -rf *"] };
+  const blEval = evaluateCommandPolicy("rm -rf /tmp", null, policy);
+  assert.strictEqual(
+    blEval.allowed,
+    false,
+    "Blacklisted command should be blocked",
+  );
+
+  const appToken = createApprovalToken("rm -rf /tmp", "admin", 3600000);
+  const valRes = validateApprovalToken(appToken, "rm -rf /tmp");
+  assert.strictEqual(valRes.valid, true, "Approval token should be valid");
+
+  const overrideEval = evaluateCommandPolicy(
+    "rm -rf /tmp",
+    null,
+    policy,
+    appToken,
+  );
+  assert.strictEqual(
+    overrideEval.allowed,
+    true,
+    "Approval token override should allow command execution",
+  );
+
+  // 9. YubiKey 2FA Verification Tests
   const otpRes = validateYubicoOTP(
     "ccccccbedvcebcgdehbcfnhfhkfvvtrgeubfnfgnrtgr",
     "ccccccbedvce",
@@ -275,11 +346,10 @@ try {
     "echo command should not be detected as sensitive",
   );
 
-  const { rawCodes, hashedCodes } = await generateEmergencyCodes(3);
+  const rawCodes = generateEmergencyCodes(3);
   assert.strictEqual(rawCodes.length, 3, "Should generate 3 emergency codes");
-  assert.strictEqual(hashedCodes.length, 3, "Should generate 3 hashed codes");
 
-  const emergencyCfg = { emergency_codes: [...hashedCodes] };
+  const emergencyCfg = { emergency_codes: [...rawCodes] };
   const consumeRes = await verifyAndConsumeEmergencyCode(
     rawCodes[0],
     emergencyCfg,
