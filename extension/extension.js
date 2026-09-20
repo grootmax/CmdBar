@@ -39,12 +39,9 @@ import {
   formatRate,
 } from "./systemResourceMonitor.js";
 import {
-  NumpadOverlay,
-  getNormalizedNumpadConfig,
-  getActiveLayer,
-  cycleActiveLayer,
-  getNumpadKeyCommand,
-} from "./numpadManager.js";
+  isScreenshotCommand,
+  handleScreenshotCommandExecution,
+} from "./screenshotManager.js";
 
 export const globalCacheStore = new CommandCacheStore();
 globalCacheStore.init().catch(() => {});
@@ -915,22 +912,16 @@ const CommandInputMenuItem = GObject.registerClass(
       this.box.add_child(this.label);
 
       // Star / Favorite Button
-      let isFavInput = Boolean(
-        this._cmdObj && (this._cmdObj.favorite || this._cmdObj.pinned),
-      );
+      let isFavInput = Boolean(this._cmdObj && (this._cmdObj.favorite || this._cmdObj.pinned));
       this.favoriteButton = new St.Button({
         child: new St.Icon({
           icon_name: isFavInput ? "starred-symbolic" : "non-starred-symbolic",
-          style_class: isFavInput
-            ? "popup-menu-icon cmdbar-star-icon-active"
-            : "popup-menu-icon cmdbar-star-icon",
+          style_class: isFavInput ? "popup-menu-icon cmdbar-star-icon-active" : "popup-menu-icon cmdbar-star-icon",
         }),
         style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
         track_hover: true,
         can_focus: true,
-        accessible_name: isFavInput
-          ? "Remove from Favorites"
-          : "Add to Favorites",
+        accessible_name: isFavInput ? "Remove from Favorites" : "Add to Favorites",
       });
 
       this.favoriteButton.connect("clicked", () => {
@@ -944,31 +935,6 @@ const CommandInputMenuItem = GObject.registerClass(
       this.box.add_child(this.favoriteButton);
 
       this.add_child(this.box);
-
-      this.connect("key-press-event", (actor, event) => {
-        let symbol =
-          typeof event.get_key_symbol === "function"
-            ? event.get_key_symbol()
-            : 0;
-        if (
-          symbol === Clutter.KEY_f ||
-          symbol === Clutter.KEY_F ||
-          symbol === Clutter.KEY_asterisk
-        ) {
-          if (
-            this._indicator &&
-            typeof this._indicator.toggleFavorite === "function"
-          ) {
-            this._indicator.toggleFavorite(this._cmdObj);
-            return typeof Clutter.EVENT_STOP !== "undefined"
-              ? Clutter.EVENT_STOP
-              : true;
-          }
-        }
-        return typeof Clutter.EVENT_PROPAGATE !== "undefined"
-          ? Clutter.EVENT_PROPAGATE
-          : false;
-      });
 
       this._activateId = this.connect("activate", () => {
         this._onSubmit(commandName);
@@ -1024,11 +990,23 @@ const CommandInputMenuItem = GObject.registerClass(
                 let argv = substituteTokens(tokens, placeholderMap);
                 let fullCmdStr = argv.join(" ");
 
-                if (
-                  isAICommand(fullCmdStr) ||
-                  isAICommand(this._commandTemplate) ||
-                  isAICommand(text)
-                ) {
+                if (isScreenshotCommand(fullCmdStr) || isScreenshotCommand(this._commandTemplate) || isScreenshotCommand(text)) {
+                  let cmdText = isScreenshotCommand(text) ? text : fullCmdStr;
+                  handleScreenshotCommandExecution(
+                    cmdText,
+                    this._indicator ? this._indicator._cachedConfig : {}
+                  );
+                  if (
+                    this._indicator &&
+                    this._indicator.menu &&
+                    typeof this._indicator.menu.close === "function"
+                  ) {
+                    this._indicator.menu.close();
+                  }
+                  return;
+                }
+
+                if (isAICommand(fullCmdStr) || isAICommand(this._commandTemplate) || isAICommand(text)) {
                   let promptText = isAICommand(text) ? text : fullCmdStr;
                   handleAICommandExecution(
                     promptText,
@@ -1308,15 +1286,11 @@ const CommandMenuItem = GObject.registerClass(
       this.box.add_child(this.label);
 
       // Star / Favorite Button
-      let isFav = Boolean(
-        this._cmdObj && (this._cmdObj.favorite || this._cmdObj.pinned),
-      );
+      let isFav = Boolean(this._cmdObj && (this._cmdObj.favorite || this._cmdObj.pinned));
       this.favoriteButton = new St.Button({
         child: new St.Icon({
           icon_name: isFav ? "starred-symbolic" : "non-starred-symbolic",
-          style_class: isFav
-            ? "popup-menu-icon cmdbar-star-icon-active"
-            : "popup-menu-icon cmdbar-star-icon",
+          style_class: isFav ? "popup-menu-icon cmdbar-star-icon-active" : "popup-menu-icon cmdbar-star-icon",
         }),
         style: "padding: 4px 6px; margin-right: 4px; border-radius: 4px;",
         track_hover: true,
@@ -1429,10 +1403,7 @@ const CommandMenuItem = GObject.registerClass(
       });
 
       this.connect("key-press-event", (actor, event) => {
-        let symbol =
-          typeof event.get_key_symbol === "function"
-            ? event.get_key_symbol()
-            : 0;
+        let symbol = typeof event.get_key_symbol === "function" ? event.get_key_symbol() : 0;
         if (
           symbol === Clutter.KEY_f ||
           symbol === Clutter.KEY_F ||
@@ -1443,14 +1414,10 @@ const CommandMenuItem = GObject.registerClass(
             typeof this._indicator.toggleFavorite === "function"
           ) {
             this._indicator.toggleFavorite(this._cmdObj);
-            return typeof Clutter.EVENT_STOP !== "undefined"
-              ? Clutter.EVENT_STOP
-              : true;
+            return typeof Clutter.EVENT_STOP !== "undefined" ? Clutter.EVENT_STOP : true;
           }
         }
-        return typeof Clutter.EVENT_PROPAGATE !== "undefined"
-          ? Clutter.EVENT_PROPAGATE
-          : false;
+        return typeof Clutter.EVENT_PROPAGATE !== "undefined" ? Clutter.EVENT_PROPAGATE : false;
       });
     }
 
@@ -1596,8 +1563,6 @@ const CmdBarIndicator = GObject.registerClass(
 
       this.add_child(this._box);
 
-      this._numpadOverlay = new NumpadOverlay(this);
-
       // Harvest environment asynchronously on startup
       harvestEnvironment();
 
@@ -1633,7 +1598,7 @@ const CmdBarIndicator = GObject.registerClass(
       if (this._icon) {
         if (branding.enabled && branding.logo_path && branding.logo_path.trim()) {
           const logo = branding.logo_path.trim();
-          if (logo.includes("/") && Gio.File && Gio.File.new_for_path(logo).query_exists(null)) {
+          if (logo.includes("/") && Gio && Gio.File && Gio.File.new_for_path(logo).query_exists(null)) {
             try {
               let gicon = new Gio.FileIcon({ file: Gio.File.new_for_path(logo) });
               this._icon.gicon = gicon;
@@ -1731,66 +1696,6 @@ const CmdBarIndicator = GObject.registerClass(
       }
     }
 
-    async _getConfig() {
-      let configPath = this._getConfigPath();
-      let extensionPath = this._extension ? this._extension.dir.get_path() : "";
-      return await loadConfig(configPath, extensionPath);
-    }
-
-    async _saveCurrentConfig(config) {
-      let configPath = this._getConfigPath();
-      await saveConfig(config, configPath);
-      this._reloadMenu();
-    }
-
-    async toggleFavorite(cmdObj) {
-      if (!cmdObj) return;
-      try {
-        let configPath = this._getConfigPath();
-        let extensionPath =
-          this._extension && this._extension.dir
-            ? this._extension.dir.get_path()
-            : null;
-        let config = await loadConfig(configPath, extensionPath);
-
-        if (!config || !config.categories) return;
-
-        let found = false;
-        let newFavState = false;
-
-        for (let cat of config.categories) {
-          if (!cat.commands) continue;
-          for (let cmd of cat.commands) {
-            if (
-              cmd === cmdObj ||
-              (cmd.name === cmdObj.name && cmd.command === cmdObj.command)
-            ) {
-              const current = Boolean(cmd.favorite || cmd.pinned);
-              cmd.favorite = !current;
-              cmd.pinned = !current;
-              newFavState = !current;
-              found = true;
-              break;
-            }
-          }
-          if (found) break;
-        }
-
-        if (found) {
-          await saveConfig(config, configPath);
-          this._cachedConfig = config;
-          await this._reloadMenu();
-          let stateText = newFavState ? "added to" : "removed from";
-          this._showNotification(
-            "Command Favorites",
-            `${cmdObj.name} ${stateText} Favorites.`,
-          );
-        }
-      } catch (e) {
-        console.error(`CmdBar: error toggling favorite: \${e.message}`);
-      }
-    }
-
     async _reloadMenu() {
       try {
         let configPath = this._getConfigPath();
@@ -1859,57 +1764,40 @@ const CmdBarIndicator = GObject.registerClass(
           this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         }
 
-          // 3. Render categories with favorites sorted first within each category
-          config.categories.forEach((category, catIndex) => {
-            if (catIndex > 0) {
-              this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-            }
-            this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
+        // 3. Render categories with favorites sorted first within each category
+        config.categories.forEach((category, catIndex) => {
+          if (catIndex > 0 || favoriteCommands.length > 0) {
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+          }
+          this.menu.addMenuItem(new CategoryHeaderMenuItem(category.name));
 
-            if (category.commands && Array.isArray(category.commands)) {
-              let sortedCmds = [...category.commands].sort((a, b) => {
-                let aFav = Boolean(a && (a.favorite || a.pinned));
-                let bFav = Boolean(b && (b.favorite || b.pinned));
-                if (aFav === bFav) return 0;
-                return bFav ? -1 : 1;
-              });
+          if (category.commands && Array.isArray(category.commands)) {
+            let sortedCmds = [...category.commands].sort((a, b) => {
+              let aFav = Boolean(a && (a.favorite || a.pinned));
+              let bFav = Boolean(b && (b.favorite || b.pinned));
+              if (aFav === bFav) return 0;
+              return bFav ? -1 : 1;
+            });
 
-              sortedCmds.forEach((cmd) => {
-                if (hasPlaceholder(cmd.command)) {
-                  this.menu.addMenuItem(
-                    new CommandInputMenuItem(
-                      this,
-                      cmd.name,
-                      cmd.command,
-                      cmd.placeholder,
-                      cmd,
-                    ),
-                  );
-                } else {
-                  this.menu.addMenuItem(
-                    new CommandMenuItem(this, cmd.name, cmd.command, cmd),
-                  );
-                }
-              });
-            }
-          });
-
-        const numpad = getNormalizedNumpadConfig(config);
-        if (numpad && numpad.enabled) {
-          const activeLayer = getActiveLayer(config);
-          this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-          this.menu.addMenuItem(new CategoryHeaderMenuItem(`Numpad Macro Pad (${activeLayer.name})`));
-
-          let overlayItem = new PopupMenu.PopupMenuItem("Open Visual Numpad Overlay");
-          if (typeof overlayItem.connect === "function") {
-            overlayItem.connect("activate", () => {
-              if (this._numpadOverlay) {
-                this._numpadOverlay.toggle();
+            sortedCmds.forEach((cmd) => {
+              if (hasPlaceholder(cmd.command)) {
+                this.menu.addMenuItem(
+                  new CommandInputMenuItem(
+                    this,
+                    cmd.name,
+                    cmd.command,
+                    cmd.placeholder,
+                    cmd,
+                  ),
+                );
+              } else {
+                this.menu.addMenuItem(
+                  new CommandMenuItem(this, cmd.name, cmd.command, cmd),
+                );
               }
             });
           }
-          this.menu.addMenuItem(overlayItem);
-        }
+        });
 
         // System Resource Monitor Section
         if (this._resourceMonitor) {
@@ -1978,6 +1866,51 @@ const CmdBarIndicator = GObject.registerClass(
         }
       } catch (e) {
         console.error(`CmdBar: error reloading menu: ${e.message}`);
+      }
+    }
+
+    async toggleFavorite(cmdObj) {
+      if (!cmdObj) return;
+      try {
+        let configPath = this._getConfigPath();
+        let extensionPath = this._extension && this._extension.dir ? this._extension.dir.get_path() : null;
+        let config = await loadConfig(configPath, extensionPath);
+
+        if (!config || !config.categories) return;
+
+        let found = false;
+        let newFavState = false;
+
+        for (let cat of config.categories) {
+          if (!cat.commands) continue;
+          for (let cmd of cat.commands) {
+            if (
+              cmd === cmdObj ||
+              (cmd.name === cmdObj.name && cmd.command === cmdObj.command)
+            ) {
+              const current = Boolean(cmd.favorite || cmd.pinned);
+              cmd.favorite = !current;
+              cmd.pinned = !current;
+              newFavState = !current;
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
+        }
+
+        if (found) {
+          await saveConfig(config, configPath);
+          this._cachedConfig = config;
+          await this._reloadMenu();
+          let stateText = newFavState ? "added to" : "removed from";
+          this._showNotification(
+            "Command Favorites",
+            `'${cmdObj.name}' ${stateText} Favorites.`,
+          );
+        }
+      } catch (e) {
+        console.error(`CmdBar: error toggling favorite: ${e.message}`);
       }
     }
 
@@ -2320,7 +2253,7 @@ export default class CmdBarExtension extends Extension {
   }
 
   /**
-   * Register global GNOME keybindings to toggle CmdBar menu and numpad macro pad.
+   * Register global GNOME keybinding to toggle CmdBar menu.
    */
   _registerKeybinding() {
     try {
@@ -2334,85 +2267,31 @@ export default class CmdBarExtension extends Extension {
             ? Shell.ActionMode.ALL
             : 1;
 
-        this._unregisterKeybinding();
+        try {
+          if (typeof Main.wm.removeKeybinding === "function") {
+            Main.wm.removeKeybinding("shortcut");
+          }
+        } catch (e) {}
 
-        Main.wm.addKeybinding(
-          "shortcut",
-          this._settings,
-          flags,
-          mode,
-          () => {
-            this._toggleMenu();
-          },
-        );
-
-        Main.wm.addKeybinding(
-          "numpad-overlay-shortcut",
-          this._settings,
-          flags,
-          mode,
-          () => {
-            if (this._indicator && this._indicator._numpadOverlay) {
-              this._indicator._numpadOverlay.toggle();
-            }
-          },
-        );
-
-        Main.wm.addKeybinding(
-          "numpad-layer-switch",
-          this._settings,
-          flags,
-          mode,
-          async () => {
-            if (this._indicator) {
-              const config = await this._indicator._getConfig();
-              cycleActiveLayer(config);
-              await this._indicator._saveCurrentConfig(config);
-              if (this._indicator._numpadOverlay && this._indicator._numpadOverlay.isShowing()) {
-                this._indicator._numpadOverlay.refresh();
-              }
-            }
-          },
-        );
-
-        for (let k = 0; k <= 9; k++) {
-          Main.wm.addKeybinding(
-            `numpad-key-${k}`,
-            this._settings,
-            flags,
-            mode,
-            async () => {
-              if (this._indicator) {
-                const config = await this._indicator._getConfig();
-                const cmdInfo = getNumpadKeyCommand(config, k);
-                if (cmdInfo && cmdInfo.command) {
-                  this._indicator.executeCommand(cmdInfo.name, cmdInfo.command, {}, { name: cmdInfo.name, command: cmdInfo.command });
-                }
-              }
-            },
-          );
-        }
+        Main.wm.addKeybinding("shortcut", this._settings, flags, mode, () => {
+          this._toggleMenu();
+        });
       }
     } catch (e) {
-      console.error(`CmdBar: Failed to register keybindings: ${e.message}`);
+      console.error(`CmdBar: Failed to register keybinding: ${e.message}`);
     }
   }
 
   /**
-   * Unregister global GNOME keybindings.
+   * Unregister global GNOME keybinding.
    */
   _unregisterKeybinding() {
     try {
       if (Main && Main.wm && typeof Main.wm.removeKeybinding === "function") {
         Main.wm.removeKeybinding("shortcut");
-        Main.wm.removeKeybinding("numpad-overlay-shortcut");
-        Main.wm.removeKeybinding("numpad-layer-switch");
-        for (let k = 0; k <= 9; k++) {
-          Main.wm.removeKeybinding(`numpad-key-${k}`);
-        }
       }
     } catch (e) {
-      console.error(`CmdBar: Failed to unregister keybindings: ${e.message}`);
+      console.error(`CmdBar: Failed to unregister keybinding: ${e.message}`);
     }
   }
 
