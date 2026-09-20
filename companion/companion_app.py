@@ -1472,6 +1472,7 @@ if GUI_AVAILABLE:
 
 
 def main():
+    from companion.tiling_wm import TilingWMManager
     parser = argparse.ArgumentParser(description="CmdBar Companion App")
     parser.add_argument(
         "--cli",
@@ -1491,14 +1492,47 @@ def main():
     parser.add_argument("--enable-white-label", action="store_true", help="Enable enterprise white labeling")
     parser.add_argument("--disable-white-label", action="store_true", help="Disable enterprise white labeling")
     parser.add_argument("--set-app-name", type=str, help="Set white label application name")
-    parser.add_argument("--ipc-server", action="store_true", help="Start CmdBar Wayland/Tiling JSON IPC server daemon")
-    parser.add_argument("--ipc-send", type=str, help="Send JSON IPC request string to running CmdBar IPC server")
-    parser.add_argument("--tiling-context", action="store_true", help="Display current tiling window manager context as JSON")
-    parser.add_argument("--launcher", nargs="?", const="auto", help="Launch interactive Wayland dmenu/wofi/rofi/fuzzel menu")
+    parser.add_argument("--wm-info", action="store_true", help="Output active window manager status and tiling JSON info")
+    parser.add_argument("--wm-rules", action="store_true", help="Output window rules snippet for Hyprland and Sway/i3")
+    parser.add_argument("--exec-wm", type=str, metavar="NAME", help="Execute command by name injecting tiling WM context")
     args = parser.parse_args()
 
     # Initialize config directory/file
     init_config()
+
+    if args.wm_info:
+        wm = TilingWMManager()
+        print(json.dumps(wm.get_wm_info(), indent=2))
+        sys.exit(0)
+
+    if args.wm_rules:
+        wm = TilingWMManager()
+        rules = wm.get_window_rules()
+        print("=== Hyprland Rules ===")
+        print(rules.get("hyprland", ""))
+        print("=== Sway / i3 Rules ===")
+        print(rules.get("sway", ""))
+        sys.exit(0)
+
+    if args.exec_wm:
+        wm = TilingWMManager()
+        cfg = load_config()
+        found_cmd = None
+        for cat in cfg.get("categories", []):
+            for c in cat.get("commands", []):
+                if c.get("name") == args.exec_wm or c.get("template") == args.exec_wm:
+                    found_cmd = c
+                    break
+            if found_cmd:
+                break
+        template = found_cmd.get("template", args.exec_wm) if found_cmd else args.exec_wm
+        code, stdout, stderr = wm.execute_command_with_context(template)
+        if stdout:
+            print(stdout, end="")
+        if stderr:
+            print(stderr, file=sys.stderr, end="")
+        sys.exit(code)
+
     if args.branding or args.enable_white_label or args.disable_white_label or args.set_app_name:
         from app.config_schema import get_effective_branding
         config = load_config()
@@ -1530,50 +1564,7 @@ def main():
         except KeyboardInterrupt:
             server.server_close()
             sys.exit(0)
-
-    from companion.wayland import (
-        WaylandIPCServer,
-        send_ipc_request,
-        TilingWindowManager,
-        run_launcher_mode
-    )
-
-    if args.ipc_server:
-        print("Starting CmdBar Wayland/Tiling JSON IPC server...")
-        server = WaylandIPCServer()
-        try:
-            server.start(background=False)
-        except KeyboardInterrupt:
-            print("\nStopping CmdBar IPC server.")
-            server.stop()
-        sys.exit(0)
-
-    if args.ipc_send:
-        try:
-            req = json.loads(args.ipc_send)
-        except Exception as e:
-            print(f"Error parsing JSON request string: {e}", file=sys.stderr)
-            sys.exit(1)
-        resp = send_ipc_request(req)
-        print(json.dumps(resp, indent=2))
-        sys.exit(0 if resp.get("status") == "ok" else 1)
-
-    if args.tiling_context:
-        mgr = TilingWindowManager()
-        ctx = {
-            "context": mgr.get_context_params(),
-            "active_window": mgr.get_active_window(),
-            "workspaces": mgr.get_workspaces()
-        }
-        print(json.dumps(ctx, indent=2))
-        sys.exit(0)
-
-    if args.launcher:
-        launcher_tool = None if args.launcher == "auto" else args.launcher
-        run_launcher_mode(launcher=launcher_tool)
-        sys.exit(0)
-
-    if args.cli or not GUI_AVAILABLE:
+    elif args.cli or not GUI_AVAILABLE:
         if not GUI_AVAILABLE and not args.cli:
             print(
                 "GUI libraries (GTK4 / Libadwaita) are not available. Falling back to CLI mode.\n"
