@@ -1,5 +1,5 @@
 import { loadConfig, saveConfig, getDefaultConfigPath, validateBrandingConfig, getEffectiveBranding } from "./configSync.js";
-import { tokenizeCommand, evaluateCommandPolicy, grantApprovalOverride } from "./commandProcessor.js";
+import { tokenizeCommand } from "./commandProcessor.js";
 import { SSOManager, PROVIDER_PRESETS } from "./ssoManager.js";
 import {
   isSensitiveCommand,
@@ -20,6 +20,12 @@ import {
   parseShareUrl,
   ROLES,
 } from "./teamSharing.js";
+import {
+  processMQTTTopicAndPayload,
+  processWebhookRequest,
+  processHomeAutomationEvent,
+  evaluateSensorRules,
+} from "./iotTrigger.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -138,16 +144,33 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     <method name="GetConfigHistory">
       <arg name="json_history" type="s" direction="out"/>
     </method>
-    <method name="EvaluatePolicy">
-      <arg name="command" type="s" direction="in"/>
-      <arg name="user" type="s" direction="in"/>
-      <arg name="result_json" type="s" direction="out"/>
-    </method>
-    <method name="GrantOverride">
-      <arg name="command" type="s" direction="in"/>
-      <arg name="approver" type="s" direction="in"/>
-      <arg name="expires_in_ms" type="x" direction="in"/>
+    <method name="VerifyYubiKey2FA">
+      <arg name="command_json" type="s" direction="in"/>
+      <arg name="auth_data_json" type="s" direction="in"/>
       <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetYubiKeyStatus">
+      <arg name="status_json" type="s" direction="out"/>
+    </method>
+    <method name="RegisterYubiKeyDevice">
+      <arg name="device_json" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="ValidateEmergencyCode">
+      <arg name="code" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="StartTerminalSharing">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="title" type="s" direction="in"/>
+      <arg name="json_session_info" type="s" direction="out"/>
+    </method>
+    <method name="StopTerminalSharing">
+      <arg name="session_id" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="GetTerminalSharingSessions">
+      <arg name="json_sessions" type="s" direction="out"/>
     </method>
     <signal name="CommandExecuted">
       <arg name="name" type="s"/>
@@ -212,6 +235,7 @@ export class CmdBarDBusService {
     this.workspaceManager = new WorkspaceManager();
     this._teamSharingService = new TeamSharingService({ baseDir: "/tmp/cmdbar-dbus-team" });
     this._terminalSessions = new Map();
+    this.activeTerminalSessions = this._terminalSessions;
   }
 
   /**
@@ -378,61 +402,15 @@ export class CmdBarDBusService {
         ? foundCmd.command || foundCmd.template
         : cleanName;
 
-      const evalResult = evaluateCommandPolicy(
-        cmdStr,
-        null,
-        config.policy || config.security_policy,
-        config.overrides
-      );
-
-      if (!evalResult.allowed) {
-        console.error(`CmdBar D-Bus ExecuteCommand blocked by policy: ${evalResult.reason}`);
-        this.emitCommandOutput(cmdName, "", `Execution blocked by security policy: ${evalResult.reason}`);
-        this.emitCommandExecuted(cmdName, 126, false);
-        return false;
-      }
-
-      if (this._indicator && typeof this._indicator.executeCommand === "function") {
+      if (
+        this._indicator &&
+        typeof this._indicator.executeCommand === "function"
+      ) {
         this._indicator.executeCommand(cmdName, cmdStr, {}, foundCmd);
       }
       return true;
     } catch (e) {
       console.error(`CmdBar D-Bus ExecuteCommand error: ${e.message}`);
-      return false;
-    }
-  }
-
-  async EvaluatePolicy(command, user) {
-    try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
-      const config = await loadConfig(configPath);
-      const userCtx = user ? { username: user } : null;
-      const result = evaluateCommandPolicy(
-        command,
-        userCtx,
-        config.policy || config.security_policy,
-        config.overrides
-      );
-      return JSON.stringify(result);
-    } catch (e) {
-      return JSON.stringify({ allowed: false, error: e.message });
-    }
-  }
-
-  async GrantOverride(command, approver, expiresInMs) {
-    try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
-      const config = await loadConfig(configPath);
-      if (!config.overrides) config.overrides = {};
-      const exp = Number(expiresInMs) || 3600000;
-      grantApprovalOverride(config.overrides, command, approver || "admin", exp);
-      await saveConfig(config, configPath);
-      return true;
-    } catch (e) {
       return false;
     }
   }
@@ -456,6 +434,7 @@ export class CmdBarDBusService {
                 category: cat.name,
                 placeholder: c.placeholder || "",
                 parameters: c.parameters || {},
+                sensitive: Boolean(c.sensitive || c.require_2fa || c.require_yubikey),
               });
             });
           }
@@ -894,11 +873,6 @@ export class CmdBarDBusService {
     }
   }
 
-  /**
-   * Gets configuration revision history over D-Bus.
-   * @returns {Promise<string>} JSON string of revision history.
-   * @public
-   */
   async GetConfigHistory() {
     try {
       const history = await this._teamSharingService.versionControl.getHistory();
@@ -937,6 +911,99 @@ export class CmdBarDBusService {
   async GetTerminalSharingSessions() {
     const sessionsInfo = Array.from(this._terminalSessions.values()).map((s) => s.getMetrics());
     return JSON.stringify(sessionsInfo);
+  }
+
+  async VerifyYubiKey2FA(commandJson, authDataJson) {
+    try {
+      const { YubiKeyAuthManager } = await import("./yubikeyAuth.js");
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const manager = new YubiKeyAuthManager(config);
+
+      let cmdObj = {};
+      try { cmdObj = JSON.parse(commandJson); } catch (e) { cmdObj = { command: commandJson }; }
+
+      let authData = {};
+      try { authData = JSON.parse(authDataJson); } catch (e) { authData = {}; }
+
+      const res = await manager.authenticateCommand(cmdObj, authData);
+      if (res.success && res.remainingEmergencyCodes) {
+        config.yubikey = config.yubikey || {};
+        config.yubikey.emergency_codes = res.remainingEmergencyCodes;
+        await saveConfig(config, configPath);
+      }
+      return res.success;
+    } catch (e) {
+      console.error(`CmdBar D-Bus VerifyYubiKey2FA error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async GetYubiKeyStatus() {
+    try {
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      const yubikeyCfg = config.yubikey || { enabled: false, mode: "touch", keys: [], emergency_codes: [] };
+      return JSON.stringify({
+        enabled: Boolean(yubikeyCfg.enabled),
+        mode: yubikeyCfg.mode || "touch",
+        key_count: Array.isArray(yubikeyCfg.keys) ? yubikeyCfg.keys.length : 0,
+        emergency_code_count: Array.isArray(yubikeyCfg.emergency_codes) ? yubikeyCfg.emergency_codes.length : 0,
+        require_for_sensitive: yubikeyCfg.require_for_sensitive !== false,
+      });
+    } catch (e) {
+      console.error(`CmdBar D-Bus GetYubiKeyStatus error: ${e.message}`);
+      return JSON.stringify({ enabled: false, mode: "touch", key_count: 0, emergency_code_count: 0 });
+    }
+  }
+
+  async RegisterYubiKeyDevice(deviceJson) {
+    try {
+      const { registerDevice } = await import("./yubikeyAuth.js");
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      config.yubikey = config.yubikey || {};
+
+      let devInfo = {};
+      try { devInfo = JSON.parse(deviceJson); } catch (e) { return false; }
+
+      const res = registerDevice(devInfo, config.yubikey.keys || []);
+      if (res.success) {
+        config.yubikey.keys = res.keys;
+        await saveConfig(config, configPath);
+      }
+      return res.success;
+    } catch (e) {
+      console.error(`CmdBar D-Bus RegisterYubiKeyDevice error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async ValidateEmergencyCode(code) {
+    try {
+      const { verifyEmergencyCode } = await import("./yubikeyAuth.js");
+      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
+        ? this._indicator._getConfigPath()
+        : await getDefaultConfigPath();
+      const config = await loadConfig(configPath);
+      config.yubikey = config.yubikey || {};
+
+      const res = await verifyEmergencyCode(code, config.yubikey.emergency_codes || []);
+      if (res.success) {
+        config.yubikey.emergency_codes = res.remainingCodes;
+        await saveConfig(config, configPath);
+      }
+      return res.success;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ValidateEmergencyCode error: ${e.message}`);
+      return false;
+    }
   }
 
   /**
@@ -1043,6 +1110,42 @@ export class CmdBarDBusService {
       } catch (e) {
         console.error(`CmdBar D-Bus emitEventTriggered error: ${e.message}`);
       }
+    }
+  }
+
+  async StartTerminalSharing(sessionId, title) {
+    try {
+      const session = new TerminalSharingSession({ sessionId, title });
+      session.start();
+      this.activeTerminalSessions = this.activeTerminalSessions || new Map();
+      this.activeTerminalSessions.set(session.sessionId, session);
+      return JSON.stringify(session.getMetrics());
+    } catch (e) {
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async StopTerminalSharing(sessionId) {
+    try {
+      if (this.activeTerminalSessions && this.activeTerminalSessions.has(sessionId)) {
+        const session = this.activeTerminalSessions.get(sessionId);
+        session.endSession();
+        this.activeTerminalSessions.delete(sessionId);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async GetTerminalSharingSessions() {
+    try {
+      if (!this.activeTerminalSessions) return JSON.stringify([]);
+      const sessions = Array.from(this.activeTerminalSessions.values()).map(s => s.getMetrics());
+      return JSON.stringify(sessions);
+    } catch (e) {
+      return JSON.stringify([]);
     }
   }
 }
