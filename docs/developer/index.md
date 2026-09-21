@@ -4,9 +4,10 @@ This directory contains internal technical specifications and architectural note
 
 ## Extension Lifecycle & Architecture
 
-The architecture of CmdBar is designed around two main components to maintain safety and speed:
+The architecture of CmdBar is designed around modular components to maintain safety, speed, and cross-desktop compatibility:
 1. **The GNOME Shell Extension (JavaScript / GJS)**: Direct interaction with the GNOME UI. Runs inside the shell's single-threaded event loop. Keep operations as non-blocking as possible.
-2. **The Companion App (Python)**: Handles disk operations, custom subprocess spawning, and configuration updates.
+2. **The KDE Plasma Plasmoid & Integration Modules (QML / JS / Python)**: Native Plasmoid applet (`kde-plasma/`), System Tray StatusNotifierItem (`extension/systemTray.js`), KWin shortcut manager (`extension/kwinIntegration.js`), KWallet client (`extension/kwalletClient.js`), and Plasma theme adapter (`extension/plasmaTheme.js`).
+3. **The Companion App & D-Bus Services (Python)**: Handles disk operations, custom subprocess spawning, D-Bus service bridging (`org.gnome.CmdBar` and `org.kde.CmdBar`), and configuration updates.
 
 ### Command Audit Logging Architecture
 
@@ -38,6 +39,14 @@ CmdBar supports isolated sandboxed execution on a per-command basis:
 - **Integration**:
   - JavaScript wrapper (`extension/sandboxWrapper.js`) integrates into GJS execution paths (`runCommandAsync`, `_executeCommandAsync`, `executeCommand`).
   - Python wrapper (`app/sandbox_wrapper.py`) integrates into `app/config_schema.py` (`resolve_command_preview`) and `app/main.py` Libadwaita companion editor.
+
+### KDE Plasma 5 & 6 Native Support
+
+CmdBar provides complete KDE Plasma desktop integration:
+- **Plasmoid Applet**: Native QML Plasmoid with compact (system tray/panel icon) and full (menu popup, argument dialog, search box) representations (`kde-plasma/contents/ui/main.qml`).
+- **KWallet Integration**: Secure secret storage via `org.kde.kwalletd5` / `org.kde.kwalletd6` for LLM API keys and sensitive tokens.
+- **KWin Shortcut Binds**: Global shortcut triggers registered via KGlobalAccel (`org.kde.kglobalaccel`) and active window context extraction from KWin (`org.kde.KWin`).
+- **Plasma Theme Sync**: Extracts system color schemes (Breeze Light / Breeze Dark) from `kdeglobals` and maps them to UI elements and output syntax highlighting.
 
 ### Output Parser & Formatter Module
 
@@ -74,19 +83,19 @@ The Security Policy Engine (`extension/commandPolicy.js` and `app/policy_manager
 
 1. **Policy Evaluation Priority**:
    - **Active Override Token**: Valid override tokens skip policy evaluation and permit execution.
-   - **User & Group Rules**: Evaluates scoped `deny` or `allow` rules matching the user/group context.
-   - **Blacklist Filter**: Rejects command if matching blacklisted patterns in `blacklist` or `combined` modes.
+   - **User & Group Rules**: Evaluates scoped `deny` or `allow` rules matching the user/group context (`users`, `groups`).
+   - **Blacklist Filter**: Rejects command if matching blacklisted patterns in `blacklist` or `combined` modes using pattern strategies (`exact`, `substring`, `glob`, `regex`, `binary`).
    - **Whitelist Filter**: Rejects command if not matching whitelisted patterns in `whitelist` or `combined` modes.
 
 2. **Pattern Matching Engine**:
    - `globToRegex(pattern)`: Converts wildcards (`*`, `?`) to regexes.
-   - `matchPattern(cmd, pattern)`: Handles exact, glob, `regex:`, and binary prefix matching.
+   - `matchPattern(cmd, pattern, strategy)`: Handles exact, substring, glob, regex, and binary matching.
 
-3. **Approval Request Lifecycle**:
+3. **Approval Request Lifecycle & Overrides**:
    - `requestApproval(commandStr, requesterContext, reason)`: Instantiates request object with unique ID.
-   - `approveRequest(requestId, approverContext, ttlMs)`: Issues time-bound `token_appr_*` token.
+   - `approveRequest(requestId, approverContext, ttlMs)`: Issues time-bound approval token.
    - `rejectRequest(requestId, approverContext, reason)`: Marks request rejected.
-   - `grantOverride(commandPattern, approverContext, ttlMs)`: Directly issues `token_dir_*` token for command pattern.
+   - `grantOverride(commandPattern, approverContext, ttlMs)`: Directly issues override token (`token_dir_*`) or grant for command pattern (`createApprovalToken` / `grantApprovalOverride`).
 
 ### Policy Enforcement Engine Module
 

@@ -6,6 +6,7 @@ import subprocess
 import hmac
 import hashlib
 import secrets
+from app.policy_engine import PolicyEngine
 
 
 def canonical_json(obj):
@@ -329,7 +330,82 @@ DEFAULT_CONFIG = {
         ],
         "rules": [],
         "overrides": [],
+        "mfa": {
+            "enabled": False,
+            "sensitive_commands": ["*deploy*", "*rm -rf*", "*sudo*", "*aws ecs*"],
+            "session_duration_sec": 300,
+        },
+        "dlp": {
+            "enabled": True,
+            "action": "redact",
+        },
+        "geo": {
+            "enabled": False,
+            "allowed_countries": [],
+            "blocked_countries": [],
+            "allowed_ip_ranges": [],
+            "blocked_ip_ranges": [],
+        },
+        "time": {
+            "enabled": False,
+            "allowed_days": ["Mon", "Tue", "Wed", "Thu", "Fri"],
+            "allowed_hours": {"start": "00:00", "end": "23:59"},
+        },
     },
+  "categories": [
+    {
+      "name": "System Utilities",
+      "commands": [
+        {
+          "name": "Ping Host",
+          "command": "ping -c 3 <host>",
+          "mode": "shell-quoted",
+          "parameters": {
+            "host": {
+              "regex": "^[a-zA-Z0-9.-]+$",
+              "error_message": "Invalid host format! Must contain only alphanumeric, dots, and dashes."
+            }
+          }
+        },
+        {
+          "name": "Direct Exec",
+          "command": "/usr/bin/echo \"Hello\" <arg>",
+          "mode": "direct-array",
+          "parameters": {
+            "arg": {
+              "regex": "^[a-zA-Z0-9_]+$",
+              "error_message": "Invalid argument format! Must be alphanumeric or underscore."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Git",
+      "commands": [
+        {
+          "name": "Git Status",
+          "command": "git status",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Pull",
+          "command": "git pull origin {git-branch}",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Push",
+          "command": "git push origin {git-branch}",
+          "mode": "shell-quoted"
+        },
+        {
+          "name": "Git Commit",
+          "command": "git commit -m \"<commit-message>\"",
+          "mode": "shell-quoted"
+        }
+      ]
+    }
+  ],
     "iot": {
         "enabled": False,
         "mqtt": {
@@ -353,7 +429,44 @@ DEFAULT_CONFIG = {
         },
         "sensor_triggers": [],
     },
+    "numpad": {
+        "enabled": True,
+        "active_layer": 0,
+        "layers": [
+            {
+                "name": "Default",
+                "keys": {
+                    "0": {"name": "Mute Audio", "command": "pactl set-sink-mute @DEFAULT_SINK@ toggle"},
+                    "1": {"name": "Volume Down", "command": "pactl set-sink-volume @DEFAULT_SINK@ -5%"},
+                    "2": {"name": "Volume Up", "command": "pactl set-sink-volume @DEFAULT_SINK@ +5%"},
+                    "3": {"name": "Play/Pause", "command": "playerctl play-pause"},
+                    "4": {"name": "Previous Track", "command": "playerctl previous"},
+                    "5": {"name": "Next Track", "command": "playerctl next"},
+                    "6": {"name": "Terminal", "command": "gnome-terminal"},
+                    "7": {"name": "System Monitor", "command": "gnome-system-monitor"},
+                    "8": {"name": "Screenshot", "command": "gnome-screenshot"},
+                    "9": {"name": "Lock Screen", "command": "loginctl lock-session"}
+                }
+            },
+            {
+                "name": "Gaming",
+                "keys": {
+                    "0": {"name": "Mute Mic", "command": "pactl set-source-mute @DEFAULT_SOURCE@ toggle"},
+                    "1": {"name": "FPS Overlay", "command": "echo 'Toggle FPS'"},
+                    "2": {"name": "Deafen", "command": "pactl set-sink-mute @DEFAULT_SINK@ toggle"},
+                    "3": {"name": "Record Clip", "command": "echo 'Record Clip'"},
+                    "4": {"name": "Stream Mode", "command": "echo 'Stream Mode'"},
+                    "5": {"name": "Game Mode", "command": "gamemoded -t"},
+                    "6": {"name": "Steam", "command": "steam"},
+                    "7": {"name": "Lutris", "command": "lutris"},
+                    "8": {"name": "OBS Studio", "command": "obs"},
+                    "9": {"name": "Discord", "command": "discord"}
+                }
+            }
+        ]
+    },
     "triggers": [],
+    "notes": [],
 }
 
 

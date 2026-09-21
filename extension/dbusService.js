@@ -20,7 +20,12 @@ import {
   parseShareUrl,
   ROLES,
 } from "./teamSharing.js";
-import { RBACManager } from "./rbac.js";
+import {
+  processMQTTTopicAndPayload,
+  processWebhookRequest,
+  processHomeAutomationEvent,
+  evaluateSensorRules,
+} from "./iotTrigger.js";
 
 export const CMDBAR_DBUS_INTERFACE_XML = `
 <node>
@@ -96,6 +101,16 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
       <arg name="code" type="s" direction="in"/>
       <arg name="success" type="b" direction="out"/>
     </method>
+    <method name="ExportEnvironmentSnapshot">
+      <arg name="file_path" type="s" direction="in"/>
+      <arg name="description" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="ImportEnvironmentSnapshot">
+      <arg name="file_path" type="s" direction="in"/>
+      <arg name="merge" type="b" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
     <method name="StartTerminalSharing">
       <arg name="session_id" type="s" direction="in"/>
       <arg name="title" type="s" direction="in"/>
@@ -114,14 +129,6 @@ export const CMDBAR_DBUS_INTERFACE_XML = `
     </method>
     <method name="ImportCommandFromUrl">
       <arg name="url" type="s" direction="in"/>
-      <arg name="success" type="b" direction="out"/>
-    </method>
-    <method name="GetUserRole">
-      <arg name="username" type="s" direction="in"/>
-      <arg name="role" type="s" direction="out"/>
-    </method>
-    <method name="SetUserRole">
-      <arg name="username" type="s" direction="in"/>
       <arg name="role" type="s" direction="in"/>
       <arg name="success" type="b" direction="out"/>
     </method>
@@ -238,6 +245,7 @@ export class CmdBarDBusService {
     this.workspaceManager = new WorkspaceManager();
     this._teamSharingService = new TeamSharingService({ baseDir: "/tmp/cmdbar-dbus-team" });
     this._terminalSessions = new Map();
+    this.activeTerminalSessions = this._terminalSessions;
   }
 
   /**
@@ -380,7 +388,6 @@ export class CmdBarDBusService {
           ? this._indicator._getConfigPath()
           : await getDefaultConfigPath();
       const config = await loadConfig(configPath);
-      const rbacManager = new RBACManager(config.rbac || {});
 
       let foundCmd = null;
       if (config.categories) {
@@ -398,18 +405,6 @@ export class CmdBarDBusService {
             }
           }
         }
-      }
-
-      const currentUser = (typeof process !== "undefined" && process.env && process.env.USER) || "user";
-      const check = rbacManager.canExecuteCommand(foundCmd || cleanName, currentUser);
-
-      if (!check.allowed) {
-        if (check.requires_approval) {
-          rbacManager.createApprovalRequest(foundCmd ? foundCmd.name : cleanName, foundCmd ? (foundCmd.command || foundCmd.template) : cleanName, currentUser);
-          config.rbac = rbacManager.toJSON();
-          await saveConfig(config, configPath);
-        }
-        return false;
       }
 
       const cmdName = foundCmd ? foundCmd.name : cleanName;
@@ -437,26 +432,24 @@ export class CmdBarDBusService {
           ? this._indicator._getConfigPath()
           : await getDefaultConfigPath();
       const config = await loadConfig(configPath);
-      const rbacManager = new RBACManager(config.rbac || {});
-      const currentUser = (typeof process !== "undefined" && process.env && process.env.USER) || "user";
-
-      const visibleCategories = rbacManager.getVisibleCommands(config.categories || [], currentUser);
 
       const allCmds = [];
-      visibleCategories.forEach((cat) => {
-        if (cat.commands && Array.isArray(cat.commands)) {
-          cat.commands.forEach((c) => {
-            allCmds.push({
-              name: c.name,
-              command: c.command || c.template || "",
-              category: cat.name,
-              placeholder: c.placeholder || "",
-              parameters: c.parameters || {},
-              sensitive: Boolean(c.sensitive || c.require_2fa || c.require_yubikey),
+      if (config.categories && Array.isArray(config.categories)) {
+        config.categories.forEach((cat) => {
+          if (cat.commands && Array.isArray(cat.commands)) {
+            cat.commands.forEach((c) => {
+              allCmds.push({
+                name: c.name,
+                command: c.command || c.template || "",
+                category: cat.name,
+                placeholder: c.placeholder || "",
+                parameters: c.parameters || {},
+                sensitive: Boolean(c.sensitive || c.require_2fa || c.require_yubikey),
+              });
             });
-          });
-        }
-      });
+          }
+        });
+      }
       return JSON.stringify(allCmds);
     } catch (e) {
       console.error(`CmdBar D-Bus GetCommands error: ${e.message}`);
@@ -532,6 +525,17 @@ export class CmdBarDBusService {
       return isSensitiveCommand(foundCmd || cleanName, config.yubikey);
     } catch (e) {
       console.error(`CmdBar D-Bus IsYubiKeyRequired error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async ExportEnvironmentSnapshot(filePath, description) {
+    try {
+      const { exportSnapshotToFile } = await import("./environmentSnapshot.js");
+      await exportSnapshotToFile(filePath, { description: description || "Exported via D-Bus" });
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ExportEnvironmentSnapshot error: ${e.message}`);
       return false;
     }
   }
@@ -656,6 +660,20 @@ export class CmdBarDBusService {
       return true;
     } catch (e) {
       console.error(`CmdBar D-Bus ImportCommandFromUrl error: ${e.message}`);
+      return false;
+    }
+  }
+
+  async ImportEnvironmentSnapshot(filePath, merge) {
+    try {
+      const { importSnapshotFromFile } = await import("./environmentSnapshot.js");
+      await importSnapshotFromFile(filePath, { mode: merge ? "merge" : "overwrite" });
+      if (this._indicator && typeof this._indicator._reloadMenu === "function") {
+        this._indicator._reloadMenu();
+      }
+      return true;
+    } catch (e) {
+      console.error(`CmdBar D-Bus ImportEnvironmentSnapshot error: ${e.message}`);
       return false;
     }
   }
@@ -843,54 +861,9 @@ export class CmdBarDBusService {
     }
   }
 
-  async GetUserRole(username) {
-    try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
-      const config = await loadConfig(configPath);
-      const rbacManager = new RBACManager(config.rbac || {});
-      return rbacManager.getUserRole(username);
-    } catch (e) {
-      return "user";
-    }
-  }
-
-  async SetUserRole(username, role) {
-    try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
-      const config = await loadConfig(configPath);
-      const rbacManager = new RBACManager(config.rbac || {});
-      const currentUser = (typeof process !== "undefined" && process.env && process.env.USER) || "admin";
-
-      rbacManager.setUserRole(username, role, currentUser);
-      config.rbac = rbacManager.toJSON();
-      await saveConfig(config, configPath);
-      return true;
-    } catch (e) {
-      console.error(`CmdBar D-Bus SetUserRole error: ${e.message}`);
-      return false;
-    }
-  }
-
-  async GetPendingApprovals() {
-    try {
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
-      const config = await loadConfig(configPath);
-      const rbacManager = new RBACManager(config.rbac || {});
-      return JSON.stringify(rbacManager.getPendingApprovalRequests());
-    } catch (e) {
-      return JSON.stringify([]);
-    }
-  }
-
   /**
-   * Rejects a pending submission or RBAC approval request over D-Bus.
-   * @param {string} submissionId - ID of submission or request to reject.
+   * Rejects a pending submission over D-Bus.
+   * @param {string} submissionId - ID of submission to reject.
    * @param {string} reviewerRole - Role of reviewer.
    * @param {string} reason - Rejection reason.
    * @returns {Promise<boolean>} Success flag.
@@ -898,28 +871,12 @@ export class CmdBarDBusService {
    */
   async RejectCommand(submissionId, reviewerRole, reason) {
     try {
-      if (this._teamSharingService && this._teamSharingService.approvalWorkflow) {
-        try {
-          await this._teamSharingService.approvalWorkflow.rejectSubmission(
-            submissionId,
-            "dbus_admin",
-            reviewerRole || ROLES.APPROVER,
-            reason || ""
-          );
-          return true;
-        } catch (subErr) {
-          // Fallback to RBAC rejection
-        }
-      }
-      const configPath = this._indicator && typeof this._indicator._getConfigPath === "function"
-        ? this._indicator._getConfigPath()
-        : await getDefaultConfigPath();
-      const config = await loadConfig(configPath);
-      const rbacManager = new RBACManager(config.rbac || {});
-
-      rbacManager.rejectRequest(submissionId, reviewerRole || "admin", reason || "");
-      config.rbac = rbacManager.toJSON();
-      await saveConfig(config, configPath);
+      await this._teamSharingService.approvalWorkflow.rejectSubmission(
+        submissionId,
+        "dbus_admin",
+        reviewerRole || ROLES.APPROVER,
+        reason || ""
+      );
       return true;
     } catch (e) {
       console.error(`CmdBar D-Bus RejectCommand error: ${e.message}`);
@@ -951,11 +908,6 @@ export class CmdBarDBusService {
     }
   }
 
-  /**
-   * Gets configuration revision history over D-Bus.
-   * @returns {Promise<string>} JSON string of revision history.
-   * @public
-   */
   async GetConfigHistory() {
     try {
       const history = await this._teamSharingService.versionControl.getHistory();
@@ -1183,6 +1135,36 @@ export class CmdBarDBusService {
     }
   }
 
+  async StartTerminalSharing(sessionId, title) {
+    try {
+      const session = new TerminalSharingSession({
+        sessionId: sessionId || undefined,
+        title: title || "CmdBar Shared Terminal",
+      });
+      session.start();
+      this._terminalSessions.set(session.sessionId, session);
+      return JSON.stringify(session.getMetrics());
+    } catch (e) {
+      console.error(`CmdBar D-Bus StartTerminalSharing error: ${e.message}`);
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async StopTerminalSharing(sessionId) {
+    if (this._terminalSessions.has(sessionId)) {
+      const session = this._terminalSessions.get(sessionId);
+      session.endSession();
+      this._terminalSessions.delete(sessionId);
+      return true;
+    }
+    return false;
+  }
+
+  async GetTerminalSharingSessions() {
+    const sessionsInfo = Array.from(this._terminalSessions.values()).map((s) => s.getMetrics());
+    return JSON.stringify(sessionsInfo);
+  }
+
   emitEventTriggered(triggerId, eventType, command, success) {
     if (this._dbusImpl && GLib) {
       try {
@@ -1193,6 +1175,42 @@ export class CmdBarDBusService {
       } catch (e) {
         console.error(`CmdBar D-Bus emitEventTriggered error: ${e.message}`);
       }
+    }
+  }
+
+  async StartTerminalSharing(sessionId, title) {
+    try {
+      const session = new TerminalSharingSession({ sessionId, title });
+      session.start();
+      this.activeTerminalSessions = this.activeTerminalSessions || new Map();
+      this.activeTerminalSessions.set(session.sessionId, session);
+      return JSON.stringify(session.getMetrics());
+    } catch (e) {
+      return JSON.stringify({ error: e.message });
+    }
+  }
+
+  async StopTerminalSharing(sessionId) {
+    try {
+      if (this.activeTerminalSessions && this.activeTerminalSessions.has(sessionId)) {
+        const session = this.activeTerminalSessions.get(sessionId);
+        session.endSession();
+        this.activeTerminalSessions.delete(sessionId);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async GetTerminalSharingSessions() {
+    try {
+      if (!this.activeTerminalSessions) return JSON.stringify([]);
+      const sessions = Array.from(this.activeTerminalSessions.values()).map(s => s.getMetrics());
+      return JSON.stringify(sessions);
+    } catch (e) {
+      return JSON.stringify([]);
     }
   }
 }
