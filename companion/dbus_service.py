@@ -3,7 +3,13 @@ import json
 import os
 import sys
 import subprocess
-from companion.companion_app import load_config, save_config, run_command_in_shell
+from companion.companion_app import (
+    load_config,
+    save_config,
+    run_command_in_shell,
+    evaluate_command_policy,
+    grant_approval_override,
+)
 from app.config_schema import validate_branding_config, get_effective_branding
 from companion.sso_manager import SSOManager, SSOProviderConfig
 from companion.stream_deck import get_stream_deck_manager
@@ -47,7 +53,11 @@ class CmdBarDBusService:
         self._event_triggered_listeners = []
         self.trigger_engine = EventTriggerEngine()
         self.workspace_manager = WorkspaceManager()
-        self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
+        try:
+            from companion.stream_deck import get_stream_deck_manager
+            self.stream_deck_manager = get_stream_deck_manager(dbus_service=self)
+        except Exception:
+            self.stream_deck_manager = None
         self.active_terminal_sessions = {}
         self.iot_manager = IoTTriggerManager(config_path=config_path, dbus_service=self)
 
@@ -221,6 +231,27 @@ class CmdBarDBusService:
             else clean_name
         )
 
+        eval_res = evaluate_command_policy(
+            cmd_str,
+            None,
+            config.get("policy") or config.get("security_policy"),
+            config.get("overrides")
+        )
+
+        if not eval_res.get("allowed"):
+            err_msg = f"Execution blocked by security policy: {eval_res.get('reason')}"
+            for listener in self._output_listeners:
+                try:
+                    listener(cmd_name, "", err_msg)
+                except Exception:
+                    pass
+            for listener in self._executed_listeners:
+                try:
+                    listener(cmd_name, 126, False)
+                except Exception:
+                    pass
+            return False
+
         import time
 
         start_time = time.perf_counter()
@@ -246,6 +277,25 @@ class CmdBarDBusService:
             )
 
         return True
+
+    def evaluate_policy(self, command: str, user: str = None) -> str:
+        config = load_config()
+        user_ctx = {"username": user} if user else None
+        res = evaluate_command_policy(
+            command,
+            user_ctx,
+            config.get("policy") or config.get("security_policy"),
+            config.get("overrides")
+        )
+        return json.dumps(res)
+
+    def grant_override(self, command: str, approver: str = "admin", expires_in_sec: int = 3600) -> bool:
+        if not command or not str(command).strip():
+            return False
+        config = load_config()
+        overrides = config.setdefault("overrides", {})
+        grant_approval_override(overrides, str(command).strip(), approver, expires_in_sec)
+        return save_config(config)
 
     def get_commands(self) -> list:
         config = load_config()
@@ -463,6 +513,22 @@ class CmdBarDBusService:
 
     def get_workspace_templates(self) -> dict:
         return PROJECT_TEMPLATES
+
+    def export_environment_snapshot(self, file_path: str, description: str = "Exported via D-Bus") -> bool:
+        try:
+            from companion.environment_snapshot import export_snapshot_to_file
+            export_snapshot_to_file(file_path, description=description)
+            return True
+        except Exception:
+            return False
+
+    def import_environment_snapshot(self, file_path: str, merge: bool = False) -> bool:
+        try:
+            from companion.environment_snapshot import import_snapshot_from_file
+            import_snapshot_from_file(file_path, mode="merge" if merge else "overwrite")
+            return True
+        except Exception:
+            return False
 
     def get_stream_deck_profiles(self) -> str:
         """Returns JSON string containing available Stream Deck profiles and active profile."""

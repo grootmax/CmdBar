@@ -54,6 +54,31 @@
       <annotation name="org.freedesktop.DBus.Description" value="List known workspace configurations as JSON"/>
       <arg name="json_workspaces" type="s" direction="out"/>
     </method>
+
+    <method name="CaptureScreenshot">
+      <annotation name="org.freedesktop.DBus.Description" value="Capture screenshot in mode (fullscreen, window, region) with optional save, annotate, share, strip_metadata"/>
+      <arg name="mode" type="s" direction="in"/>
+      <arg name="save_path" type="s" direction="in"/>
+      <arg name="copy_to_clipboard" type="b" direction="in"/>
+      <arg name="annotate_json" type="s" direction="in"/>
+      <arg name="share" type="b" direction="in"/>
+      <arg name="strip_metadata" type="b" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+
+    <method name="AnnotateScreenshot">
+      <annotation name="org.freedesktop.DBus.Description" value="Annotate screenshot buffer with vector drawings or labels"/>
+      <arg name="image_base64" type="s" direction="in"/>
+      <arg name="annotate_json" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+
+    <method name="UploadScreenshot">
+      <annotation name="org.freedesktop.DBus.Description" value="Upload/Share screenshot image data to URL"/>
+      <arg name="image_base64" type="s" direction="in"/>
+      <arg name="options_json" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
     
     <method name="GetBranding">
       <annotation name="org.freedesktop.DBus.Description" value="Get white label branding configuration as JSON string"/>
@@ -72,39 +97,53 @@
     </method>
 
     <method name="RegisterMobileDevice">
-      <annotation name="org.freedesktop.DBus.Description" value="Register mobile companion device"/>
+      <annotation name="org.freedesktop.DBus.Description" value="Register or pair a mobile device (iOS/Android)"/>
       <arg name="device_id" type="s" direction="in"/>
       <arg name="name" type="s" direction="in"/>
       <arg name="platform" type="s" direction="in"/>
-      <arg name="json_device" type="s" direction="out"/>
+      <arg name="push_token" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
     </method>
 
-    <method name="GetMobileQuickActions">
-      <annotation name="org.freedesktop.DBus.Description" value="Get list of mobile quick actions as JSON string"/>
-      <arg name="json_actions" type="s" direction="out"/>
+    <method name="GetMobileDevices">
+      <annotation name="org.freedesktop.DBus.Description" value="Get list of paired mobile devices as JSON string"/>
+      <arg name="json_devices" type="s" direction="out"/>
     </method>
 
-    <method name="ExecuteMobileQuickAction">
-      <annotation name="org.freedesktop.DBus.Description" value="Execute a mobile quick action"/>
-      <arg name="device_id" type="s" direction="in"/>
-      <arg name="action_id" type="s" direction="in"/>
-      <arg name="params_json" type="s" direction="in"/>
-      <arg name="biometric_token" type="s" direction="in"/>
-      <arg name="json_result" type="s" direction="out"/>
-    </method>
-
-    <method name="GetMobileWidgetData">
-      <annotation name="org.freedesktop.DBus.Description" value="Get mobile widget data as JSON string"/>
-      <arg name="widget_type" type="s" direction="in"/>
-      <arg name="device_id" type="s" direction="in"/>
-      <arg name="size" type="s" direction="in"/>
-      <arg name="json_data" type="s" direction="out"/>
+    <method name="GetMobileWidgetPayload">
+      <annotation name="org.freedesktop.DBus.Description" value="Get mobile widget data payload for iOS/Android"/>
+      <arg name="platform" type="s" direction="in"/>
+      <arg name="family" type="s" direction="in"/>
+      <arg name="json_payload" type="s" direction="out"/>
     </method>
 
     <method name="ProcessMobileOfflineQueue">
-      <annotation name="org.freedesktop.DBus.Description" value="Process all pending requests in offline queue"/>
+      <annotation name="org.freedesktop.DBus.Description" value="Process queued mobile offline actions"/>
+      <arg name="max_items" type="i" direction="in"/>
       <arg name="json_results" type="s" direction="out"/>
     </method>
+
+    <method name="SendMobilePushNotification">
+      <annotation name="org.freedesktop.DBus.Description" value="Send a push notification to a registered mobile device"/>
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="title" type="s" direction="in"/>
+      <arg name="body" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <signal name="MobileDeviceRegistered">
+      <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when a new mobile device is registered"/>
+      <arg name="device_id" type="s"/>
+      <arg name="name" type="s"/>
+      <arg name="platform" type="s"/>
+    </signal>
+
+    <signal name="MobileQueueActionProcessed">
+      <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when an offline queue action is processed"/>
+      <arg name="queue_id" type="s"/>
+      <arg name="command_name" type="s"/>
+      <arg name="status" type="s"/>
+    </signal>
     
     <method name="VerifyYubiKey2FA">
       <annotation name="org.freedesktop.DBus.Description" value="Verify YubiKey 2FA for a command execution request"/>
@@ -179,8 +218,35 @@
       <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when SSO session status changes"/>
       <arg name="session_id" type="s"/>
       <arg name="state" type="s"/>
-    </signal>
+
     
+    <method name="GetNumpadLayers">
+      <annotation name="org.freedesktop.DBus.Description" value="Get numpad macro pad configuration and active layer as JSON string"/>
+      <arg name="json_numpad" type="s" direction="out"/>
+    </method>
+    
+    <method name="SetActiveNumpadLayer">
+      <annotation name="org.freedesktop.DBus.Description" value="Set active numpad macro pad layer index"/>
+      <arg name="layer_index" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="ExecuteNumpadKey">
+      <annotation name="org.freedesktop.DBus.Description" value="Execute instant command for numpad key index (0-9) on active layer"/>
+      <arg name="key_index" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="ToggleNumpadOverlay">
+      <annotation name="org.freedesktop.DBus.Description" value="Toggle visual numpad macro pad overlay HUD"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <signal name="NumpadLayerChanged">
+      <annotation name="org.freedesktop.DBus.Description" value="Signal emitted when the active numpad layer changes"/>
+      <arg name="layer_index" type="i"/>
+      <arg name="layer_name" type="s"/>
+    </signal>
     <method name="TriggerEvent">
       <annotation name="org.freedesktop.DBus.Description" value="Trigger an event by type and payload JSON"/>
       <arg name="event_type" type="s" direction="in"/>
@@ -212,5 +278,37 @@
       <arg name="command" type="s"/>
       <arg name="success" type="b"/>
     </signal>
+
+    <method name="GetNotes">
+      <annotation name="org.freedesktop.DBus.Description" value="Get list of all notes as JSON string"/>
+      <arg name="json_notes" type="s" direction="out"/>
+    </method>
+
+    <method name="AddNote">
+      <annotation name="org.freedesktop.DBus.Description" value="Add a new note"/>
+      <arg name="title" type="s" direction="in"/>
+      <arg name="content" type="s" direction="in"/>
+      <arg name="tags" type="s" direction="in"/>
+      <arg name="attached_command" type="s" direction="in"/>
+      <arg name="json_note" type="s" direction="out"/>
+    </method>
+
+    <method name="SearchNotes">
+      <annotation name="org.freedesktop.DBus.Description" value="Search notes by query string or tag"/>
+      <arg name="query" type="s" direction="in"/>
+      <arg name="json_notes" type="s" direction="out"/>
+    </method>
+
+    <method name="ShareNoteLink">
+      <annotation name="org.freedesktop.DBus.Description" value="Generate shareable URL link for note by ID"/>
+      <arg name="id" type="s" direction="in"/>
+      <arg name="link" type="s" direction="out"/>
+    </method>
+
+    <method name="ImportNoteLink">
+      <annotation name="org.freedesktop.DBus.Description" value="Import note from share link"/>
+      <arg name="link" type="s" direction="in"/>
+      <arg name="json_note" type="s" direction="out"/>
+    </method>
   </interface>
 </node>

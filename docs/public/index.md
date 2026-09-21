@@ -30,6 +30,7 @@ Welcome to CmdBar! CmdBar is a modern command palette for GNOME Shell and KDE Pl
 - **Workspace-Specific Configs**: Auto-detects project configurations (`.cmdbar.json`) from current working directory or Git repository root. Supports project templates (`node`, `python`, `rust`, `go`, `generic`) and smooth switching.
 - **YubiKey 2FA Security**: Hardware-backed authentication for sensitive commands with Touch-to-Confirm, Yubico OTP, FIDO2/U2F, and single-use emergency recovery codes.
 - **Clipboard History**: Integrated command palette clipboard manager tracking up to 50 entries with search, pinning, clear history, and click-to-paste functionality.
+- **CI/CD Integration Pipeline**: Trigger deployments, monitor pipeline status, and initiate rollbacks for GitHub Actions, GitLab CI, and Jenkins directly with secret token redaction.
 - **Support for Arguments**: Interactive dialogs for commands requiring user parameters.
 - **Command Audit Logging**: Log command executions to `~/.local/share/cmdbar/audit.log` with ISO timestamp, user, exit code, and execution duration. Includes Privacy Mode to automatically exclude sensitive commands and parameters, daily log rotation, and an in-app Audit Log Viewer.
 - **Role-Based Access Control (RBAC)**: Enterprise granular permissions, command visibility filtering, multi-step approval chains, temporary delegation, and audit trail logging.
@@ -38,3 +39,4 @@ Welcome to CmdBar! CmdBar is a modern command palette for GNOME Shell and KDE Pl
 - **Mobile Companion App**: iOS and Android companion integration featuring Push Notifications (APNs & FCM), Quick Actions, Home Screen & Lock Screen Widget support, Challenge-Response Biometric Auth, and Persistent Offline Queue.
 - **Enterprise White Label & Custom Branding**: Rebrand the top panel indicator with custom enterprise logo, application name, primary brand colors, domain alias endpoints, and custom SSL certificate bundles.
 - **Live Terminal Sharing**: Real-time collaborative terminal sessions with WebRTC streaming, cursor tracking, permission control, session recording, and E2E encryption.
+- **Enterprise Policy Enforcement Engine**: Enforce security controls including Multi-Factor Authentication (MFA) for sensitive operations, Data Loss Prevention (DLP) pattern scanning and redaction for sensitive data (Credit Cards, SSN, AWS keys, API tokens), geographic access restrictions (country and IP CIDR allow/deny lists), and time-based access control windows.

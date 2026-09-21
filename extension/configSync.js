@@ -217,6 +217,7 @@ export const DEFAULT_CONFIG = {
   ],
   triggers: [],
   rbac: DEFAULT_RBAC_CONFIG,
+  notes: [],
 };
 
 const isNode =
