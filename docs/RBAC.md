@@ -1,16 +1,36 @@
-# Enterprise Role-Based Access Control (RBAC) Specification
+# Enterprise Role-Based Access Control (RBAC) Specification & User Guide
 
 CmdBar provides a comprehensive Enterprise Role-Based Access Control (RBAC) system supporting granular permissions, admin/user roles, command visibility rules, approval chains, delegation, and structured audit trails.
 
 ---
 
-## 1. Overview
+## 1. Overview & Architecture
 
-The RBAC system ensures that users only view and execute commands for which they hold explicit permissions or active delegated roles. Sensitive operations can mandate multi-step approval chains before execution, while every authorization decision and management action is logged to an immutable audit trail.
+RBAC in CmdBar is implemented synchronously across both the JS extension runtime (`extension/rbac.js`) and Python companion service (`app/rbac.py` / `companion/rbac.py`).
+
+### Key Features
+- **Granular Permissions**: Fine-grained capability checks (`commands:view`, `commands:execute`, `commands:approve`, `commands:manage`, `rbac:manage`, `audit:view`, and wildcard `*` or `namespace:*`).
+- **Built-in & Custom Roles**: Pre-configured roles (`admin`, `operator`, `user`, `viewer`, `auditor`) and configurable custom roles.
+- **Command Visibility Rules**: Restrict command visibility per category or command using `required_role`, `required_permissions`, `allowed_roles`, or `visibility` (`public`, `role_restricted`, `admin_only`, `hidden`).
+- **Approval Chains**: Require approver review before executing sensitive commands.
+- **Delegation**: Delegate roles or permissions temporarily with explicit expiration times (`expires_at` / `end_time`).
+- **Audit Trail**: Every authorization check, execution attempt, approval, delegation, and role change is logged to a structured audit log exportable to JSON and CSV.
 
 ---
 
-## 2. Configuration Schema
+## 2. Default Roles & Permissions
+
+| Role | Default Permissions | Description |
+| --- | --- | --- |
+| **admin** | `*` | Full administrative access with wildcard permissions |
+| **operator** | `commands:view`, `commands:execute`, `commands:approve` | Command execution and approval authorization |
+| **user** | `commands:view`, `commands:execute` | Standard command viewing and execution rights |
+| **viewer** | `commands:view` | Read-only view of allowed commands |
+| **auditor** | `commands:view`, `audit:view` | Access to view commands and audit logs |
+
+---
+
+## 3. Configuration Schema
 
 The RBAC state is embedded within the primary `config.json` file under the `"rbac"` key:
 
@@ -33,7 +53,7 @@ The RBAC state is embedded within the primary `config.json` file under the `"rba
       "operator": {
         "name": "Operator",
         "description": "Execution, viewing, and approval requesting capabilities",
-        "permissions": ["command:view", "command:execute", "approval:request"]
+        "permissions": ["command:view", "command:execute", "approval:request", "commands:approve"]
       },
       "approver": {
         "name": "Approver",
@@ -47,11 +67,14 @@ The RBAC state is embedded within the primary `config.json` file under the `"rba
       }
     },
     "user_roles": {
-      "admin": ["admin"],
       "alice": ["admin"],
       "bob": ["user"],
       "charlie": ["operator"],
       "david": ["approver"]
+    },
+    "users": {
+      "alice": { "role": "admin" },
+      "bob": { "role": "operator" }
     },
     "user_permissions": {
       "bob": ["command:execute:staging"]
@@ -65,17 +88,17 @@ The RBAC state is embedded within the primary `config.json` file under the `"rba
 
 ---
 
-## 3. Command Visibility Rules
+## 4. Command Visibility Rules
 
 Commands in `config.json` can specify visibility and access restrictions:
 
 - **`visibility`**:
   - `"public"` (default): Visible to all users.
-  - `"role_restricted"`: Requires user to hold at least one role in `allowed_roles`.
-  - `"admin_only"`: Only visible to users with `admin` role or `*` permission.
+  - `"role_restricted"` / `"role-restricted"`: Requires user to hold at least one role in `allowed_roles` or `required_role`.
+  - `"admin_only"` / `"admin-only"`: Only visible to users with `admin` role or `*` permission.
   - `"hidden"`: Hidden from all menus and search queries.
-- **`allowed_roles` / `roles`**: List of role strings permitted to see the command.
-- **`required_permissions` / `permissions`**: List of permission strings required to see the command.
+- **`allowed_roles` / `roles` / `required_role`**: Role(s) permitted to see the command.
+- **`required_permissions` / `permissions` / `required_permission`**: Permission string(s) required to see the command.
 - **`min_role`**: Minimum required role level.
 
 ### Example Restricted Command:
@@ -93,18 +116,18 @@ Commands in `config.json` can specify visibility and access restrictions:
 
 ---
 
-## 4. Approval Chains
+## 5. Approval Chains
 
 For critical commands, `requires_approval: true` mandates that an approval request be created and approved before execution is granted.
 
 - **Request Creation**: When an unauthorized or non-admin user triggers the command, an approval request is generated with `status: "pending"`.
-- **Approving**: Users holding an approving role (e.g. `approver` or `admin`) or `command:approve` permission approve the request.
+- **Approving**: Users holding an approving role (e.g. `approver` or `admin`) or `commands:approve` permission approve the request.
 - **Rejection**: Approvers can reject requests with an optional explanation string.
 - **Execution Gate**: Once status transitions to `"approved"`, passing the `approval_request_id` grants command execution.
 
 ---
 
-## 5. Delegation
+## 6. Delegation
 
 Delegation allows users to delegate roles or permissions to another user for a specified duration or until revoked:
 
@@ -116,9 +139,21 @@ Delegation allows users to delegate roles or permissions to another user for a s
 
 ---
 
-## 6. Audit Trail
+## 7. Audit Trail
 
 All authorization events, role assignments, approval decisions, delegation updates, and command executions generate structured audit log entries:
 
 - **Querying**: Filter logs by actor, action, resource, outcome, and date ranges.
 - **Exports**: Export audit logs in pretty-printed JSON or standard CSV formats for compliance reporting.
+
+---
+
+## 8. D-Bus Interface API
+
+The D-Bus service `org.gnome.CmdBar` exposes RBAC endpoints:
+
+- `GetUserRole(username -> role)`: Retrieve user's active role.
+- `SetUserRole(username, role -> success)`: Change user role.
+- `GetPendingApprovals(-> json_approvals)`: List pending approval requests.
+- `ApproveCommand(request_id, reviewer -> success)`: Approve a pending command request.
+- `RejectCommand(submission_id, reviewer_role, reason -> success)`: Reject a pending command request.

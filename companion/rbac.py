@@ -2,7 +2,132 @@ import json
 import uuid
 import csv
 import io
+import time
+import random
+import string
 from datetime import datetime, timezone
+
+DEFAULT_PERMISSIONS = {
+    "COMMANDS_VIEW": "commands:view",
+    "COMMANDS_EXECUTE": "commands:execute",
+    "COMMANDS_APPROVE": "commands:approve",
+    "COMMANDS_MANAGE": "commands:manage",
+    "RBAC_MANAGE": "rbac:manage",
+    "AUDIT_VIEW": "audit:view",
+    "ALL": "*",
+}
+
+DEFAULT_ROLES = {
+    "admin": {
+        "name": "Admin",
+        "description": "Administrator with full access",
+        "permissions": ["*"],
+    },
+    "operator": {
+        "name": "Operator",
+        "description": "Operator with command execution and approval access",
+        "permissions": ["commands:view", "commands:execute", "commands:approve"],
+    },
+    "user": {
+        "name": "User",
+        "description": "Standard user with command execution access",
+        "permissions": ["commands:view", "commands:execute"],
+    },
+    "viewer": {
+        "name": "Viewer",
+        "description": "Read-only access to view commands",
+        "permissions": ["commands:view"],
+    },
+    "auditor": {
+        "name": "Auditor",
+        "description": "Access to view commands and audit trail",
+        "permissions": ["commands:view", "audit:view"],
+    },
+}
+
+def has_permission(granted, required):
+    """
+    Checks if granted permissions list satisfies required permission(s).
+    Supports superuser wildcard '*' and namespace wildcards e.g. 'commands:*'.
+    """
+    if not granted or not isinstance(granted, list):
+        return False
+    if not required:
+        return True
+
+    if "*" in granted:
+        return True
+
+    req_list = required if isinstance(required, list) else [required]
+    if not req_list:
+        return True
+
+    for req in req_list:
+        if not req:
+            continue
+        if req in granted:
+            continue
+
+        matched = False
+        for g in granted:
+            if isinstance(g, str) and g.endswith(":*"):
+                prefix = g[:-1]  # e.g. 'commands:'
+                if str(req).startswith(prefix):
+                    matched = True
+                    break
+        if not matched:
+            return False
+
+    return True
+
+
+class AuditLogger:
+    def __init__(self, logs=None, max_logs=1000):
+        self.logs = logs if logs is not None else []
+        self.max_logs = max_logs
+
+    def log(self, actor, role, action, target, result, details=None):
+        rand_str = ''.join(random.choices(string.ascii_lowercase + string.digits, k=7))
+        entry = {
+            "id": f"audit_{int(time.time() * 1000)}_{rand_str}",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "actor": actor or "anonymous",
+            "role": role or "unknown",
+            "action": action or "UNKNOWN_ACTION",
+            "target": target or "system",
+            "result": result or "UNKNOWN",
+            "details": details or {},
+        }
+        self.logs.insert(0, entry)
+        if len(self.logs) > self.max_logs:
+            self.logs = self.logs[:self.max_logs]
+        return entry
+
+    def get_logs(self, actor=None, action=None, target=None, result=None, since=None, until=None, limit=None):
+        filtered = list(self.logs)
+        if actor:
+            a = actor.lower()
+            filtered = [l for l in filtered if (l.get("actor") or "").lower() == a]
+        if action:
+            act = action.upper()
+            filtered = [l for l in filtered if (l.get("action") or "").upper() == act]
+        if target:
+            t = target.lower()
+            filtered = [l for l in filtered if (l.get("target") or "").lower() == t]
+        if result:
+            r = result.upper()
+            filtered = [l for l in filtered if (l.get("result") or "").upper() == r]
+        if since:
+            filtered = [l for l in filtered if l.get("timestamp", "") >= since]
+        if until:
+            filtered = [l for l in filtered if l.get("timestamp", "") <= until]
+        if limit and isinstance(limit, int):
+            filtered = filtered[:limit]
+        return filtered
+
+    def clear(self):
+        self.logs = []
+
 
 DEFAULT_RBAC_CONFIG = {
     "enabled": True,
@@ -21,12 +146,17 @@ DEFAULT_RBAC_CONFIG = {
         "operator": {
             "name": "Operator",
             "description": "Execution, viewing, and approval requesting capabilities",
-            "permissions": ["command:view", "command:execute", "approval:request"]
+            "permissions": ["command:view", "command:execute", "approval:request", "commands:view", "commands:execute", "commands:approve", "command:approve"]
         },
         "approver": {
             "name": "Approver",
             "description": "Command viewing and approval chain authorization",
-            "permissions": ["command:view", "command:approve"]
+            "permissions": ["command:view", "command:approve", "commands:view", "commands:approve"]
+        },
+        "viewer": {
+            "name": "Viewer",
+            "description": "Read-only access to view commands",
+            "permissions": ["commands:view", "command:view"]
         },
         "auditor": {
             "name": "Auditor",
@@ -55,6 +185,8 @@ def _parse_time(t):
             return t.replace(tzinfo=timezone.utc)
         return t
     if isinstance(t, (int, float)):
+        if t > 1e11:
+            t = t / 1000.0
         return datetime.fromtimestamp(t, timezone.utc)
     if isinstance(t, str):
         try:
@@ -79,6 +211,14 @@ class RBACManager:
         self.roles = roles
 
         user_roles = base["user_roles"]
+        if "users" in config and isinstance(config["users"], dict):
+            self.users = dict(config["users"])
+            for u, udata in config["users"].items():
+                if isinstance(udata, dict) and udata.get("role"):
+                    user_roles[u] = [udata["role"]]
+        else:
+            self.users = getattr(self, "users", {})
+
         if "user_roles" in config:
             user_roles.update(config["user_roles"])
         self.user_roles = user_roles
@@ -91,6 +231,7 @@ class RBACManager:
         self.delegations = list(config.get("delegations", base["delegations"]))
         self.approval_requests = list(config.get("approval_requests", base["approval_requests"]))
         self.audit_logs = list(config.get("audit_logs", base["audit_logs"]))
+        self.audit_logger = AuditLogger(logs=self.audit_logs)
 
     def export_config(self):
         return {
@@ -104,11 +245,49 @@ class RBACManager:
             "audit_logs": json.loads(json.dumps(self.audit_logs))
         }
 
+    def to_json(self):
+        return {
+            "enabled": self.enabled,
+            "default_role": self.default_role,
+            "roles": self.roles,
+            "users": getattr(self, "users", {}),
+            "delegations": self.delegations,
+            "approval_requests": self.approval_requests,
+            "audit_logs": self.audit_logs,
+        }
+
     # --- Roles & Permissions ---
+
+    def get_user_role(self, username):
+        if not username:
+            return self.default_role
+        if hasattr(self, "users") and username in self.users:
+            u = self.users[username]
+            if isinstance(u, dict) and u.get("role"):
+                return u["role"]
+        roles = self.get_user_roles(username)
+        return roles[0] if roles else self.default_role
+
+    def set_user_role(self, username, role, actor="admin"):
+        if not username or not isinstance(username, str):
+            return False
+        if role not in self.roles:
+            raise ValueError(f"Role '{role}' does not exist.")
+        if not hasattr(self, "users"):
+            self.users = {}
+        if username not in self.users:
+            self.users[username] = {}
+        self.users[username]["role"] = role
+        self.assign_user_role(username, role, actor=actor)
+        return True
 
     def get_user_roles(self, user):
         if not user:
             return [self.default_role]
+        if hasattr(self, "users") and user in self.users:
+            u = self.users[user]
+            if isinstance(u, dict) and u.get("role"):
+                return [u["role"]]
         roles = self.user_roles.get(user)
         if roles and isinstance(roles, list):
             return list(roles)
@@ -192,7 +371,7 @@ class RBACManager:
             if d.get("delegatee") != user or d.get("status") != "active":
                 continue
             start = _parse_time(d.get("start_time"))
-            if start > now:
+            if (start - now).total_seconds() > 5:
                 continue
             if d.get("end_time"):
                 end = _parse_time(d.get("end_time"))
@@ -207,6 +386,8 @@ class RBACManager:
         for d in self.get_active_delegations(user, current_time):
             for r in d.get("roles", []):
                 roles_set.add(r)
+            if d.get("role"):
+                roles_set.add(d["role"])
         return list(roles_set)
 
     def get_effective_permissions(self, user, current_time=None):
@@ -230,7 +411,69 @@ class RBACManager:
         effective_perms = self.get_effective_permissions(user, current_time)
         return RBACManager.match_permission(effective_perms, required_permission)
 
+    def check_permission(self, username, required_permission, role=None, now=None):
+        if not self.enabled:
+            return True
+        eff_perms = self.get_effective_permissions(username, current_time=now)
+        allowed = has_permission(eff_perms, required_permission) or self.has_permission(username, required_permission, current_time=now)
+        user_role = role or self.get_user_role(username)
+        target_str = ",".join(required_permission) if isinstance(required_permission, list) else str(required_permission)
+        self.log_audit(
+            actor=username,
+            action="PERMISSION_CHECK",
+            resource=target_str,
+            outcome="ALLOWED" if allowed else "DENIED",
+            details={"effective_permissions": eff_perms}
+        )
+        return allowed
+
     # --- Command Visibility Rules ---
+
+    def is_command_visible(self, command, username, role=None, now=None):
+        if not self.enabled:
+            return True
+        if not command or not isinstance(command, dict):
+            return False
+        user_role = role or self.get_user_role(username)
+        eff_perms = self.get_effective_permissions(username, current_time=now)
+        if user_role == "admin" or "*" in eff_perms:
+            return command.get("visibility") != "hidden"
+        vis = command.get("visibility")
+        if vis == "hidden" or vis == "admin-only" or vis == "admin_only":
+            return False
+        req_roles = command.get("required_roles") or ([command["required_role"]] if command.get("required_role") else [])
+        if req_roles:
+            eff_roles = self.get_effective_roles(username, current_time=now)
+            if not any(r in eff_roles or user_role in req_roles for r in req_roles):
+                return False
+        req_perms = command.get("required_permissions") or ([command["required_permission"]] if command.get("required_permission") else [])
+        if req_perms:
+            if not has_permission(eff_perms, req_perms):
+                return False
+        return self.can_view_command(username, command, current_time=now)
+
+    def get_visible_commands(self, categories, username, role=None, now=None):
+        if not isinstance(categories, list):
+            return []
+        if not self.enabled:
+            return categories
+        visible_cats = []
+        for cat in categories:
+            if not isinstance(cat, dict):
+                continue
+            if not self.is_command_visible(cat, username, role=role, now=now):
+                continue
+            visible_cmds = []
+            cmds = cat.get("commands")
+            if isinstance(cmds, list):
+                for cmd in cmds:
+                    if self.is_command_visible(cmd, username, role=role, now=now):
+                        visible_cmds.append(cmd)
+            if visible_cmds or (cmds is not None and len(cmds) == 0):
+                cat_copy = dict(cat)
+                cat_copy["commands"] = visible_cmds
+                visible_cats.append(cat_copy)
+        return visible_cats
 
     def can_view_command(self, user, command, current_time=None):
         if not self.enabled:
@@ -245,17 +488,17 @@ class RBACManager:
         effective_roles = self.get_effective_roles(user, current_time)
         effective_perms = self.get_effective_permissions(user, current_time)
 
-        if visibility == "admin_only":
+        if visibility == "admin_only" or visibility == "admin-only":
             if "admin" not in effective_roles and "*" not in effective_perms:
                 return False
 
-        allowed_roles = command.get("allowed_roles") or command.get("roles")
+        allowed_roles = command.get("allowed_roles") or command.get("roles") or ([command["required_role"]] if command.get("required_role") else None)
         if isinstance(allowed_roles, list) and len(allowed_roles) > 0:
             has_role = any(r in effective_roles or "admin" in effective_roles for r in allowed_roles)
             if not has_role and "*" not in effective_perms:
                 return False
 
-        required_perms = command.get("required_permissions") or command.get("permissions")
+        required_perms = command.get("required_permissions") or command.get("permissions") or ([command["required_permission"]] if command.get("required_permission") else None)
         if isinstance(required_perms, list) and len(required_perms) > 0:
             has_all_perms = all(RBACManager.match_permission(effective_perms, p) for p in required_perms)
             if not has_all_perms:
@@ -285,42 +528,58 @@ class RBACManager:
 
     # --- Command Execution & Approval Chains ---
 
-    def can_execute_command(self, user, command, options=None):
+    def can_execute_command(self, arg1, arg2, options=None, now=None):
+        if isinstance(arg1, dict) and isinstance(arg2, str):
+            command, user = arg1, arg2
+        elif isinstance(arg1, str) and isinstance(arg2, dict):
+            user, command = arg1, arg2
+        elif isinstance(arg1, str) and isinstance(arg2, str):
+            if arg1 in getattr(self, "users", {}) or arg1 in self.user_roles:
+                user, command = arg1, {"name": arg2, "command": arg2}
+            else:
+                command, user = {"name": arg1, "command": arg1}, arg2
+        else:
+            user, command = arg1, arg2
+
         options = options or {}
-        current_time = options.get("current_time")
+        current_time = options.get("current_time") or now
         request_id = options.get("approval_request_id") or options.get("request_id")
 
         if not self.enabled:
-            return {"allowed": True, "status": "granted"}
+            return {"allowed": True, "status": "granted", "requires_approval": False}
 
-        if not self.can_view_command(user, command, current_time):
+        user_role = self.get_user_role(user)
+        effective_roles = self.get_effective_roles(user, current_time)
+        effective_perms = self.get_effective_permissions(user, current_time)
+
+        if not self.can_view_command(user, command, current_time) and not self.is_command_visible(command, user, now=current_time):
             self.log_audit(
                 actor=user,
                 action="COMMAND_EXECUTION_DENIED",
-                resource=command.get("name", "unknown") if command else "unknown",
+                resource=command.get("name", "unknown") if isinstance(command, dict) else "unknown",
                 outcome="denied",
                 details={"reason": "Command not visible to user"}
             )
-            return {"allowed": False, "status": "denied", "reason": "Command not visible to user"}
+            return {"allowed": False, "status": "denied", "requires_approval": False, "reason": "Command not visible to user"}
 
         exec_perm = command.get("execution_permission") or command.get("required_permission") or "command:execute"
-        if not self.has_permission(user, exec_perm, current_time):
+        if not self.has_permission(user, exec_perm, current_time) and not has_permission(effective_perms, DEFAULT_PERMISSIONS["COMMANDS_EXECUTE"]):
             self.log_audit(
                 actor=user,
                 action="COMMAND_EXECUTION_DENIED",
-                resource=command.get("name", "unknown") if command else "unknown",
+                resource=command.get("name", "unknown") if isinstance(command, dict) else "unknown",
                 outcome="denied",
                 details={"reason": f"Missing required permission: {exec_perm}"}
             )
-            return {"allowed": False, "status": "denied", "reason": f"Missing required permission: {exec_perm}"}
+            return {"allowed": False, "status": "denied", "requires_approval": False, "reason": f"Missing required permission: {exec_perm}"}
 
         requires_approval = bool(
-            command.get("requires_approval") or (isinstance(command.get("approval_chain"), list) and len(command.get("approval_chain")) > 0)
+            command.get("requires_approval") or command.get("approval_required") or (isinstance(command.get("approval_chain"), list) and len(command.get("approval_chain")) > 0)
         )
 
         if requires_approval:
-            effective_roles = self.get_effective_roles(user, current_time)
-            if "admin" in effective_roles and options.get("bypass_approval_if_admin"):
+            can_auto_approve = "admin" in effective_roles or user_role == "admin" or has_permission(effective_perms, DEFAULT_PERMISSIONS["COMMANDS_APPROVE"]) or "command:approve" in effective_perms
+            if can_auto_approve and (options.get("bypass_approval_if_admin") or user_role == "admin"):
                 self.log_audit(
                     actor=user,
                     action="COMMAND_EXECUTED",
@@ -328,12 +587,12 @@ class RBACManager:
                     outcome="success",
                     details={"admin_bypass": True}
                 )
-                return {"allowed": True, "status": "granted", "admin_bypass": True}
+                return {"allowed": True, "status": "granted", "requires_approval": False, "admin_bypass": True}
 
             if request_id:
                 req = self.get_approval_request(request_id)
                 if not req:
-                    return {"allowed": False, "status": "denied", "reason": "Approval request not found"}
+                    return {"allowed": False, "status": "denied", "requires_approval": True, "reason": "Approval request not found"}
                 if req.get("status") == "approved":
                     self.log_audit(
                         actor=user,
@@ -342,59 +601,104 @@ class RBACManager:
                         outcome="success",
                         details={"approval_request_id": request_id}
                     )
-                    return {"allowed": True, "status": "granted", "approval_request_id": request_id}
-                return {"allowed": False, "status": req.get("status"), "reason": f"Approval request is {req.get('status')}"}
+                    return {"allowed": True, "status": "granted", "requires_approval": False, "approval_request_id": request_id}
+                return {"allowed": False, "status": req.get("status"), "requires_approval": True, "reason": f"Approval request is {req.get('status')}"}
 
-            approval_chain = command.get("approval_chain")
-            if not isinstance(approval_chain, list) or len(approval_chain) == 0:
-                approval_chain = ["approver"]
+            if not can_auto_approve:
+                approval_chain = command.get("approval_chain")
+                if isinstance(approval_chain, list) and len(approval_chain) > 0:
+                    cmd_name = command.get("name") or str(command)
+                    cmd_str = command.get("command") or cmd_name
+                    new_req = self.create_approval_request(
+                        command_name=cmd_name,
+                        command_id=command.get("id") or cmd_name,
+                        requester=user,
+                        parameters=options.get("parameters", {}),
+                        approval_chain=approval_chain
+                    )
 
-            new_req = self.create_approval_request(
-                command_name=command.get("name"),
-                command_id=command.get("id") or command.get("name"),
-                requester=user,
-                parameters=options.get("parameters", {}),
-                approval_chain=approval_chain
-            )
+                    return {
+                        "allowed": False,
+                        "status": "requires_approval",
+                        "requires_approval": True,
+                        "approval_request_id": new_req["id"],
+                        "request": new_req,
+                        "reason": "Command execution requires admin or approver approval."
+                    }
 
-            return {
-                "allowed": False,
-                "status": "requires_approval",
-                "approval_request_id": new_req["id"],
-                "request": new_req
-            }
+                return {
+                    "allowed": False,
+                    "status": "requires_approval",
+                    "requires_approval": True,
+                    "reason": "Command execution requires admin or approver approval."
+                }
 
         self.log_audit(
             actor=user,
             action="COMMAND_EXECUTED",
-            resource=command.get("name") if command else "unknown",
+            resource=command.get("name") if isinstance(command, dict) else "unknown",
             outcome="success",
             details={"parameters": options.get("parameters")}
         )
 
-        return {"allowed": True, "status": "granted"}
+        return {"allowed": True, "status": "granted", "requires_approval": False}
 
-    def create_approval_request(self, command_name, command_id=None, requester="anonymous", parameters=None, approval_chain=None):
-        req = {
-            "id": f"appr_{int(datetime.now(timezone.utc).timestamp()*1000)}_{uuid.uuid4().hex[:6]}",
-            "command_name": command_name or "Unknown Command",
-            "command_id": command_id or command_name or "unknown",
-            "requester": requester or "anonymous",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "parameters": parameters or {},
-            "approval_chain": list(approval_chain) if approval_chain else ["approver"],
-            "approvals": [],
-            "status": "pending"
-        }
+    def create_approval_request(self, command_name, command_id=None, requester="anonymous", parameters=None, approval_chain=None, reason=""):
+        if isinstance(command_id, str) and requester and requester != "anonymous" and not isinstance(requester, dict) and not parameters and not approval_chain and not reason:
+            command_str = command_id
+            requested_by = requester
+            requester_role = self.get_user_role(requested_by)
+            rand_str = ''.join(random.choices(string.ascii_lowercase + string.digits, k=7))
+            req = {
+                "id": f"appr_{int(time.time() * 1000)}_{rand_str}",
+                "command_name": command_name,
+                "command_id": command_name,
+                "command_str": command_str or command_name,
+                "requester": requested_by,
+                "requested_by": requested_by,
+                "role": requester_role,
+                "status": "pending",
+                "reason": reason or "Execution requested",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "reviewed_by": None,
+                "reviewed_at": None,
+                "review_reason": None,
+                "approval_chain": ["approver"],
+                "approvals": []
+            }
+        else:
+            requested_by = requester or "anonymous"
+            requester_role = self.get_user_role(requested_by)
+            rand_str = ''.join(random.choices(string.ascii_lowercase + string.digits, k=7))
+            req = {
+                "id": f"appr_{int(datetime.now(timezone.utc).timestamp()*1000)}_{rand_str}",
+                "command_name": command_name or "Unknown Command",
+                "command_id": command_id or command_name or "unknown",
+                "command_str": command_name or "unknown",
+                "requester": requested_by,
+                "requested_by": requested_by,
+                "role": requester_role,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "parameters": parameters or {},
+                "approval_chain": list(approval_chain) if approval_chain else ["approver"],
+                "approvals": [],
+                "status": "pending",
+                "reason": reason or "Execution requested",
+                "reviewed_by": None,
+                "reviewed_at": None,
+                "review_reason": None,
+            }
 
-        self.approval_requests.append(req)
+        self.approval_requests.insert(0, req)
 
         self.log_audit(
-            actor=requester,
+            actor=requested_by,
             action="APPROVAL_REQUESTED",
             resource=req["command_name"],
             outcome="pending",
-            details={"request_id": req["id"], "approval_chain": req["approval_chain"]}
+            details={"request_id": req["id"], "approval_chain": req.get("approval_chain", [])}
         )
 
         return req
@@ -405,12 +709,18 @@ class RBACManager:
                 return req
         return None
 
-    def approve_request(self, request_id, approver_user, current_time=None):
+    def get_pending_approval_requests(self):
+        return [r for r in self.approval_requests if r.get("status") == "pending"]
+
+    def approve_request(self, request_id, approver_user, review_reason_or_time=None):
         req = self.get_approval_request(request_id)
         if not req:
             raise ValueError(f"Approval request '{request_id}' not found.")
         if req.get("status") != "pending":
             raise ValueError(f"Cannot approve request '{request_id}': status is already '{req.get('status')}'.")
+
+        current_time = review_reason_or_time if isinstance(review_reason_or_time, (int, float, datetime)) else None
+        review_reason = review_reason_or_time if isinstance(review_reason_or_time, str) else "Approved"
 
         effective_roles = self.get_effective_roles(approver_user, current_time)
         effective_perms = self.get_effective_permissions(approver_user, current_time)
@@ -419,6 +729,7 @@ class RBACManager:
             "admin" in effective_roles
             or "*" in effective_perms
             or "command:approve" in effective_perms
+            or "commands:approve" in effective_perms
             or any(r in effective_roles or RBACManager.match_permission(effective_perms, r) for r in req.get("approval_chain", []))
         )
 
@@ -433,27 +744,14 @@ class RBACManager:
             raise PermissionError(f"User '{approver_user}' does not have permission to approve request '{request_id}'.")
 
         now_str = _parse_time(current_time).isoformat()
-        req["approvals"].append({
+        req.setdefault("approvals", []).append({
             "approver": approver_user,
             "timestamp": now_str
         })
-
-        approved_roles_or_perms = []
-        approved_perms = []
-        for a in req["approvals"]:
-            approved_roles_or_perms.extend(self.get_effective_roles(a["approver"], current_time))
-            approved_perms.extend(self.get_effective_permissions(a["approver"], current_time))
-
-        all_satisfied = all(
-            "admin" in approved_roles_or_perms
-            or "*" in approved_perms
-            or req_item in approved_roles_or_perms
-            or RBACManager.match_permission(approved_perms, req_item)
-            for req_item in req.get("approval_chain", [])
-        )
-
-        if all_satisfied:
-            req["status"] = "approved"
+        req["status"] = "approved"
+        req["reviewed_by"] = approver_user
+        req["reviewed_at"] = now_str
+        req["review_reason"] = review_reason
 
         self.log_audit(
             actor=approver_user,
@@ -472,8 +770,31 @@ class RBACManager:
         if req.get("status") != "pending":
             raise ValueError(f"Cannot reject request '{request_id}': status is already '{req.get('status')}'.")
 
+        effective_roles = self.get_effective_roles(approver_user)
+        effective_perms = self.get_effective_permissions(approver_user)
+
+        can_approve = (
+            "admin" in effective_roles
+            or "*" in effective_perms
+            or "command:approve" in effective_perms
+            or "commands:approve" in effective_perms
+            or any(r in effective_roles or RBACManager.match_permission(effective_perms, r) for r in req.get("approval_chain", []))
+        )
+
+        if not can_approve:
+            self.log_audit(
+                actor=approver_user,
+                action="APPROVAL_DENIED",
+                resource=req.get("command_name"),
+                outcome="denied",
+                details={"request_id": request_id, "reason": "Approver lacks approval privileges"}
+            )
+            raise PermissionError(f"User '{approver_user}' does not have permission to reject request '{request_id}'.")
+
         req["status"] = "rejected"
         req["rejection_reason"] = reason
+        req["review_reason"] = reason
+        req["reviewed_by"] = approver_user
         req["rejected_by"] = approver_user
         req["rejected_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -489,19 +810,41 @@ class RBACManager:
 
     # --- Delegation ---
 
-    def create_delegation(self, delegator, delegatee, roles=None, permissions=None, start_time=None, end_time=None, actor=None):
+    def create_delegation(self, delegator=None, delegatee=None, roles=None, permissions=None, start_time=None, end_time=None, actor=None, role=None, duration_ms=None, reason=""):
+        if isinstance(delegator, dict):
+            opts = delegator
+            delegator = opts.get("delegator")
+            delegatee = opts.get("delegatee")
+            roles = opts.get("roles") or ([opts["role"]] if opts.get("role") else None)
+            permissions = opts.get("permissions")
+            start_time = opts.get("start_time")
+            end_time = opts.get("end_time")
+            duration_ms = opts.get("duration_ms")
+            reason = opts.get("reason", "")
+
         if not delegator or not delegatee:
             raise ValueError("Delegation requires both delegator and delegatee.")
 
+        if role and not roles:
+            roles = [role]
+
+        if duration_ms and not end_time:
+            end_time = time.time() * 1000 + duration_ms
+
+        rand_str = ''.join(random.choices(string.ascii_lowercase + string.digits, k=7))
         delegation = {
-            "id": f"del_{int(datetime.now(timezone.utc).timestamp()*1000)}_{uuid.uuid4().hex[:6]}",
+            "id": f"del_{int(datetime.now(timezone.utc).timestamp()*1000)}_{rand_str}",
             "delegator": delegator,
             "delegatee": delegatee,
+            "role": roles[0] if roles else None,
             "roles": list(roles) if roles else [],
             "permissions": list(permissions) if permissions else [],
-            "start_time": _parse_time(start_time).isoformat(),
+            "start_time": _parse_time(start_time).isoformat() if start_time else datetime.now(timezone.utc).isoformat(),
             "end_time": _parse_time(end_time).isoformat() if end_time else None,
+            "expires_at": end_time,
             "status": "active",
+            "active": True,
+            "reason": reason or "Delegated access",
             "created_at": datetime.now(timezone.utc).isoformat()
         }
 
